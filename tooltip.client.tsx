@@ -1,14 +1,21 @@
-import { useCallback, useState, type ReactElement, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import {
   Platform,
   Pressable,
   Text,
   View,
+  type GestureResponderEvent,
   type PressableProps,
   type PressableStateCallbackType,
   type TextStyle,
   type ViewStyle,
 } from "react-native";
+
+const IS_WEB = Platform.OS === "web";
+const LONG_PRESS_DELAY_MS = 350;
+const TOUCH_BUBBLE_HIDE_MS = 2000;
+
+type TimerHandle = ReturnType<typeof setTimeout>;
 
 type TooltipPressableProps = PressableProps & {
   readonly tooltip: string;
@@ -85,13 +92,33 @@ const BUBBLE_TEXT: TextStyle = {
  * because react-native-web suppresses those callbacks while a Pressable is
  * disabled, and the busy states ("Refreshing tasks", "Stopping <agent>") are
  * exactly the ones a hover label needs to explain.
+ *
+ * Touch has no hover, so on native the bubble opens on a long press and closes
+ * on release, with a safety timeout in case the release is lost. React Native
+ * suppresses `onPress` for a gesture that fired `onLongPress`, so a plain tap
+ * still runs the button action unchanged. Press callbacks never fire on a
+ * disabled Pressable, so a disabled button shows no bubble on touch.
  */
 export function TooltipPressable({
   tooltip,
   children,
+  onLongPress,
+  onPressOut,
+  delayLongPress,
   ...props
 }: TooltipPressableProps): ReactElement {
   const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+  const hideTimerRef = useRef<TimerHandle | null>(null);
+
+  const clearHideTimer = useCallback(() => {
+    if (hideTimerRef.current !== null) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearHideTimer, [clearHideTimer]);
 
   const attach = useCallback(
     (node: unknown) => {
@@ -110,13 +137,36 @@ export function TooltipPressable({
     [tooltip],
   );
 
-  const bubble = hovered ? (
-    <View key="tooltip" pointerEvents="none" style={BUBBLE}>
-      <Text numberOfLines={2} style={BUBBLE_TEXT}>
-        {tooltip}
-      </Text>
-    </View>
-  ) : null;
+  const handleLongPress = useCallback(
+    (event: GestureResponderEvent) => {
+      onLongPress?.(event);
+      clearHideTimer();
+      setPressed(true);
+      hideTimerRef.current = setTimeout(() => {
+        hideTimerRef.current = null;
+        setPressed(false);
+      }, TOUCH_BUBBLE_HIDE_MS);
+    },
+    [clearHideTimer, onLongPress],
+  );
+
+  const handlePressOut = useCallback(
+    (event: GestureResponderEvent) => {
+      onPressOut?.(event);
+      clearHideTimer();
+      setPressed(false);
+    },
+    [clearHideTimer, onPressOut],
+  );
+
+  const bubble =
+    hovered || pressed ? (
+      <View key="tooltip" pointerEvents="none" style={BUBBLE}>
+        <Text numberOfLines={2} style={BUBBLE_TEXT}>
+          {tooltip}
+        </Text>
+      </View>
+    ) : null;
 
   const content =
     typeof children === "function"
@@ -134,7 +184,13 @@ export function TooltipPressable({
         ) as ReactNode);
 
   return (
-    <Pressable {...props} ref={attach}>
+    <Pressable
+      {...props}
+      onLongPress={IS_WEB ? onLongPress : handleLongPress}
+      onPressOut={IS_WEB ? onPressOut : handlePressOut}
+      delayLongPress={IS_WEB ? delayLongPress : (delayLongPress ?? LONG_PRESS_DELAY_MS)}
+      ref={attach}
+    >
       {content}
     </Pressable>
   );
