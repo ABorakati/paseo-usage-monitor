@@ -176,6 +176,15 @@ To opt out, create the file. Defaults apply only when it is absent, so any file 
 | [Usage history](docs/HISTORY.md)           | Where the token history comes from, buckets, dedup, colour, metrics, cost, scan failures                                   |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Error rows, rate limits, expired credentials, null readings, command sources, history gaps                                 |
 
+## Acknowledgments
+
+Usage Monitor was inspired by the methods, reverse-engineering, and prior art in:
+
+- [CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger [MIT] -- menu-bar monitoring across AI coding providers, reverse-engineered provider quota endpoints, and OAuth session inspection.
+- [t3code](https://github.com/pingdotgg/t3code) [MIT] -- multi-harness agent control surfaces across Claude Code, Codex, Cursor, and OpenCode.
+- [tokscale](https://github.com/junhoyeo/tokscale) [MIT] -- multi-agent token tracking, cost visualization, and local transcript accounting.
+- [ccusage](https://github.com/ryoppippi/ccusage) [MIT] -- Claude Code token analysis from local transcript logs.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
