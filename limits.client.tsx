@@ -9,11 +9,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  AppState,
   Image,
   PanResponder,
+  Platform,
   ScrollView,
   Text,
   View,
+  type AppStateStatus,
   type GestureResponderEvent,
   type ImageStyle,
   type LayoutChangeEvent,
@@ -69,6 +72,11 @@ const REFRESH_IDLE_STATE = { disabled: false };
 const REFRESH_BUSY_STATE = { disabled: true };
 const DISPLAY_SELECTED_STATE = { selected: true };
 const DISPLAY_UNSELECTED_STATE = { selected: false };
+const ICON_BUTTON_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 };
+const BACK_BUTTON_HIT_SLOP = { top: 8, bottom: 8, left: 4, right: 4 };
+const TAB_HIT_SLOP = { top: 6, bottom: 6, left: 4, right: 4 };
+const DRAG_HANDLE_HIT_SLOP = { top: 11, bottom: 11, left: 11, right: 11 };
+const EMPTY_PAN_HANDLERS = {};
 /** The server holds a per-provider TTL, so a poll inside it is served from cache. */
 const LIMITS_POLL_MS = 60_000;
 
@@ -782,13 +790,15 @@ function ProviderCard({
   const dragGripResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponder: () => !compact,
+        onMoveShouldSetPanResponder: () => !compact,
         onPanResponderGrant: () => {
+          if (compact) return;
           onDragStart(provider.providerId);
           drag.setValue({ x: 0, y: 0 });
         },
         onPanResponderMove: (_event: GestureResponderEvent, gesture: PanResponderGestureState) => {
+          if (compact) return;
           drag.setValue({ x: gesture.dx, y: gesture.dy });
         },
         onPanResponderRelease: (_event: GestureResponderEvent, gesture: PanResponderGestureState) =>
@@ -799,7 +809,7 @@ function ProviderCard({
         ) => finishDrag(gesture.dx, gesture.dy),
         onPanResponderTerminationRequest: () => false,
       }),
-    [drag, finishDrag, onDragStart, provider.providerId],
+    [compact, drag, finishDrag, onDragStart, provider.providerId],
   );
   const handleAccessibilityAction = useCallback(
     (event: { nativeEvent: { actionName: string } }) => {
@@ -821,32 +831,32 @@ function ProviderCard({
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponderCapture: () => draggingRef.current,
-        onMoveShouldSetPanResponderCapture: () => draggingRef.current,
+        onStartShouldSetPanResponderCapture: () => !compact && draggingRef.current,
+        onMoveShouldSetPanResponderCapture: () => !compact && draggingRef.current,
         onPanResponderGrant: () => {
           drag.setValue({ x: 0, y: 0 });
         },
         onPanResponderMove: (_event, gesture) => {
-          if (!draggingRef.current) return;
+          if (compact || !draggingRef.current) return;
           drag.setValue({ x: gesture.dx, y: gesture.dy });
         },
         onPanResponderRelease: (_event, gesture) => {
-          if (draggingRef.current) finishDrag(gesture.dx, gesture.dy);
+          if (!compact && draggingRef.current) finishDrag(gesture.dx, gesture.dy);
         },
         onPanResponderTerminate: (_event, gesture) => {
-          if (draggingRef.current) finishDrag(gesture.dx, gesture.dy);
+          if (!compact && draggingRef.current) finishDrag(gesture.dx, gesture.dy);
         },
         onPanResponderTerminationRequest: () => false,
       }),
-    [drag, finishDrag],
+    [compact, drag, finishDrag],
   );
   const createResizeResponder = useCallback(
     (axes: "width" | "height" | "both") =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => typeof cardWidthRef.current === "number",
-        onMoveShouldSetPanResponder: () => typeof cardWidthRef.current === "number",
+        onStartShouldSetPanResponder: () => !compact && typeof cardWidthRef.current === "number",
+        onMoveShouldSetPanResponder: () => !compact && typeof cardWidthRef.current === "number",
         onPanResponderGrant: () => {
-          if (typeof cardWidthRef.current !== "number") return;
+          if (compact || typeof cardWidthRef.current !== "number") return;
           resizeOriginRef.current = {
             width: cardWidthRef.current,
             height: cardHeightRef.current ?? measuredCardRef.current.height,
@@ -854,6 +864,7 @@ function ProviderCard({
           onResizeStartRef.current(provider.providerId);
         },
         onPanResponderMove: (_event, gesture) => {
+          if (compact) return;
           const width =
             axes === "height"
               ? resizeOriginRef.current.width
@@ -868,7 +879,7 @@ function ProviderCard({
         onPanResponderTerminate: () => onResizeEndRef.current(),
         onPanResponderTerminationRequest: () => false,
       }),
-    [provider.providerId],
+    [compact, provider.providerId],
   );
   const resizeWidthResponder = useMemo(
     () => createResizeResponder("width"),
@@ -903,7 +914,7 @@ function ProviderCard({
   const animatedStyle = useMemo(() => ({ transform: drag.getTranslateTransform() }), [drag]);
   return (
     <Animated.View
-      {...panResponder.panHandlers}
+      {...(compact ? EMPTY_PAN_HANDLERS : panResponder.panHandlers)}
       onLayout={measureCard}
       style={[
         styles.cardSlot,
@@ -920,7 +931,7 @@ function ProviderCard({
         accessibilityActions={CARD_ACCESSIBILITY_ACTIONS}
         onAccessibilityAction={handleAccessibilityAction}
         delayLongPress={350}
-        onLongPress={startDrag}
+        onLongPress={compact ? undefined : startDrag}
         style={[styles.card, cardHeight === undefined ? null : styles.sizedCard]}
       >
         <ScrollView
@@ -949,10 +960,11 @@ function ProviderCard({
             <View style={styles.moveControls}>
               {updated === null ? null : <Text style={styles.hint}>{updated}</Text>}
               <View
-                {...dragGripResponder.panHandlers}
+                {...(compact ? EMPTY_PAN_HANDLERS : dragGripResponder.panHandlers)}
                 style={styles.dragHandle}
                 accessibilityRole="button"
                 accessibilityLabel={`Drag to reorder ${provider.label}`}
+                hitSlop={DRAG_HANDLE_HIT_SLOP}
                 ref={setDragHandleTooltip}
               >
                 <Icon name="GripVertical" size={14} color={theme.colors.foregroundMuted} />
@@ -970,24 +982,28 @@ function ProviderCard({
             columns={columns}
           />
         </ScrollView>
-        <View
-          {...resizeWidthResponder.panHandlers}
-          accessibilityRole="adjustable"
-          accessibilityLabel={`Drag the right edge to resize ${provider.label}`}
-          style={styles.resizeEdgeRight}
-        />
-        <View
-          {...resizeHeightResponder.panHandlers}
-          accessibilityRole="adjustable"
-          accessibilityLabel={`Drag the bottom edge to resize ${provider.label}`}
-          style={styles.resizeEdgeBottom}
-        />
-        <View
-          {...resizeCornerResponder.panHandlers}
-          accessibilityRole="adjustable"
-          accessibilityLabel={`Drag the corner to resize ${provider.label}`}
-          style={styles.resizeCorner}
-        />
+        {compact ? null : (
+          <>
+            <View
+              {...resizeWidthResponder.panHandlers}
+              accessibilityRole="adjustable"
+              accessibilityLabel={`Drag the right edge to resize ${provider.label}`}
+              style={styles.resizeEdgeRight}
+            />
+            <View
+              {...resizeHeightResponder.panHandlers}
+              accessibilityRole="adjustable"
+              accessibilityLabel={`Drag the bottom edge to resize ${provider.label}`}
+              style={styles.resizeEdgeBottom}
+            />
+            <View
+              {...resizeCornerResponder.panHandlers}
+              accessibilityRole="adjustable"
+              accessibilityLabel={`Drag the corner to resize ${provider.label}`}
+              style={styles.resizeCorner}
+            />
+          </>
+        )}
       </Pressable>
     </Animated.View>
   );
@@ -1187,12 +1203,24 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
     },
     [readLimits],
   );
-  const { data, error, isPending, isFetching } = useQuery({
+  const { data, error, isPending, isFetching, refetch } = useQuery({
     queryKey: USAGE_LIMITS_QUERY_KEY,
     queryFn: () => readSnapshot(false),
     refetchInterval: LIMITS_POLL_MS,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: Platform.OS === "web",
   });
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      return;
+    }
+    const subscription = AppState.addEventListener("change", (status: AppStateStatus) => {
+      if (status === "active") {
+        void refetch();
+      }
+    });
+    return () => subscription.remove();
+  }, [refetch]);
   const {
     mutate: refreshUsage,
     isPending: isRefreshing,
@@ -1599,6 +1627,7 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
             accessibilityRole="button"
             accessibilityLabel="Back to usage"
             tooltip="Back to usage"
+            hitSlop={BACK_BUTTON_HIT_SLOP}
             onPress={showUsage}
             style={styles.back}
           >
@@ -1625,6 +1654,7 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
               tooltip={refreshLabel(isBusy, rateLimited)}
               accessibilityState={isBusy ? REFRESH_BUSY_STATE : REFRESH_IDLE_STATE}
               disabled={isBusy}
+              hitSlop={ICON_BUTTON_HIT_SLOP}
               onPress={handleRefresh}
               style={[styles.refresh, isBusy ? styles.refreshBusy : null]}
             >
@@ -1638,6 +1668,7 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
               accessibilityRole="button"
               accessibilityLabel="Open usage provider settings"
               tooltip="Open usage provider settings"
+              hitSlop={ICON_BUTTON_HIT_SLOP}
               onPress={showSettings}
               style={styles.refresh}
             >
@@ -1656,6 +1687,7 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
           accessibilityLabel="Show current usage"
           tooltip="Show current usage"
           accessibilityState={view === "usage" ? DISPLAY_SELECTED_STATE : DISPLAY_UNSELECTED_STATE}
+          hitSlop={TAB_HIT_SLOP}
           onPress={showUsage}
           style={[styles.tab, view === "usage" ? styles.tabSelected : null]}
         >
@@ -1668,6 +1700,7 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
           accessibilityState={
             view === "history" ? DISPLAY_SELECTED_STATE : DISPLAY_UNSELECTED_STATE
           }
+          hitSlop={TAB_HIT_SLOP}
           onPress={showHistory}
           style={[styles.tab, view === "history" ? styles.tabSelected : null]}
         >

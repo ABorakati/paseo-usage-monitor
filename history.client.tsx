@@ -8,7 +8,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { useCallback, useMemo, useState } from "react";
-import { ScrollView, Text, View, type TextStyle, type ViewStyle } from "react-native";
+import { Platform, ScrollView, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import {
   UsageTrendChart,
   formatMetricValue,
@@ -104,6 +104,9 @@ const UNSELECTED_STATE: PillAccessibilityState = { selected: false };
 const DISABLED_STATE: PillAccessibilityState = { selected: false, disabled: true };
 const EXPANDED_STATE = { expanded: true };
 const COLLAPSED_STATE = { expanded: false };
+const PILL_HIT_SLOP = { top: 8, bottom: 8, left: 4, right: 4 };
+const DROPDOWN_TRIGGER_HIT_SLOP = { top: 7, bottom: 7, left: 4, right: 4 };
+const DROPDOWN_OPTION_HIT_SLOP = { top: 6, bottom: 6, left: 4, right: 4 };
 
 /**
  * Which providers are showing their models. Local state, never a query
@@ -183,6 +186,7 @@ function SelectorPill<Value extends string>({
       accessibilityLabel={accessibilityLabel}
       tooltip={accessibilityLabel}
       disabled={disabled}
+      hitSlop={PILL_HIT_SLOP}
       onPress={press}
       style={box}
     >
@@ -206,6 +210,7 @@ function GroupByOption({ value, selected, styles, onSelect }: GroupByOptionProps
       accessibilityState={selected ? SELECTED_STATE : UNSELECTED_STATE}
       accessibilityLabel={`Group usage by ${GROUP_BY_NOUN[value]}`}
       tooltip={`Group usage by ${GROUP_BY_NOUN[value]}`}
+      hitSlop={DROPDOWN_OPTION_HIT_SLOP}
       onPress={press}
       style={selected ? styles.dropdownOptionSelected : styles.dropdownOption}
     >
@@ -436,6 +441,7 @@ function UsageHistoryBody({ theme, layout }: PluginSurfaceProps): ReactElement {
           accessibilityState={groupMenuOpen ? EXPANDED_STATE : COLLAPSED_STATE}
           accessibilityLabel={`Grouped by ${GROUP_BY_NOUN[groupBy]}. Choose provider or model.`}
           tooltip="Choose usage grouping"
+          hitSlop={DROPDOWN_TRIGGER_HIT_SLOP}
           onPress={toggleGroupMenu}
           style={styles.dropdownTrigger}
         >
@@ -570,8 +576,8 @@ function createStyles(theme: PluginTheme, compact: boolean): HistoryStyles {
       fontSize: compact ? 12 : 13,
     },
     dropdownMenu: {
-      position: "absolute",
-      top: "100%",
+      position: Platform.OS === "web" ? "absolute" : "relative",
+      top: Platform.OS === "web" ? "100%" : undefined,
       left: 0,
       marginTop: 4,
       minWidth: 132,

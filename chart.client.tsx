@@ -1,9 +1,11 @@
 import { Icon, type PluginTheme } from "@getpaseo/plugin";
 import type { ReactElement } from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  PanResponder,
   Text,
   View,
+  type GestureResponderEvent,
   type LayoutChangeEvent,
   type TextStyle,
   type ViewProps,
@@ -733,6 +735,7 @@ interface ChartStyles {
 
 const EXPANDED_STATE = { expanded: true };
 const COLLAPSED_STATE = { expanded: false };
+const LEGEND_EXPANDER_HIT_SLOP = { top: 13, bottom: 13, left: 8, right: 8 };
 
 /** Size and colour of every chevron in the legend, or null when none can open. */
 interface ChevronConfig {
@@ -809,6 +812,7 @@ function LegendRow({
       accessibilityState={band.expanded ? EXPANDED_STATE : COLLAPSED_STATE}
       accessibilityLabel={expanderLabel(band, total, metric)}
       tooltip={`${band.expanded ? "Collapse" : "Expand"} ${band.label}`}
+      hitSlop={LEGEND_EXPANDER_HIT_SLOP}
       onPress={press}
       style={box}
     >
@@ -906,24 +910,66 @@ export function UsageTrendChart({
   const [plotWidth, setPlotWidth] = useState(0);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
-  const trackHover = useCallback(
-    (event: ViewPointerEvent) => {
-      const pointer = event as unknown as {
-        clientX: number;
-        currentTarget: { getBoundingClientRect(): { left: number; width: number } };
-      };
-      const bounds = pointer.currentTarget.getBoundingClientRect();
-      if (bounds.width === 0 || count === 0) {
+  const selectBucketAt = useCallback(
+    (locationX: number) => {
+      if (plotWidth <= 0 || count === 0) {
         return;
       }
-      const fraction = Math.min(1, Math.max(0, (pointer.clientX - bounds.left) / bounds.width));
+      const fraction = Math.min(1, Math.max(0, locationX / plotWidth));
       setHoverIndex(Math.min(count - 1, Math.round(fraction * (count - 1))));
     },
-    [count],
+    [count, plotWidth],
+  );
+
+  const trackHover = useCallback(
+    (event: ViewPointerEvent) => {
+      const native = event.nativeEvent as unknown as {
+        locationX?: number;
+        offsetX?: number;
+      };
+      if (typeof native.locationX === "number") {
+        selectBucketAt(native.locationX);
+        return;
+      }
+      if (typeof native.offsetX === "number") {
+        selectBucketAt(native.offsetX);
+        return;
+      }
+      const pointer = event as unknown as {
+        clientX: number;
+        currentTarget?: { getBoundingClientRect?(): { left: number; width: number } };
+      };
+      const bounds = pointer.currentTarget?.getBoundingClientRect?.();
+      if (bounds && bounds.width > 0) {
+        selectBucketAt(pointer.clientX - bounds.left);
+      }
+    },
+    [selectBucketAt],
   );
   const clearHover = useCallback(() => {
     setHoverIndex(null);
   }, []);
+
+  useEffect(() => {
+    setHoverIndex(null);
+  }, [plan]);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          Math.abs(gesture.dx) > 4 || Math.abs(gesture.dx) > Math.abs(gesture.dy),
+        onPanResponderGrant: (event: GestureResponderEvent) => {
+          selectBucketAt(event.nativeEvent.locationX);
+        },
+        onPanResponderMove: (event: GestureResponderEvent) => {
+          selectBucketAt(event.nativeEvent.locationX);
+        },
+        onPanResponderTerminationRequest: () => true,
+      }),
+    [selectBucketAt],
+  );
 
   const hoverFraction = hoverIndex === null || count <= 1 ? 0 : hoverIndex / (count - 1);
   const tooltipRight = hoverIndex !== null && hoverIndex * 2 > count - 1;
@@ -998,6 +1044,7 @@ export function UsageTrendChart({
             onPointerEnter={trackHover}
             onPointerMove={trackHover}
             onPointerLeave={clearHover}
+            {...panResponder.panHandlers}
           >
             {gridTicks.map((tick) =>
               tick === 0 ? null : (

@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useReducer, type Dispatch } from "react";
 import type { ZodError } from "zod";
 import {
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   Text,
   TextInput,
@@ -45,6 +47,8 @@ const ACCESS_DISABLED = { disabled: true };
 const ACCESS_ENABLED = { disabled: false };
 const ACCESS_PRESET_SELECTED = { selected: true };
 const ACCESS_PRESET_UNSELECTED = { selected: false };
+const BUTTON_HIT_SLOP = { top: 7, bottom: 7, left: 4, right: 4 };
+const CLOSE_BUTTON_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 };
 
 interface SettingsStyles {
   screen: ViewStyle;
@@ -906,6 +910,7 @@ function Choice({ label, selected, onPress, styles, disabled = false }: ChoicePr
       tooltip={`Select ${label}`}
       accessibilityState={accessibilityState}
       disabled={disabled}
+      hitSlop={BUTTON_HIT_SLOP}
       onPress={onPress}
       style={[
         styles.button,
@@ -941,6 +946,7 @@ function ActionButton({
       tooltip={accessibilityLabel ?? label}
       accessibilityState={disabled ? ACCESS_DISABLED : ACCESS_ENABLED}
       disabled={disabled}
+      hitSlop={BUTTON_HIT_SLOP}
       onPress={onPress}
       style={[
         buttonStyle,
@@ -1489,7 +1495,10 @@ function ProviderEditor({
   const closeIconColor = typeof styles.muted.color === "string" ? styles.muted.color : undefined;
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.modalOverlay}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.modalOverlay}
+      >
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close provider editor"
@@ -1512,6 +1521,7 @@ function ProviderEditor({
               accessibilityRole="button"
               accessibilityLabel="Close modal"
               tooltip="Close provider editor"
+              hitSlop={CLOSE_BUTTON_HIT_SLOP}
               onPress={onCancel}
               style={styles.closeButton}
             >
@@ -1692,7 +1702,7 @@ function ProviderEditor({
             />
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -2001,7 +2011,11 @@ export function UsageSettingsBody({ theme, layout, showHeader }: UsageSettingsBo
       success: { color: theme.colors.statusSuccess, fontSize: small },
       warning: { color: theme.colors.statusWarning, fontSize: small },
       error: { color: theme.colors.statusDanger, fontSize: small },
-      mono: { color: theme.colors.foregroundMuted, fontSize: small, fontFamily: "monospace" },
+      mono: {
+        color: theme.colors.foregroundMuted,
+        fontSize: small,
+        fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
+      },
       input: {
         color: theme.colors.foreground,
         backgroundColor: theme.colors.surface0,
