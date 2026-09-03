@@ -949,7 +949,9 @@ function ActionButton({
       {icon === undefined || iconColor === undefined ? null : (
         <Icon name={icon} size={14} color={iconColor} />
       )}
-      <Text style={textStyle}>{label}</Text>
+      <Text style={textStyle} numberOfLines={1}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -1950,6 +1952,7 @@ export function UsageSettingsBody({ theme, layout, showHeader }: UsageSettingsBo
       },
       sectionHeader: {
         flexDirection: "row",
+        flexWrap: "wrap",
         alignItems: "center",
         justifyContent: "space-between",
         gap,
@@ -1967,6 +1970,7 @@ export function UsageSettingsBody({ theme, layout, showHeader }: UsageSettingsBo
         borderColor: theme.colors.border,
         borderRadius: 10,
         backgroundColor: theme.colors.surface2,
+        overflow: "hidden",
       },
       selectedCard: { borderColor: theme.colors.accent },
       warningCard: {
@@ -1975,10 +1979,17 @@ export function UsageSettingsBody({ theme, layout, showHeader }: UsageSettingsBo
         borderWidth: 1,
         borderColor: theme.colors.statusWarning,
         borderRadius: 10,
+        overflow: "hidden",
       },
       row: { flexDirection: layout.compact ? "column" : "row", gap },
-      wrapRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
-      grow: { flex: 1, minWidth: layout.compact ? undefined : 180, gap: 4 },
+      wrapRow: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 8,
+        maxWidth: "100%",
+      },
+      grow: { flex: 1, minWidth: 0, gap: 4 },
       label: { color: theme.colors.foreground, fontSize, fontWeight: "600" },
       text: { color: theme.colors.foreground, fontSize },
       muted: { color: theme.colors.foregroundMuted, fontSize: small },
@@ -2019,6 +2030,8 @@ export function UsageSettingsBody({ theme, layout, showHeader }: UsageSettingsBo
         borderColor: theme.colors.border,
         borderRadius: 8,
         backgroundColor: theme.colors.surface1,
+        maxWidth: "100%",
+        flexShrink: 1,
       },
       primaryButton: {
         flexDirection: "row",
@@ -2029,17 +2042,30 @@ export function UsageSettingsBody({ theme, layout, showHeader }: UsageSettingsBo
         paddingVertical: 9,
         borderRadius: 8,
         backgroundColor: theme.colors.accent,
+        maxWidth: "100%",
+        flexShrink: 1,
       },
       dangerButton: { borderColor: theme.colors.statusDanger },
       selectedButton: { borderColor: theme.colors.accent, backgroundColor: theme.colors.accent },
       disabledButton: { opacity: 0.5 },
-      buttonText: { color: theme.colors.foreground, fontSize: small, fontWeight: "600" },
+      buttonText: {
+        color: theme.colors.foreground,
+        fontSize: small,
+        fontWeight: "600",
+        flexShrink: 1,
+      },
       primaryButtonText: {
         color: theme.colors.accentForeground,
         fontSize: small,
         fontWeight: "600",
+        flexShrink: 1,
       },
-      dangerButtonText: { color: theme.colors.statusDanger, fontSize: small, fontWeight: "600" },
+      dangerButtonText: {
+        color: theme.colors.statusDanger,
+        fontSize: small,
+        fontWeight: "600",
+        flexShrink: 1,
+      },
       pill: {
         paddingHorizontal: 7,
         paddingVertical: 3,

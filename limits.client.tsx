@@ -951,9 +951,6 @@ function ProviderCard({
               </View>
             </View>
           </View>
-          {provider.description === null ? null : (
-            <Text style={styles.description}>{provider.description}</Text>
-          )}
           {provider.notice === null ? null : <Text style={styles.notice}>{provider.notice}</Text>}
           <ProviderBody
             provider={provider}
