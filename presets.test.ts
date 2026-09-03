@@ -306,6 +306,12 @@ const REVIEWED_EXPIRY_PATHS: Record<string, string | null> = {
   "~/.mmx/credentials.json access_token": "expires_at",
   "~/.mmx/config.json api_key": null,
   "~/.mmx/config.json oauth.access_token": "oauth.expires_at",
+  "${CURSOR_HOME}/auth.json accessToken": null,
+  "~/.config/cursor/auth.json accessToken": null,
+  "~/.cursor/auth.json accessToken": null,
+  "${GROK_HOME}/auth.json access_token": null,
+  "~/.grok/auth.json access_token": null,
+  "~/.config/grok/auth.json access_token": null,
 };
 
 type UsageJsonFileCredential = Extract<UsageCredentialSource, { kind: "jsonFile" }>;
@@ -426,6 +432,20 @@ const RESPONSE_FIXTURES: Record<string, unknown> = {
     ],
     credits: { has_credits: false, unlimited: false, balance: "0" },
     rate_limit_reset_credits: { available_count: 2 },
+  },
+  cursor: {
+    planUsage: {
+      totalSpend: 1500,
+      limit: 2000,
+      remaining: 500,
+    },
+    billingCycleEnd: "2026-09-20T00:00:00Z",
+  },
+  grok: {
+    config: {
+      monthlyLimit: { val: 500 },
+      used: { val: 120 },
+    },
   },
   deepseek: {
     is_available: true,
@@ -753,6 +773,25 @@ describe("verified presets resolve their recorded responses", () => {
       used: null,
       limit: null,
       window: { label: "Session", resetsAt: null },
+    });
+  });
+  test("cursor scales spend from cents to dollars and captures billing cycle", () => {
+    expect(readingById("cursor", "plan-usage")).toMatchObject({
+      kind: "quota",
+      used: 15,
+      limit: 20,
+      remaining: 5,
+      unit: "usd",
+      window: { label: "Billing cycle", resetsAt: "2026-09-20T00:00:00Z" },
+    });
+  });
+
+  test("grok projects monthly credits used against limit", () => {
+    expect(readingById("grok", "monthly-credits")).toMatchObject({
+      kind: "quota",
+      used: 120,
+      limit: 500,
+      unit: "credits",
     });
   });
 

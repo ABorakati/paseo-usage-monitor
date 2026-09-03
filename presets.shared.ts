@@ -342,6 +342,82 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
       },
     ],
   }),
+  cursor: definePreset({
+    label: "Cursor",
+    icon: { kind: "monogram", text: "Cu", color: "#8B5CF6" },
+    description: "Cursor plan spend, limit and remaining balance",
+    credentials: {
+      token: [
+        { kind: "env", variable: "CURSOR_ACCESS_TOKEN" },
+        { kind: "env", variable: "CURSOR_TOKEN" },
+        { kind: "jsonFile", file: "${CURSOR_HOME}/auth.json", path: "accessToken" },
+        { kind: "jsonFile", file: "~/.config/cursor/auth.json", path: "accessToken" },
+        { kind: "jsonFile", file: "~/.cursor/auth.json", path: "accessToken" },
+      ],
+    },
+    source: {
+      kind: "http",
+      url: "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+      method: "POST",
+      headers: {
+        Authorization: "Bearer ${token}",
+        "Content-Type": "application/json",
+        "Connect-Protocol-Version": "1",
+      },
+      body: {},
+    },
+    readings: [
+      {
+        kind: "quota",
+        id: "plan-usage",
+        label: "Plan usage",
+        unit: "usd",
+        scale: 0.01,
+        usedPath: "planUsage.totalSpend",
+        limitPath: "planUsage.limit",
+        remainingPath: "planUsage.remaining",
+        window: {
+          label: "Billing cycle",
+          resetsAtPath: "billingCycleEnd",
+        },
+      },
+    ],
+  }),
+
+  grok: definePreset({
+    label: "Grok",
+    icon: { kind: "monogram", text: "Gk", color: "#1F2937" },
+    description: "Grok CLI monthly credit limit and usage",
+    credentials: {
+      token: [
+        { kind: "env", variable: "GROK_API_KEY" },
+        { kind: "env", variable: "GROK_TOKEN" },
+        { kind: "jsonFile", file: "${GROK_HOME}/auth.json", path: "access_token" },
+        { kind: "jsonFile", file: "~/.grok/auth.json", path: "access_token" },
+        { kind: "jsonFile", file: "~/.config/grok/auth.json", path: "access_token" },
+      ],
+    },
+    source: {
+      kind: "http",
+      url: "https://cli-chat-proxy.grok.com/v1/billing",
+      method: "GET",
+      headers: {
+        Authorization: "Bearer ${token}",
+        "X-XAI-Token-Auth": "xai-grok-cli",
+        Accept: "application/json",
+      },
+    },
+    readings: [
+      {
+        kind: "quota",
+        id: "monthly-credits",
+        label: "Monthly credits",
+        unit: "credits",
+        usedPath: "config.used.val",
+        limitPath: "config.monthlyLimit.val",
+      },
+    ],
+  }),
 
   deepseek: definePreset({
     label: "DeepSeek",
