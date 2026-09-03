@@ -18,7 +18,7 @@ paseo plugin logs usage-limits
 | `Credential "..." did not resolve ...`                 | Every source in that credential's chain failed. See below.                                    |
 | `... (expired 1d ago)` after a source in that list     | That source had a live-looking token whose `expiresAtPath` says it is dead. See below.        |
 | `The stored credential was rejected (HTTP 401)`        | The token resolved and the vendor refused it, with nothing stored to fall back to. See below. |
-| `<METHOD> request to <host> failed with HTTP 429`      | Rate limited. Not a fault — see [Rate limits](PRESETS.md#rate-limits).                                  |
+| `<METHOD> request to <host> failed with HTTP 429`      | Rate limited. Not a fault — see [Rate limits](PRESETS.md#rate-limits).                        |
 | `<METHOD> request to <host> failed with HTTP <status>` | The endpoint rejected the request. The body is not quoted; `curl` it to see why.              |
 | `<METHOD> request to <host> failed`                    | Network failure, DNS failure, or the 15-second timeout. No status was received.               |
 | `<METHOD> request to <host> did not return JSON`       | The endpoint answered 2xx with something that is not JSON — often an HTML login page.         |

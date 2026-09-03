@@ -53,7 +53,7 @@ Malformed JSON, or JSON that fails the schema, makes the plugin throw a `UsageCo
 | `description`       | string                    | no                        | —        | Subtitle.                                                                               |
 | `enabled`           | boolean                   | no                        | `true`   | `false` keeps the entry in the file but stops it being read.                            |
 | `refreshIntervalMs` | integer, 30000 – 86400000 | no                        | `300000` | Cache TTL for this provider.                                                            |
-| `credentials`       | credential map            | no                        | `{}`     | See [Credentials](CREDENTIALS.md#credentials).                                                        |
+| `credentials`       | credential map            | no                        | `{}`     | See [Credentials](CREDENTIALS.md#credentials).                                          |
 | `source`            | source object             | no                        | —        | Omit only when every reading is schedule-driven and needs no request.                   |
 | `readings`          | array of readings, min 1  | required without `preset` | —        | See [Readings](#readings).                                                              |
 

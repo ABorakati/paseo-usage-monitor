@@ -86,13 +86,13 @@ The dashboard reads Claude Code and Codex out of the box with no configuration, 
 
 34 presets ship with the plugin, in five kinds. Which kind you get is the vendor's decision, not this plugin's: an ordinary API key that can read its own balance is the exception, and most frontier labs gate usage behind an admin credential or expose it only in per-request headers.
 
-| Kind | What it reads | Presets |
-| --- | --- | --- |
+| Kind             | What it reads                                                                          | Presets                                                                                                                                                                                                                            |
+| ---------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Subscription** | Consumption inside a resetting window, from the CLI's own login or a plan-specific key | `claude`, `claude-statusline`, `codex`, `cursor`, `grok`, `github-copilot`, `kimi`, `minimax`, `minimax-cn`, `zai-coding-plan` (alias `zai`), `zhipuai-coding-plan`, `synthetic`, `opencode-go`, `chutes`, `zenmux`, `antigravity` |
-| **Balance** | Money or credits left on an ordinary API key | `deepseek`, `moonshot`, `moonshot-cn`, `siliconflow`, `siliconflow-cn`, `stepfun-ai`, `stepfun`, `novita`, `deepinfra`, `venice`, `xai`, `nano-gpt`, `poe` |
-| **Aggregator** | Spend against a cap, per key or per account | `openrouter`, `openrouter-credits`, `vercel` |
-| **Pricing band** | Which rate is in force now, from a schedule and no request | `deepseek-rate` |
-| **Template** | A shape to repoint once the vendor ships an endpoint | `opencode-zen` |
+| **Balance**      | Money or credits left on an ordinary API key                                           | `deepseek`, `moonshot`, `moonshot-cn`, `siliconflow`, `siliconflow-cn`, `stepfun-ai`, `stepfun`, `novita`, `deepinfra`, `venice`, `xai`, `nano-gpt`, `poe`                                                                         |
+| **Aggregator**   | Spend against a cap, per key or per account                                            | `openrouter`, `openrouter-credits`, `vercel`                                                                                                                                                                                       |
+| **Pricing band** | Which rate is in force now, from a schedule and no request                             | `deepseek-rate`                                                                                                                                                                                                                    |
+| **Template**     | A shape to repoint once the vendor ships an endpoint                                   | `opencode-zen`                                                                                                                                                                                                                     |
 
 Every endpoint, credential chain and caveat is in [Presets](docs/PRESETS.md), along with the list of vendors that cannot be read and why. Anything with a JSON endpoint, a CLI that prints JSON, or a file on disk can be added as a hand-written provider without a code change; see [Configuration](docs/CONFIGURATION.md) and [Recipes](docs/RECIPES.md).
 
@@ -177,15 +177,15 @@ To opt out, create the file. Defaults apply only when it is absent, so any file 
 
 ## Documentation
 
-| Guide | Covers |
-| --- | --- |
-| [Configuration](docs/CONFIGURATION.md) | `usage-limits.json`: the provider map, provider entries, preset merge rules, readings, sources, JSON paths |
-| [Credentials](docs/CREDENTIALS.md) | Credential chains, expiry, and reading Claude quota without a token |
-| [Presets](docs/PRESETS.md) | The 34 presets, per-preset caveats, what is unverified, what is not supported, Antigravity, GitHub Copilot, rate limits |
-| [Multiple accounts](docs/MULTI_ACCOUNT.md) | Two logins on one provider: arbitrary ids, the Provider id field, per-id secrets, a two-Codex recipe |
-| [Recipes](docs/RECIPES.md) | Complete `usage-limits.json` files: env keys, hand-written HTTP, a CLI command, a schedule-only rate, an `each` projection |
-| [Usage history](docs/HISTORY.md) | Where the token history comes from, buckets, dedup, colour, metrics, cost, scan failures |
-| [Troubleshooting](docs/TROUBLESHOOTING.md) | Error rows, rate limits, expired credentials, null readings, command sources, history gaps |
+| Guide                                      | Covers                                                                                                                     |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| [Configuration](docs/CONFIGURATION.md)     | `usage-limits.json`: the provider map, provider entries, preset merge rules, readings, sources, JSON paths                 |
+| [Credentials](docs/CREDENTIALS.md)         | Credential chains, expiry, and reading Claude quota without a token                                                        |
+| [Presets](docs/PRESETS.md)                 | The 34 presets, per-preset caveats, what is unverified, what is not supported, Antigravity, GitHub Copilot, rate limits    |
+| [Multiple accounts](docs/MULTI_ACCOUNT.md) | Two logins on one provider: arbitrary ids, the Provider id field, per-id secrets, a two-Codex recipe                       |
+| [Recipes](docs/RECIPES.md)                 | Complete `usage-limits.json` files: env keys, hand-written HTTP, a CLI command, a schedule-only rate, an `each` projection |
+| [Usage history](docs/HISTORY.md)           | Where the token history comes from, buckets, dedup, colour, metrics, cost, scan failures                                   |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Error rows, rate limits, expired credentials, null readings, command sources, history gaps                                 |
 
 ## License
 
