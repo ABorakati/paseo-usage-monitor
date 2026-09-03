@@ -49,7 +49,13 @@ export interface GithubCopilotQuota {
 export class GithubCopilotProbeError extends Error {}
 
 const USER_ENDPOINT = "https://api.github.com/copilot_internal/user";
-const TOKEN_ENV_VARIABLE = "COPILOT_GITHUB_TOKEN";
+export const COPILOT_ENV_VARIABLES = [
+  "COPILOT_TOKEN",
+  "GITHUB_TOKEN",
+  "GITHUB_PAT",
+  "COPILOT_GITHUB_TOKEN",
+] as const;
+export const TOKEN_ENV_VARIABLE = "COPILOT_GITHUB_TOKEN";
 const CREDENTIAL_FILES = ["hosts.json", "apps.json"] as const;
 const HOSTNAME = "github.com";
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -164,6 +170,30 @@ export function readTokenFromCredentialFile(text: string): string | null {
   return null;
 }
 
+/**
+ * Candidate paths for GitHub CLI's `hosts.yml`. On Windows `%APPDATA%` is
+ * checked first, followed by the user's `~/.config/gh/hosts.yml`.
+ */
+export function githubCliConfigPaths(
+  adapters: Pick<GithubCopilotProbeAdapters, "env" | "homeDir">,
+): string[] {
+  const paths: string[] = [];
+  const appdata = adapters.env["APPDATA"];
+  if (appdata !== undefined && appdata.trim() !== "") {
+    paths.push(join(appdata.trim(), "GitHub CLI", "hosts.yml"));
+  }
+  paths.push(join(adapters.homeDir, ".config", "gh", "hosts.yml"));
+  return paths;
+}
+
+/**
+ * Extracts an OAuth token from a GitHub CLI `hosts.yml` file content.
+ */
+export function readTokenFromGithubCliHosts(text: string): string | null {
+  const match = text.match(/oauth_token:\s*["']?([a-zA-Z0-9_-]+)["']?/);
+  return match?.[1] ?? null;
+}
+
 export interface ResolvedCopilotToken {
   token: string;
   /** Where it came from, safe to print: an env variable name or a file path. */
@@ -173,11 +203,30 @@ export interface ResolvedCopilotToken {
 export function resolveCopilotToken(
   adapters: Pick<GithubCopilotProbeAdapters, "env" | "homeDir" | "readTextFile">,
 ): ResolvedCopilotToken {
-  const fromEnv = adapters.env[TOKEN_ENV_VARIABLE];
-  if (fromEnv !== undefined && fromEnv.trim() !== "") {
-    return { token: fromEnv.trim(), origin: `env ${TOKEN_ENV_VARIABLE}` };
+  const tried: string[] = [];
+
+  for (const envVar of COPILOT_ENV_VARIABLES) {
+    const fromEnv = adapters.env[envVar];
+    if (fromEnv !== undefined && fromEnv.trim() !== "") {
+      return { token: fromEnv.trim(), origin: `env ${envVar}` };
+    }
+    tried.push(`${envVar} (not set)`);
   }
-  const tried: string[] = [`${TOKEN_ENV_VARIABLE} (not set)`];
+
+  for (const path of githubCliConfigPaths(adapters)) {
+    const text = adapters.readTextFile(path);
+    if (text === null) {
+      tried.push(`${path} (no such file)`);
+      continue;
+    }
+    const token = readTokenFromGithubCliHosts(text);
+    if (token === null) {
+      tried.push(`${path} (no oauth_token stored)`);
+      continue;
+    }
+    return { token, origin: `file ${path}` };
+  }
+
   const directory = copilotConfigDir(adapters);
   for (const name of CREDENTIAL_FILES) {
     const path = join(directory, name);
@@ -193,8 +242,9 @@ export function resolveCopilotToken(
     }
     return { token, origin: `file ${path}` };
   }
+
   throw new GithubCopilotProbeError(
-    `no Copilot token was found; sign in with the Copilot extension, or set ${TOKEN_ENV_VARIABLE}. Tried ${tried.join(", ")}`,
+    `no Copilot token was found; sign in with GitHub CLI, the Copilot extension, or set ${COPILOT_ENV_VARIABLES[0]}. Tried ${tried.join(", ")}`,
   );
 }
 

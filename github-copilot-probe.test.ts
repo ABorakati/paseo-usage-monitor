@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   type GithubCopilotProbeAdapters,
@@ -6,6 +7,7 @@ import {
   mapCopilotUser,
   probeGithubCopilotQuota,
   readTokenFromCredentialFile,
+  readTokenFromGithubCliHosts,
   resolveCopilotToken,
 } from "./github-copilot-probe.server";
 
@@ -97,6 +99,19 @@ describe("copilot credential files", () => {
   });
 });
 
+describe("github cli hosts file", () => {
+  test("parses plain, double-quoted and single-quoted oauth_token", () => {
+    expect(readTokenFromGithubCliHosts("oauth_token: gho_plain")).toBe("gho_plain");
+    expect(readTokenFromGithubCliHosts('oauth_token: "gho_double"')).toBe("gho_double");
+    expect(readTokenFromGithubCliHosts("oauth_token: 'gho_single'")).toBe("gho_single");
+  });
+
+  test("returns null when oauth_token is missing or empty", () => {
+    expect(readTokenFromGithubCliHosts("user: octocat\ngit_protocol: https\n")).toBeNull();
+    expect(readTokenFromGithubCliHosts("oauth_token: ''")).toBeNull();
+  });
+});
+
 describe("resolveCopilotToken", () => {
   const hostsPath = `${HOME}/.config/github-copilot/hosts.json`;
   const appsPath = `${HOME}/.config/github-copilot/apps.json`;
@@ -112,6 +127,73 @@ describe("resolveCopilotToken", () => {
     });
   });
 
+  test("resolves from COPILOT_TOKEN and GITHUB_TOKEN in priority order", () => {
+    const { adapters: copilotAdapters } = createAdapters({
+      env: {
+        COPILOT_TOKEN: "gho_copilot",
+        GITHUB_TOKEN: "gho_github",
+        GITHUB_PAT: "ghp_pat",
+        COPILOT_GITHUB_TOKEN: "gho_copilot_gh",
+      },
+    });
+    expect(resolveCopilotToken(copilotAdapters)).toEqual({
+      token: "gho_copilot",
+      origin: "env COPILOT_TOKEN",
+    });
+
+    const { adapters: githubAdapters } = createAdapters({
+      env: {
+        GITHUB_TOKEN: "gho_github",
+        GITHUB_PAT: "ghp_pat",
+        COPILOT_GITHUB_TOKEN: "gho_copilot_gh",
+      },
+    });
+    expect(resolveCopilotToken(githubAdapters)).toEqual({
+      token: "gho_github",
+      origin: "env GITHUB_TOKEN",
+    });
+
+    const { adapters: patAdapters } = createAdapters({
+      env: {
+        GITHUB_PAT: "ghp_pat",
+        COPILOT_GITHUB_TOKEN: "gho_copilot_gh",
+      },
+    });
+    expect(resolveCopilotToken(patAdapters)).toEqual({
+      token: "ghp_pat",
+      origin: "env GITHUB_PAT",
+    });
+  });
+
+  test("resolves from GitHub CLI hosts.yml before extension credential files", () => {
+    const ghHostsPath = `${HOME}/.config/gh/hosts.yml`;
+    const ghHostsContent = `github.com:\n    user: octocat\n    oauth_token: gho_cli\n    git_protocol: https\n`;
+    const { adapters } = createAdapters({
+      files: {
+        [ghHostsPath]: ghHostsContent,
+        [hostsPath]: JSON.stringify({ "github.com": { oauth_token: "gho_hosts" } }),
+      },
+    });
+    expect(resolveCopilotToken(adapters)).toEqual({
+      token: "gho_cli",
+      origin: `file ${ghHostsPath}`,
+    });
+  });
+
+  test("resolves from GitHub CLI hosts.yml under APPDATA on Windows", () => {
+    const appdata = "C:\\Users\\tester\\AppData\\Roaming";
+    const appDataHostsPath = join(appdata, "GitHub CLI", "hosts.yml");
+    const { adapters } = createAdapters({
+      env: { APPDATA: appdata },
+      files: {
+        [appDataHostsPath]: `github.com:\n    oauth_token: 'gho_win_cli'\n`,
+      },
+    });
+    expect(resolveCopilotToken(adapters)).toEqual({
+      token: "gho_win_cli",
+      origin: `file ${appDataHostsPath}`,
+    });
+  });
   test("falls through hosts.json to apps.json", () => {
     const { adapters } = createAdapters({
       files: { [appsPath]: JSON.stringify({ "github.com:Iv1.x": { oauth_token: "gho_apps" } }) },

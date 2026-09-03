@@ -985,6 +985,41 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
       apiKey: [
         { kind: "env", variable: "Z_AI_API_KEY" },
         { kind: "env", variable: "ZAI_API_KEY" },
+        { kind: "env", variable: "GLM_API_KEY" },
+      ],
+    },
+    source: {
+      kind: "http",
+      url: "https://api.z.ai/api/monitor/usage/quota/limit",
+      method: "GET",
+      // A key with no Coding Plan gets HTTP 200 and `{"success":false,"msg":
+      // "当前用户不存在coding plan"}`, "this user has no coding plan". Without
+      // this the document projects to nothing and the card is silently empty.
+      failure: {
+        path: "success",
+        equals: false,
+        messagePath: "msg",
+        hint: "This key has no GLM Coding Plan subscription. The route reports plan quota only; a pay-as-you-go credit balance has no route to read and is shown in the Z.ai console.",
+      },
+      headers: {
+        Authorization: "Bearer ${apiKey}",
+        Accept: "application/json",
+        "Accept-Language": "en-US,en",
+      },
+    },
+    readings: ZAI_CODING_PLAN_READINGS,
+  }),
+
+  zai: definePreset({
+    label: "Z.ai",
+    icon: { kind: "monogram", text: "Z", color: "#2563EB" },
+    description:
+      "GLM Coding Plan session and weekly windows plus the monthly MCP-call allowance on the international api.z.ai host; takes the coding-plan API key, and a mainland bigmodel.cn key belongs on the zhipuai-coding-plan preset instead",
+    credentials: {
+      apiKey: [
+        { kind: "env", variable: "Z_AI_API_KEY" },
+        { kind: "env", variable: "ZAI_API_KEY" },
+        { kind: "env", variable: "GLM_API_KEY" },
       ],
     },
     source: {

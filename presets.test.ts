@@ -641,6 +641,31 @@ const RESPONSE_FIXTURES: Record<string, unknown> = {
       ],
     },
   },
+  zai: {
+    code: 200,
+    msg: "success",
+    success: true,
+    data: {
+      planName: "Pro",
+      limits: [
+        { type: "TOKENS_LIMIT", unit: 3, number: 5, percentage: 25, nextResetTime: 1785816000000 },
+        { type: "TOKENS_LIMIT", unit: 6, number: 1, percentage: 9, nextResetTime: 1786291200000 },
+        {
+          type: "TIME_LIMIT",
+          unit: 5,
+          number: 1,
+          usage: 1000,
+          currentValue: 224,
+          remaining: 776,
+          percentage: 22,
+          usageDetails: [
+            { modelCode: "search-prime", usage: 210 },
+            { modelCode: "web-reader", usage: 14 },
+          ],
+        },
+      ],
+    },
+  },
   // The Lite tier on the mainland host reports credit counts as well.
   "zhipuai-coding-plan": {
     code: 200,
@@ -1140,6 +1165,16 @@ describe("verified presets resolve their recorded responses", () => {
     expect(getUsagePreset("zhipuai-coding-plan")?.readings).toEqual(
       getUsagePreset("zai-coding-plan")?.readings,
     );
+  });
+
+  test("zai alias matches zai-coding-plan", () => {
+    const zai = getUsagePreset("zai");
+    const zaiCodingPlan = getUsagePreset("zai-coding-plan");
+    expect(zai?.label).toBe("Z.ai");
+    expect(zai?.readings).toEqual(zaiCodingPlan?.readings);
+    expect(zai?.source).toEqual(zaiCodingPlan?.source);
+    expect(zai?.credentials).toEqual(zaiCodingPlan?.credentials);
+    expect(zai?.credentials.apiKey).toContainEqual({ kind: "env", variable: "GLM_API_KEY" });
   });
 });
 
