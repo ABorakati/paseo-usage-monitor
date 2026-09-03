@@ -36,39 +36,15 @@ It plots **Work** (input + output tokens) by default, with Cached, Total and Cos
 
 Plugin code is trusted and unsandboxed. The server half runs in a subprocess with full access to the daemon machine — its files, processes, credentials, and network. Read a plugin before you install it.
 
-### 1. Get the code
+Make sure plugins are enabled first: **Settings > Plugins > Enable plugins** in the app, or `pluginsEnabled: true` in the daemon config. Then install straight from Git:
 
 ```bash
-git clone https://github.com/ABorakati/paseo-usage-monitor.git
-cd paseo-usage-monitor
-npm install
-npm run typecheck
+paseo plugin add ABorakati/paseo-usage-monitor
 ```
 
-`npm install` only fetches the type declarations used by `typecheck`; the daemon compiles the plugin itself and needs nothing from `node_modules`.
+That clones the repository, compiles it on the daemon, and reaches **running** in `paseo plugin ls` with no package manager and no install scripts. Git installs track `main`; `paseo plugin status` shows when the upstream repository has moved and `paseo plugin update usage-monitor` pulls it.
 
-### 2. Register it with Paseo
-
-Either from the app or from the terminal. Both write the same entry to the daemon config.
-
-**From the app (Settings > Plugins):**
-
-1. Turn on **Enable plugins**. This is the global switch; nothing loads while it is off.
-2. Paste the absolute path to the checkout into **Plugin directory** (for example `/home/you/paseo-usage-monitor`).
-3. Leave **Plugin installation ID** blank so it takes `usage-monitor` from `paseo-plugin.json`.
-4. Click **Install directory**.
-
-The plugin appears in the list with a **running** badge. The same row has **Reload**, **Disable**, **Remove** and **Logs**.
-
-**From the terminal:**
-
-```bash
-paseo plugin install .
-```
-
-Either way, if the plugin does not show as **running** within a few seconds, run `paseo daemon restart` and check again. The daemon occasionally needs a restart to pick up a newly added plugin entry.
-
-### 3. Find it
+### Find it
 
 Once running, the plugin shows up in three places:
 
@@ -77,6 +53,19 @@ Once running, the plugin shows up in three places:
 - **Command palette** — `Open Usage Monitor`, `Open usage history`, and the `... in Explorer` variants of each.
 
 The dashboard reads Claude Code and Codex out of the box with no configuration, using the credentials those CLIs already store. Adding anything else is done from the settings icon in the top right of the Usage Monitor surface; see [Editing providers from the app](#editing-providers-from-the-app).
+
+### Install from source (development)
+
+To work on the plugin itself, clone the checkout and register the directory instead, so the daemon runs your working tree:
+
+```bash
+git clone https://github.com/ABorakati/paseo-usage-monitor.git
+cd paseo-usage-monitor
+npm install && npm run typecheck
+paseo plugin install .
+```
+
+`npm install` only fetches the type declarations used by `typecheck`; the daemon compiles the plugin itself and needs nothing from `node_modules`. If the plugin does not show as **running** within a few seconds, run `paseo daemon restart` and check again — the daemon occasionally needs one to pick up a newly added plugin entry.
 
 ### After editing
 
