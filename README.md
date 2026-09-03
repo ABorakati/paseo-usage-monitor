@@ -37,12 +37,15 @@ It plots **Work** (input + output tokens) by default, with Cached, Total and Cos
 Plugin code is trusted and unsandboxed. The server half runs in a subprocess with full access to the daemon machine — its files, processes, credentials, and network. Read a plugin before you install it.
 
 ```bash
-cd <path-to-plugin>/usage-monitor
+git clone https://github.com/ABorakati/paseo-usage-monitor.git
+cd paseo-usage-monitor
 npm install
 npm run typecheck
-paseo plugin install <path-to-plugin>/usage-monitor
-paseo plugin reload usage-monitor
+paseo plugin install .
+paseo daemon restart
 ```
+
+`paseo plugin install .` registers the checkout directory with the daemon under the id from `paseo-plugin.json` (`usage-monitor`). The first install needs a daemon restart; after that, `paseo plugin reload usage-monitor` picks up source edits without one.
 
 The plugin system is off unless `pluginsEnabled` is `true` in the daemon config (`${PASEO_HOME:-~/.paseo}/config.json`):
 
