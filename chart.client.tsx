@@ -2,7 +2,6 @@ import { Icon, type PluginTheme } from "@getpaseo/plugin";
 import type { ReactElement } from "react";
 import { useCallback, useMemo, useState } from "react";
 import {
-  Pressable,
   Text,
   View,
   type LayoutChangeEvent,
@@ -18,6 +17,7 @@ import type {
   UsageTokenBreakdown,
 } from "./history.shared";
 import { childColor, seriesColor } from "./palette.shared";
+import { TooltipPressable as Pressable } from "./tooltip.client";
 
 /**
  * A layered filled-line chart with no drawing library. `react-native-svg` is
@@ -808,6 +808,7 @@ function LegendRow({
       accessibilityRole="button"
       accessibilityState={band.expanded ? EXPANDED_STATE : COLLAPSED_STATE}
       accessibilityLabel={expanderLabel(band, total, metric)}
+      tooltip={`${band.expanded ? "Collapse" : "Expand"} ${band.label}`}
       onPress={press}
       style={box}
     >

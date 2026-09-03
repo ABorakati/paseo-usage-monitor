@@ -11,7 +11,6 @@ import {
   Animated,
   Image,
   PanResponder,
-  Pressable,
   ScrollView,
   Text,
   View,
@@ -38,6 +37,7 @@ import {
 } from "./limits.shared";
 import { UsageMeter, clampPercent } from "./meter.client";
 import { UsageHistorySurface } from "./history.client";
+import { setTooltipTitle, TooltipPressable as Pressable } from "./tooltip.client";
 import { UsageSettingsBody } from "./settings.client";
 
 const USAGE_LIMITS_QUERY_KEY = ["usage-limits", "snapshot"];
@@ -889,6 +889,12 @@ function ProviderCard({
     // settles instead of re-rendering on every sub-pixel of a resize drag.
     setMeasuredWidth((current) => (Math.abs(current - width) < 1 ? current : width));
   }, []);
+  const setDragHandleTooltip = useCallback(
+    (node: unknown) => {
+      setTooltipTitle(node, `Drag to reorder ${provider.label}`);
+    },
+    [provider.label],
+  );
   const updated = formatUpdatedLabel(provider.fetchedAt, now, isShowingStaleReadings(provider));
   const columns = autoColumns(
     typeof cardWidth === "number" ? cardWidth : measuredWidth,
@@ -910,6 +916,7 @@ function ProviderCard({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${provider.label}. Long press to reorder, or drag an edge to resize.`}
+        tooltip={`Reorder or resize ${provider.label}`}
         accessibilityActions={CARD_ACCESSIBILITY_ACTIONS}
         onAccessibilityAction={handleAccessibilityAction}
         delayLongPress={350}
@@ -946,6 +953,7 @@ function ProviderCard({
                 style={styles.dragHandle}
                 accessibilityRole="button"
                 accessibilityLabel={`Drag to reorder ${provider.label}`}
+                ref={setDragHandleTooltip}
               >
                 <Icon name="GripVertical" size={14} color={theme.colors.foregroundMuted} />
               </View>
@@ -1590,6 +1598,7 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Back to usage"
+            tooltip="Back to usage"
             onPress={showUsage}
             style={styles.back}
           >
@@ -1613,6 +1622,7 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={refreshLabel(isBusy, rateLimited)}
+              tooltip={refreshLabel(isBusy, rateLimited)}
               accessibilityState={isBusy ? REFRESH_BUSY_STATE : REFRESH_IDLE_STATE}
               disabled={isBusy}
               onPress={handleRefresh}
@@ -1627,6 +1637,7 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Open usage provider settings"
+              tooltip="Open usage provider settings"
               onPress={showSettings}
               style={styles.refresh}
             >
@@ -1643,6 +1654,7 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
         <Pressable
           accessibilityRole="tab"
           accessibilityLabel="Show current usage"
+          tooltip="Show current usage"
           accessibilityState={view === "usage" ? DISPLAY_SELECTED_STATE : DISPLAY_UNSELECTED_STATE}
           onPress={showUsage}
           style={[styles.tab, view === "usage" ? styles.tabSelected : null]}
@@ -1652,6 +1664,7 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
         <Pressable
           accessibilityRole="tab"
           accessibilityLabel="Show usage history"
+          tooltip="Show usage history"
           accessibilityState={
             view === "history" ? DISPLAY_SELECTED_STATE : DISPLAY_UNSELECTED_STATE
           }

@@ -8,7 +8,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, View, type TextStyle, type ViewStyle } from "react-native";
+import { ScrollView, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import {
   UsageTrendChart,
   formatMetricValue,
@@ -26,6 +26,7 @@ import {
   type UsageRatesReport,
   type UsageTokenBreakdown,
 } from "./history.shared";
+import { TooltipPressable as Pressable } from "./tooltip.client";
 
 const RANGE_ORDER: readonly UsageHistoryRange[] = ["24h", "7d", "30d"];
 const METRIC_ORDER: readonly UsageChartMetric[] = ["work", "cached", "total", "cost"];
@@ -180,6 +181,7 @@ function SelectorPill<Value extends string>({
       accessibilityRole="button"
       accessibilityState={pillState(selected, disabled)}
       accessibilityLabel={accessibilityLabel}
+      tooltip={accessibilityLabel}
       disabled={disabled}
       onPress={press}
       style={box}
@@ -203,6 +205,7 @@ function GroupByOption({ value, selected, styles, onSelect }: GroupByOptionProps
       accessibilityRole="button"
       accessibilityState={selected ? SELECTED_STATE : UNSELECTED_STATE}
       accessibilityLabel={`Group usage by ${GROUP_BY_NOUN[value]}`}
+      tooltip={`Group usage by ${GROUP_BY_NOUN[value]}`}
       onPress={press}
       style={selected ? styles.dropdownOptionSelected : styles.dropdownOption}
     >
@@ -432,6 +435,7 @@ function UsageHistoryBody({ theme, layout }: PluginSurfaceProps): ReactElement {
           accessibilityRole="button"
           accessibilityState={groupMenuOpen ? EXPANDED_STATE : COLLAPSED_STATE}
           accessibilityLabel={`Grouped by ${GROUP_BY_NOUN[groupBy]}. Choose provider or model.`}
+          tooltip="Choose usage grouping"
           onPress={toggleGroupMenu}
           style={styles.dropdownTrigger}
         >

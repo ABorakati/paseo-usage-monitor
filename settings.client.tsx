@@ -4,7 +4,6 @@ import { useCallback, useMemo, useReducer, type Dispatch } from "react";
 import type { ZodError } from "zod";
 import {
   Modal,
-  Pressable,
   ScrollView,
   Text,
   TextInput,
@@ -32,6 +31,7 @@ import {
   type UsageSource,
 } from "./limits.shared";
 import { getUsagePreset } from "./presets.shared";
+import { TooltipPressable as Pressable } from "./tooltip.client";
 
 const CONFIG_QUERY_KEY = ["usage-config"];
 const LIMITS_QUERY_KEY = ["usage-limits"];
@@ -903,6 +903,7 @@ function Choice({ label, selected, onPress, styles, disabled = false }: ChoicePr
   return (
     <Pressable
       accessibilityRole="button"
+      tooltip={`Select ${label}`}
       accessibilityState={accessibilityState}
       disabled={disabled}
       onPress={onPress}
@@ -937,6 +938,7 @@ function ActionButton({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
+      tooltip={accessibilityLabel ?? label}
       accessibilityState={disabled ? ACCESS_DISABLED : ACCESS_ENABLED}
       disabled={disabled}
       onPress={onPress}
@@ -1491,6 +1493,7 @@ function ProviderEditor({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close provider editor"
+          tooltip="Close provider editor"
           style={styles.modalBackdrop}
           onPress={onCancel}
         />
@@ -1508,6 +1511,7 @@ function ProviderEditor({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Close modal"
+              tooltip="Close provider editor"
               onPress={onCancel}
               style={styles.closeButton}
             >
@@ -1698,6 +1702,7 @@ function PresetCard({ preset, selected, styles, onSelect }: PresetCardProps) {
   return (
     <Pressable
       accessibilityRole="button"
+      tooltip={`Select ${preset.label}`}
       accessibilityState={selected ? ACCESS_PRESET_SELECTED : ACCESS_PRESET_UNSELECTED}
       onPress={select}
       style={[styles.card, selected ? styles.selectedCard : null]}
