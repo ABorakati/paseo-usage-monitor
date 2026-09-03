@@ -237,7 +237,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     label: "Codex",
     icon: { kind: "monogram", text: "Cx", color: "#10B981" },
     description:
-      "Codex session, weekly, code-review and reserve limits, plus any prepaid credit balance",
+      "Codex session, weekly, code-review and reserve limits, plus banked resets and any prepaid credit balance",
     credentials: {
       // No expiresAtPath: auth.json records `auth_mode`, `last_refresh` and the
       // tokens object, and nothing else. `last_refresh` is when the CLI last
@@ -332,6 +332,13 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         label: "Credits",
         unit: "usd",
         remainingPath: "credits.balance",
+      },
+      {
+        kind: "balance",
+        id: "banked-resets",
+        label: "Banked resets",
+        unit: "credits",
+        remainingPath: "rate_limit_reset_credits.available_count",
       },
     ],
   }),

@@ -260,6 +260,7 @@ describe("usage presets", () => {
     expect(quotaIds).toEqual(["session", "weekly", "code-review", "additional"]);
     expect(readings.filter((reading) => reading.kind === "balance").map((r) => r.id)).toEqual([
       "credits",
+      "banked-resets",
     ]);
   });
 
@@ -424,6 +425,7 @@ const RESPONSE_FIXTURES: Record<string, unknown> = {
       },
     ],
     credits: { has_credits: false, unlimited: false, balance: "0" },
+    rate_limit_reset_credits: { available_count: 2 },
   },
   deepseek: {
     is_available: true,
@@ -738,6 +740,11 @@ describe("verified presets resolve their recorded responses", () => {
       window: { label: "Window", resetsAt: "2026-09-04T16:43:50.000Z", durationMs: null },
     });
     expect(readingById("codex", "credits")).toMatchObject({ kind: "balance", remaining: 0 });
+    expect(readingById("codex", "banked-resets")).toMatchObject({
+      kind: "balance",
+      remaining: 2,
+      unit: "credits",
+    });
   });
 
   test("codex renders an unused code-review bucket as empty, not as zero", () => {
