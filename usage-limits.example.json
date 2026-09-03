@@ -1,0 +1,100 @@
+{
+  "claude": {
+    "preset": "claude"
+  },
+  "codex": {
+    "preset": "codex"
+  },
+  "deepseek": {
+    "preset": "deepseek",
+    "refreshIntervalMs": 1800000,
+    "credentials": {
+      "apiKey": [
+        { "kind": "env", "variable": "DEEPSEEK_API_KEY" },
+        { "kind": "jsonFile", "file": "~/.config/deepseek/keys.json", "path": "api_key" }
+      ]
+    }
+  },
+  "my-gateway": {
+    "label": "My gateway",
+    "description": "Credit ceiling for the shared API key",
+    "refreshIntervalMs": 600000,
+    "credentials": {
+      "apiKey": [{ "kind": "env", "variable": "MY_GATEWAY_API_KEY" }]
+    },
+    "source": {
+      "kind": "http",
+      "url": "https://gateway.example.invalid/v1/key",
+      "method": "GET",
+      "headers": {
+        "Authorization": "Bearer ${apiKey}",
+        "Accept": "application/json"
+      }
+    },
+    "readings": [
+      {
+        "kind": "quota",
+        "id": "credits",
+        "label": "Credits",
+        "unit": "usd",
+        "usedPath": "data.usage",
+        "limitPath": "data.limit"
+      }
+    ]
+  },
+  "gateway-cli": {
+    "label": "Gateway CLI",
+    "description": "Balance reported by the vendor CLI",
+    "refreshIntervalMs": 900000,
+    "source": {
+      "kind": "command",
+      "command": ["my-gateway", "balance", "--json"]
+    },
+    "readings": [
+      {
+        "kind": "balance",
+        "id": "balance",
+        "label": "Balance",
+        "unit": "usd",
+        "remainingPath": "balance.remaining",
+        "totalPath": "balance.granted",
+        "currencyPath": "balance.currency"
+      }
+    ]
+  },
+  "deepseek-pricing": {
+    "label": "DeepSeek pricing",
+    "description": "Which pricing band is in force right now",
+    "readings": [
+      {
+        "kind": "rate",
+        "id": "pricing",
+        "label": "Pricing",
+        "resolution": {
+          "via": "schedule",
+          "schedule": {
+            "timeZone": "UTC",
+            "defaultLabel": "Off-peak",
+            "defaultMultiplier": 1,
+            "windows": [
+              {
+                "label": "Peak",
+                "start": "01:00",
+                "end": "04:00",
+                "days": [1, 2, 3, 4, 5],
+                "multiplier": 2
+              },
+              {
+                "label": "Peak",
+                "start": "06:00",
+                "end": "10:00",
+                "days": [1, 2, 3, 4, 5],
+                "multiplier": 2
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

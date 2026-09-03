@@ -1,0 +1,26 @@
+{
+  "ignorePatterns": ["node_modules"],
+  "plugins": ["react", "react-perf", "unicorn", "typescript", "oxc", "import", "promise"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
+  },
+  "rules": {
+    "react/react-in-jsx-scope": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "no-await-in-loop": "off",
+    // React Native composes styles as arrays during render; Paseo disables this rule for app code
+    // for the same reason.
+    "react-perf/jsx-no-new-array-as-prop": "off",
+    "react-perf/jsx-no-new-function-as-prop": "error",
+    "react-perf/jsx-no-new-object-as-prop": "error",
+    "no-shadow": "error",
+    "no-unused-expressions": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-non-null-assertion": "error",
+    "react/no-array-index-key": "error",
+    "react/jsx-no-useless-fragment": "error"
+  }
+}

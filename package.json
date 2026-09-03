@@ -1,0 +1,44 @@
+{
+  "name": "usage-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Paseo plugin for model token usage limits, balances, and history tracking",
+  "keywords": [
+    "ai-tokens",
+    "limits",
+    "llm",
+    "paseo",
+    "paseo-plugin",
+    "usage"
+  ],
+  "license": "MIT",
+  "author": "Aditya Borakati",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ABorakati/paseo-usage-monitor.git"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@getpaseo/client": "^0.4.0",
+    "@getpaseo/protocol": "^0.6.1",
+    "@tanstack/react-query": "^5.90.11",
+    "@types/node": "^22.15.3",
+    "@types/react": "~19.2.0",
+    "oxfmt": "0.46.0",
+    "oxlint": "1.61.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "zod": "^4.4.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}
