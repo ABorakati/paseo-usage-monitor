@@ -295,6 +295,19 @@ declare module "@getpaseo/plugin" {
         onSelect(context: PluginAgentCommandContext): void | Promise<void>;
       };
 
+  /**
+   * The client entrypoint's `openPanel` names its target explicitly: it runs
+   * outside any workspace or agent context, so the host cannot infer one.
+   */
+  export interface PluginClientOpenPanelOptions extends PluginOpenPanelOptions {
+    workspaceId: string;
+    agentId?: string;
+  }
+
+  export interface PluginClientContext extends PluginCommandCapabilities {
+    openPanel(id: string, options: PluginClientOpenPanelOptions): void;
+  }
+
   export interface PluginContext {
     handle<InputSchema extends ZodType, OutputSchema extends ZodType>(
       contract: PluginRpcContract<InputSchema, OutputSchema>,
@@ -307,6 +320,7 @@ declare module "@getpaseo/plugin" {
     addSidebarItem(contribution: PluginSidebarContribution): void;
     addWorkspacePanel(contribution: PluginWorkspacePanelContribution): void;
     addCommandCenterItem(contribution: PluginCommandCenterItemContribution): void;
+    addClientSide(entrypoint: (client: PluginClientContext) => PluginCleanup): void;
     addAttachmentSource(contribution: PluginAttachmentSourceContribution): void;
     addTheme(contribution: PluginThemeContribution): void;
     addTimelineTransformer<ItemType extends AgentTimelineItem["type"]>(

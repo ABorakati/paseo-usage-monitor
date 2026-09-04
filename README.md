@@ -49,8 +49,9 @@ That clones the repository, compiles it on the daemon, and reaches **running** i
 Once running, the plugin shows up in three places:
 
 - **Left sidebar** — two entries, **Usage Monitor** (gauge icon) and **Usage history** (chart icon). These open full-width surfaces.
-- **Workspace tab** — inside any workspace, the tab picker lists **Usage Monitor** and **Usage history** alongside Terminal, Files and the other built-in tabs. They can also be dropped into the **Explorer** side panel.
-- **Command palette** — `Open Usage Monitor`, `Open usage history`, and the `... in Explorer` variants of each.
+- **Explorer side panel** — inside any workspace, the Explorer sidebar hosts **Usage Monitor** and **Usage history**. Both panels default to the Explorer sidebar (`locations: ["explorer", "workspace"]`) and auto-seed into new workspaces once on creation.
+- **Workspace tabs** — both panels can still be opened as full workspace tabs whenever you want via the command palette.
+- **Command palette** — `Open Usage Monitor` and `Open usage history` (open in Explorer), plus `Open Usage Monitor as workspace tab` and `Open usage history as workspace tab`.
 
 The dashboard reads Claude Code and Codex out of the box with no configuration, using the credentials those CLIs already store. Adding anything else is done from the settings icon in the top right of the Usage Monitor surface; see [Editing providers from the app](#editing-providers-from-the-app).
 
