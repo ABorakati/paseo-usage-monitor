@@ -1,0 +1,30 @@
+.gitignore
+  h_0ae9538d78aa59 1-9
+antigravity-probe.server.ts
+  h_0ae9538d78aa59 728-791,810-815,929-930,1290-1295
+config-store.test.ts
+  h_0ae9538d78aa59 239
+config.test.ts
+  h_0ae9538d78aa59 143,183-214
+github-copilot-probe.test.ts
+  h_0ae9538d78aa59 58-59,72-73,75-77,180-181,205-206,225
+history.test.ts
+  h_0ae9538d78aa59 62,67-69,73-76,82-83,87-95,97,102,108-109,112,117,128,1351-1356,1805-1810,1812-1840,1879-1901
+pricing.test.ts
+  h_0ae9538d78aa59 21-24,29,107,140,149
+reading-store.test.ts
+  h_0ae9538d78aa59 60,62-64,70,73,86,88,91
+service.test.ts
+  h_0ae9538d78aa59 116,123,126,144,153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "33a0442a2a90f27d24caf4fc7278c56c4a99880b",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
