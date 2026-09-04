@@ -18,10 +18,15 @@ interface MockFileStore {
   writeCalls: Array<{ path: string; text: string }>;
 }
 
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
 function createMockStore(initialFiles: Record<string, string> = {}): MockFileStore {
   const files = new Map<string, string>();
   for (const [filePath, content] of Object.entries(initialFiles)) {
     files.set(filePath, content);
+    files.set(normalizePath(filePath), content);
   }
   return {
     files,
@@ -99,7 +104,7 @@ function createMockPricingAdapters(options: MockPricingAdaptersOptions = {}): {
     env,
     homeDir,
     readTextFile(filePath: string): string | null {
-      return store.files.get(filePath) ?? null;
+      return store.files.get(filePath) ?? store.files.get(normalizePath(filePath)) ?? null;
     },
     writeTextFile(filePath: string, text: string): void {
       store.files.set(filePath, text);
@@ -132,7 +137,7 @@ describe("Pricing cache path resolution", () => {
   it("resolves default path in ~/.paseo when PASEO_HOME is unset", () => {
     const { adapters } = createMockPricingAdapters({ homeDir: "/home/alice" });
     const expected = "/home/alice/.paseo/usage-limits/model-rates.json";
-    expect(resolveCacheFilePath(adapters)).toBe(expected);
+    expect(normalizePath(resolveCacheFilePath(adapters))).toBe(expected);
   });
 
   it("resolves path under PASEO_HOME when set", () => {
@@ -141,7 +146,7 @@ describe("Pricing cache path resolution", () => {
       env: { PASEO_HOME: "/custom/paseo/data" },
     });
     const expected = "/custom/paseo/data/usage-limits/model-rates.json";
-    expect(resolveCacheFilePath(adapters)).toBe(expected);
+    expect(normalizePath(resolveCacheFilePath(adapters))).toBe(expected);
   });
 });
 

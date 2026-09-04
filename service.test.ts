@@ -113,15 +113,17 @@ function createMemoryReadingStore(
   files: Record<string, string | undefined> = {},
   now: () => Date = () => new Date(FIXED_NOW),
 ): MemoryReadingStore {
+  const norm = (p: string) => p.replace(/\\/g, "/");
   return {
     files,
     store: createReadingStore(
       {
         env: { PASEO_HOME: STORE_ROOT },
         homeDir: HOME_DIR,
-        readTextFile: (path) => files[path] ?? null,
+        readTextFile: (path) => files[path] ?? files[norm(path)] ?? null,
         writeTextFile: (path, content) => {
           files[path] = content;
+          files[norm(path)] = content;
         },
       },
       { now },
@@ -139,6 +141,7 @@ function createService(params: {
 }): UsageService {
   const files = params.files ?? {};
   const now = params.now ?? (() => new Date(FIXED_NOW));
+  const norm = (p: string) => p.replace(/\\/g, "/");
   return createUsageService({
     entries: buildProviderRegistry(UsageProviderOverridesSchema.parse(params.overrides)),
     configPath: CONFIG_PATH,
@@ -147,7 +150,7 @@ function createService(params: {
       credentials: {
         env: params.env ?? {},
         homeDir: HOME_DIR,
-        readTextFile: (path) => files[path] ?? null,
+        readTextFile: (path) => files[path] ?? files[norm(path)] ?? null,
         now,
       },
       now,

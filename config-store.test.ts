@@ -236,7 +236,7 @@ describe("writeUsageProviderEntry", () => {
     });
   });
 
-  test("creates the real secrets file with mode 0600", () => {
+  test.skipIf(process.platform === "win32")("creates the real secrets file with mode 0600", () => {
     const scratch = mkdtempSync(path.join(os.tmpdir(), "usage-config-store-"));
     const config: ConfigAdapters = {
       env: { PASEO_HOME: scratch },

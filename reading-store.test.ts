@@ -57,20 +57,20 @@ const READING: UsageReading = {
   percent: 40,
 };
 
-interface MemoryStore {
-  files: Record<string, string | undefined>;
+function createMemoryAdapters(files: Record<string, string> = {}): {
   adapters: ReadingStoreAdapters;
-}
-
-function createMemoryAdapters(files: Record<string, string | undefined> = {}): MemoryStore {
+  files: Record<string, string>;
+} {
+  const norm = (p: string) => p.replace(/\\/g, "/");
   return {
     files,
     adapters: {
       env: {},
       homeDir: HOME_DIR,
-      readTextFile: (path) => files[path] ?? null,
+      readTextFile: (path) => files[path] ?? files[norm(path)] ?? null,
       writeTextFile: (path, content) => {
         files[path] = content;
+        files[norm(path)] = content;
       },
     },
   };
@@ -83,11 +83,12 @@ function storeFile(entries: Record<string, { fetchedAt: string; readings: UsageR
 describe("reading store", () => {
   test("puts the file under PASEO_HOME when it is set", () => {
     const memory = createMemoryAdapters();
+    const norm = (p: string) => p.replace(/\\/g, "/");
 
-    expect(readingStorePath({ ...memory.adapters, env: { PASEO_HOME: "/srv/paseo" } })).toBe(
+    expect(norm(readingStorePath({ ...memory.adapters, env: { PASEO_HOME: "/srv/paseo" } }))).toBe(
       "/srv/paseo/usage-limits/last-readings.json",
     );
-    expect(readingStorePath(memory.adapters)).toBe(STORE_PATH);
+    expect(norm(readingStorePath(memory.adapters))).toBe(STORE_PATH);
   });
 
   test("reports nothing when the file is absent", () => {

@@ -725,6 +725,70 @@ async function readSecretServiceItem(
   }
 }
 
+async function readWindowsCredentialItem(target: string): Promise<string | null> {
+  const script = `
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public class WinCred {
+    [DllImport("advapi32.dll", EntryPoint = "CredReadW", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool CredRead(string target, int type, int reservedFlag, out IntPtr credentialPtr);
+
+    [DllImport("advapi32.dll", EntryPoint = "CredFree", SetLastError = true)]
+    public static extern void CredFree(IntPtr cred);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct CREDENTIAL {
+        public int Flags;
+        public int Type;
+        public string TargetName;
+        public string Comment;
+        public long LastWritten;
+        public int CredentialBlobSize;
+        public IntPtr CredentialBlob;
+        public int Persist;
+        public int AttributeCount;
+        public IntPtr Attributes;
+        public string TargetAlias;
+        public string UserName;
+    }
+
+    public static string Read(string target) {
+        IntPtr ptr;
+        if (!CredRead(target, 1, 0, out ptr)) return null;
+        try {
+            CREDENTIAL cred = (CREDENTIAL)Marshal.PtrToStructure(ptr, typeof(CREDENTIAL));
+            byte[] bytes = new byte[cred.CredentialBlobSize];
+            Marshal.Copy(cred.CredentialBlob, bytes, 0, cred.CredentialBlobSize);
+            return Encoding.UTF8.GetString(bytes);
+        } finally {
+            CredFree(ptr);
+        }
+    }
+}
+'@
+$res = [WinCred]::Read("${target}")
+if ($res) {
+    [Console]::Out.Write($res)
+}
+`;
+
+  try {
+    const encoded = Buffer.from(script, "utf16le").toString("base64");
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+      { timeout: SUBPROCESS_TIMEOUT_MS },
+    );
+    const trimmed = stdout.trim();
+    return trimmed === "" ? null : trimmed;
+  } catch {
+    return null;
+  }
+}
+
 async function readKeychainItem(service: string, account: string): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync(
@@ -743,10 +807,12 @@ export async function loadStoredCredential(signal: AbortSignal): Promise<Antigra
   const raw =
     process.platform === "darwin"
       ? await readKeychainItem(KEYRING_SERVICE, KEYRING_ACCOUNT)
-      : await readSecretServiceItem(
-          { service: KEYRING_SERVICE, username: KEYRING_ACCOUNT },
-          signal,
-        );
+      : process.platform === "win32"
+        ? await readWindowsCredentialItem(`${KEYRING_SERVICE}:${KEYRING_ACCOUNT}`)
+        : await readSecretServiceItem(
+            { service: KEYRING_SERVICE, username: KEYRING_ACCOUNT },
+            signal,
+          );
 
   if (raw === null) {
     throw new AntigravityProbeError(
@@ -860,6 +926,8 @@ async function locateAgyBinary(): Promise<string> {
     join(homedir(), ".local", "bin", "agy"),
     "/usr/local/bin/agy",
     "/opt/homebrew/bin/agy",
+    join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "agy", "bin", "agy.exe"),
+    join(homedir(), ".local", "bin", "agy.exe"),
   ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;
@@ -1219,6 +1287,11 @@ async function main(): Promise<void> {
   }
 }
 
-if (process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1]}`) {
+const isDirectRun =
+  process.argv[1] !== undefined &&
+  (import.meta.url === `file://${process.argv[1]}` ||
+    import.meta.url === `file:///${process.argv[1].replace(/\\/g, "/")}`);
+
+if (isDirectRun) {
   void main();
 }

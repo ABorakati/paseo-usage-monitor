@@ -59,45 +59,62 @@ const PROVIDER_QUERY = { range: "24h", groupBy: "provider" } as const;
 const MODEL_QUERY = { range: "24h", groupBy: "model" } as const;
 
 function createHarness(options: HarnessOptions = {}): Harness {
+  const norm = (p: string) => p.replace(/\\/g, "/");
   const now = options.now ?? NOW;
   const directoryFailures = options.directoryFailures ?? {};
   const files = new Map<string, FakeFile>();
   for (const [path, value] of Object.entries(options.files ?? {})) {
-    files.set(path, typeof value === "string" ? { text: value, mtime: now } : value);
+    const val = typeof value === "string" ? { text: value, mtime: now } : value;
+    files.set(path, val);
+    files.set(norm(path), val);
   }
   const reads: string[] = [];
   const cache = new Map<string, string>();
-  if (options.scanCache !== undefined) cache.set(SCAN_CACHE_PATH, options.scanCache);
+  if (options.scanCache !== undefined) {
+    cache.set(SCAN_CACHE_PATH, options.scanCache);
+    cache.set(norm(SCAN_CACHE_PATH), options.scanCache);
+  }
   const harness: Harness = {
     adapters: {
       env: options.env ?? {},
       homeDir: HOME,
       listFiles(directory) {
-        const failure = directoryFailures[directory];
+        const normDir = norm(directory);
+        const failure = directoryFailures[directory] ?? directoryFailures[normDir];
         if (failure !== undefined) {
           return { files: [], errors: [{ source: directory, message: failure }] };
         }
+        const seen = new Set<string>();
+        const matched: string[] = [];
+        for (const path of files.keys()) {
+          const np = norm(path);
+          if (np.startsWith(`${normDir}/`) && !seen.has(np)) {
+            seen.add(np);
+            matched.push(np);
+          }
+        }
         return {
-          files: [...files.keys()].filter((path) => path.startsWith(`${directory}/`)),
+          files: matched,
           errors: [],
         };
       },
       statFile(path) {
-        const file = files.get(path);
+        const file = files.get(path) ?? files.get(norm(path));
         if (file === undefined) return null;
         const size = file.size ?? (file.text === null ? 1 : file.text.length);
         return { mtimeMs: Date.parse(file.mtime), size };
       },
       readTextFile(path) {
-        reads.push(path);
-        return files.get(path)?.text ?? null;
+        reads.push(norm(path));
+        return files.get(path)?.text ?? files.get(norm(path))?.text ?? null;
       },
       readScanCacheFile(path) {
-        return cache.get(path) ?? null;
+        return cache.get(path) ?? cache.get(norm(path)) ?? null;
       },
       writeScanCacheFile(path, content) {
         harness.cacheWrites += 1;
         cache.set(path, content);
+        cache.set(norm(path), content);
       },
       pricing: createPricingStub(options.rates, now),
       now() {
@@ -108,7 +125,7 @@ function createHarness(options: HarnessOptions = {}): Harness {
     cacheWrites: 0,
     files,
     scanCache() {
-      return cache.get(SCAN_CACHE_PATH) ?? null;
+      return cache.get(SCAN_CACHE_PATH) ?? cache.get(norm(SCAN_CACHE_PATH)) ?? null;
     },
   };
   return harness;
@@ -1331,9 +1348,12 @@ describe("readUsageHistorySnapshot: failures", () => {
 
     const snapshot = await readUsageHistorySnapshot(PROVIDER_QUERY, harness.adapters);
 
-    expect(snapshot.scanErrors).toEqual([
-      { source: `${HOME}/.claude/projects`, message: "EACCES: permission denied" },
-    ]);
+    expect(
+      snapshot.scanErrors.map((e) => ({
+        source: e.source.replace(/\\/g, "/"),
+        message: e.message,
+      })),
+    ).toEqual([{ source: `${HOME}/.claude/projects`, message: "EACCES: permission denied" }]);
   });
 
   test("skips malformed lines without reporting an error", async () => {
@@ -1782,39 +1802,42 @@ describe("createNodeHistoryAdapters", () => {
     };
   }
 
-  test("a nested unreadable directory yields the sibling rows and one scanError naming it", async () => {
-    const root = mkdtempSync(join(tmpdir(), "usage-history-"));
-    const locked = join(root, "projects", "locked");
-    const line = claudeLine({
-      timestamp: new Date().toISOString(),
-      id: "msg_open",
-      usage: { input_tokens: 3, output_tokens: 4 },
-    });
-    mkdirSync(join(root, "projects", "open"), { recursive: true });
-    mkdirSync(locked, { recursive: true });
-    writeFileSync(join(root, "projects", "open", "a.jsonl"), line);
-    writeFileSync(
-      join(locked, "b.jsonl"),
-      claudeLine({
+  test.skipIf(process.platform === "win32")(
+    "a nested unreadable directory yields the sibling rows and one scanError naming it",
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), "usage-history-"));
+      const locked = join(root, "projects", "locked");
+      const line = claudeLine({
         timestamp: new Date().toISOString(),
-        id: "msg_locked",
-        usage: { input_tokens: 900, output_tokens: 900 },
-      }),
-    );
-    chmodSync(locked, 0o000);
+        id: "msg_open",
+        usage: { input_tokens: 3, output_tokens: 4 },
+      });
+      mkdirSync(join(root, "projects", "open"), { recursive: true });
+      mkdirSync(locked, { recursive: true });
+      writeFileSync(join(root, "projects", "open", "a.jsonl"), line);
+      writeFileSync(
+        join(locked, "b.jsonl"),
+        claudeLine({
+          timestamp: new Date().toISOString(),
+          id: "msg_locked",
+          usage: { input_tokens: 900, output_tokens: 900 },
+        }),
+      );
+      chmodSync(locked, 0o000);
 
-    try {
-      const snapshot = await readUsageHistorySnapshot(PROVIDER_QUERY, nodeAdapters(root));
+      try {
+        const snapshot = await readUsageHistorySnapshot(PROVIDER_QUERY, nodeAdapters(root));
 
-      expect(snapshot.totals.tokens).toBe(7);
-      expect(snapshot.scanErrors).toHaveLength(1);
-      expect(snapshot.scanErrors[0]?.source).toBe(locked);
-      expect(snapshot.scanErrors[0]?.message).toContain("EACCES");
-    } finally {
-      chmodSync(locked, 0o700);
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
+        expect(snapshot.totals.tokens).toBe(7);
+        expect(snapshot.scanErrors).toHaveLength(1);
+        expect(snapshot.scanErrors[0]?.source).toBe(locked);
+        expect(snapshot.scanErrors[0]?.message).toContain("EACCES");
+      } finally {
+        chmodSync(locked, 0o700);
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   test("writes the scan cache under the resolved paseo home and reads it back", async () => {
     const root = mkdtempSync(join(tmpdir(), "usage-history-"));
@@ -1853,24 +1876,27 @@ describe("createNodeHistoryAdapters", () => {
     });
   });
 
-  test("names the unreadable subdirectory itself rather than the root", () => {
-    const root = mkdtempSync(join(tmpdir(), "usage-history-"));
-    const locked = join(root, "projects", "locked");
-    mkdirSync(join(root, "projects", "open"), { recursive: true });
-    mkdirSync(locked, { recursive: true });
-    writeFileSync(join(root, "projects", "open", "a.jsonl"), "{}");
-    chmodSync(locked, 0o000);
+  test.skipIf(process.platform === "win32")(
+    "names the unreadable subdirectory itself rather than the root",
+    () => {
+      const root = mkdtempSync(join(tmpdir(), "usage-history-"));
+      const locked = join(root, "projects", "locked");
+      mkdirSync(join(root, "projects", "open"), { recursive: true });
+      mkdirSync(locked, { recursive: true });
+      writeFileSync(join(root, "projects", "open", "a.jsonl"), "{}");
+      chmodSync(locked, 0o000);
 
-    try {
-      const scan = createNodeHistoryAdapters().listFiles(join(root, "projects"));
+      try {
+        const scan = createNodeHistoryAdapters().listFiles(join(root, "projects"));
 
-      expect(scan.files).toEqual([join(root, "projects", "open", "a.jsonl")]);
-      expect(scan.errors).toHaveLength(1);
-      expect(scan.errors[0]?.source).toBe(locked);
-      expect(scan.errors[0]?.message).toContain("EACCES");
-    } finally {
-      chmodSync(locked, 0o700);
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
+        expect(scan.files).toEqual([join(root, "projects", "open", "a.jsonl")]);
+        expect(scan.errors).toHaveLength(1);
+        expect(scan.errors[0]?.source).toBe(locked);
+        expect(scan.errors[0]?.message).toContain("EACCES");
+      } finally {
+        chmodSync(locked, 0o700);
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 });

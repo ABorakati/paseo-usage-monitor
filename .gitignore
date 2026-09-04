@@ -5,3 +5,5 @@ codedb.snapshot
 .env*
 coverage/
 .DS_Store
+
+bun.lock*

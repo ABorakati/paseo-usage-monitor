@@ -140,7 +140,7 @@ describe("loadUsageConfig", () => {
 });
 
 const scratch = mkdtempSync(path.join(os.tmpdir(), "usage-limits-config-"));
-const runningAsRoot = process.getuid?.() === 0;
+const skipUnreadableFileTests = process.getuid?.() === 0 || process.platform === "win32";
 
 afterAll(() => {
   rmSync(scratch, { recursive: true, force: true });
@@ -180,30 +180,36 @@ describe("createNodeConfigAdapters", () => {
     expect(() => readReal(target)).toThrow(target);
   });
 
-  test.skipIf(runningAsRoot)("throws naming the path and errno when the file is unreadable", () => {
-    const target = path.join(scratch, "locked.json");
-    writeFileSync(target, "{}");
-    chmodSync(target, 0o000);
-    expect(() => readReal(target)).toThrow(UsageConfigError);
-    expect(() => readReal(target)).toThrow(target);
-    expect(() => readReal(target)).toThrow(/EACCES|permission denied/);
-    chmodSync(target, 0o600);
-  });
+  test.skipIf(skipUnreadableFileTests)(
+    "throws naming the path and errno when the file is unreadable",
+    () => {
+      const target = path.join(scratch, "locked.json");
+      writeFileSync(target, "{}");
+      chmodSync(target, 0o000);
+      expect(() => readReal(target)).toThrow(UsageConfigError);
+      expect(() => readReal(target)).toThrow(target);
+      expect(() => readReal(target)).toThrow(/EACCES|permission denied/);
+      chmodSync(target, 0o600);
+    },
+  );
 
-  test.skipIf(runningAsRoot)("an unreadable config never yields the default providers", () => {
-    const target = path.join(scratch, "locked-load.json");
-    writeFileSync(target, JSON.stringify({ codex: { preset: "codex" } }));
-    chmodSync(target, 0o000);
-    const adapters: ConfigAdapters = {
-      ...createNodeConfigAdapters(),
-      env: { PASEO_HOME: scratch },
-      homeDir: HOME,
-    };
-    expect(usageConfigPath(adapters)).toBe(path.join(scratch, "usage-limits.json"));
-    writeFileSync(path.join(scratch, "usage-limits.json"), "{}");
-    chmodSync(path.join(scratch, "usage-limits.json"), 0o000);
-    expect(() => loadUsageConfig(adapters)).toThrow(UsageConfigError);
-    chmodSync(target, 0o600);
-    chmodSync(path.join(scratch, "usage-limits.json"), 0o600);
-  });
+  test.skipIf(skipUnreadableFileTests)(
+    "an unreadable config never yields the default providers",
+    () => {
+      const target = path.join(scratch, "locked-load.json");
+      writeFileSync(target, JSON.stringify({ codex: { preset: "codex" } }));
+      chmodSync(target, 0o000);
+      const adapters: ConfigAdapters = {
+        ...createNodeConfigAdapters(),
+        env: { PASEO_HOME: scratch },
+        homeDir: HOME,
+      };
+      expect(usageConfigPath(adapters)).toBe(path.join(scratch, "usage-limits.json"));
+      writeFileSync(path.join(scratch, "usage-limits.json"), "{}");
+      chmodSync(path.join(scratch, "usage-limits.json"), 0o000);
+      expect(() => loadUsageConfig(adapters)).toThrow(UsageConfigError);
+      chmodSync(target, 0o600);
+      chmodSync(path.join(scratch, "usage-limits.json"), 0o600);
+    },
+  );
 });

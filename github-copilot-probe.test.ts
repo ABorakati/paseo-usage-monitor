@@ -55,7 +55,8 @@ function createAdapters(options: {
     adapters: {
       env: options.env ?? {},
       homeDir: HOME,
-      readTextFile: (path) => options.files?.[path] ?? null,
+      readTextFile: (path) =>
+        options.files?.[path] ?? options.files?.[path.replace(/\\/g, "/")] ?? null,
       async fetchJson(url, headers) {
         requests.push({ url, headers });
         if (options.fetchError) throw options.fetchError;
@@ -68,10 +69,12 @@ function createAdapters(options: {
 
 describe("copilot credential files", () => {
   test("lives under ~/.config unless XDG_CONFIG_HOME says otherwise", () => {
-    expect(copilotConfigDir({ env: {}, homeDir: HOME })).toBe(`${HOME}/.config/github-copilot`);
-    expect(copilotConfigDir({ env: { XDG_CONFIG_HOME: "/xdg" }, homeDir: HOME })).toBe(
-      "/xdg/github-copilot",
+    expect(copilotConfigDir({ env: {}, homeDir: HOME }).replace(/\\/g, "/")).toBe(
+      `${HOME}/.config/github-copilot`,
     );
+    expect(
+      copilotConfigDir({ env: { XDG_CONFIG_HOME: "/xdg" }, homeDir: HOME }).replace(/\\/g, "/"),
+    ).toBe("/xdg/github-copilot");
   });
 
   test("reads the token under the bare hostname key", () => {
@@ -174,7 +177,8 @@ describe("resolveCopilotToken", () => {
         [hostsPath]: JSON.stringify({ "github.com": { oauth_token: "gho_hosts" } }),
       },
     });
-    expect(resolveCopilotToken(adapters)).toEqual({
+    const resolved = resolveCopilotToken(adapters);
+    expect({ token: resolved.token, origin: resolved.origin.replace(/\\/g, "/") }).toEqual({
       token: "gho_cli",
       origin: `file ${ghHostsPath}`,
     });
@@ -198,7 +202,8 @@ describe("resolveCopilotToken", () => {
     const { adapters } = createAdapters({
       files: { [appsPath]: JSON.stringify({ "github.com:Iv1.x": { oauth_token: "gho_apps" } }) },
     });
-    expect(resolveCopilotToken(adapters)).toEqual({
+    const resolved = resolveCopilotToken(adapters);
+    expect({ token: resolved.token, origin: resolved.origin.replace(/\\/g, "/") }).toEqual({
       token: "gho_apps",
       origin: `file ${appsPath}`,
     });
@@ -217,7 +222,7 @@ describe("resolveCopilotToken", () => {
       }
     })();
     expect(failure).toBeInstanceOf(GithubCopilotProbeError);
-    const message = String(failure);
+    const message = String(failure).replace(/\\/g, "/");
     expect(message).toContain("COPILOT_GITHUB_TOKEN (not set)");
     expect(message).toContain(`${hostsPath} (no github.com token stored)`);
     expect(message).toContain(`${appsPath} (no such file)`);
