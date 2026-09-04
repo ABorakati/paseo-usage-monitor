@@ -1,0 +1,26 @@
+README.md
+  h_0ae9538d78aa59 52-54
+handlers.server.ts
+  h_0ae9538d78aa59 18,25,89-93
+index.ts
+  h_0ae9538d78aa59 9,21-22,31-32,47,55,59-60,78-79,88-89,91,94,98-99,101,104
+paseo-plugin.d.ts
+  h_0ae9538d78aa59 298-310,323
+seed.client.tsx
+  h_0ae9538d78aa59 1-61
+seed.server.ts
+  h_0ae9538d78aa59 1-113
+seed.shared.ts
+  h_0ae9538d78aa59 1-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "09af4ad23482d482bdf2666c04cb6745f68778d3",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
