@@ -1,0 +1,18 @@
+docs/PRESETS.md
+  h_0ae9538d78aa59 165
+presets.shared.ts
+  h_0ae9538d78aa59 1439-1442,1483-1500
+presets.test.ts
+  h_0ae9538d78aa59 1295,1302,1308,1313,1341-1342
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b22d3cbbcebbe0e7da5a445818a1e718eeeda0ae",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
