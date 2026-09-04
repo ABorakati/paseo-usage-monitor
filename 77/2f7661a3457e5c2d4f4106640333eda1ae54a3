@@ -1,0 +1,42 @@
+amount.shared.ts
+  h_0ae9538d78aa59 1-23
+amount.test.ts
+  h_0ae9538d78aa59 1-26
+antigravity-clients.server.ts
+  h_0ae9538d78aa59 1-287
+antigravity-clients.test.ts
+  h_0ae9538d78aa59 1-145
+antigravity-usage.server.ts
+  h_0ae9538d78aa59 1-194
+antigravity-usage.test.ts
+  h_0ae9538d78aa59 1-199
+config-store.test.ts
+  h_0ae9538d78aa59 160-162,170
+docs/HISTORY.md
+  h_0ae9538d78aa59 112
+docs/PRESETS.md
+  h_0ae9538d78aa59 159-179
+history.server.ts
+  h_0ae9538d78aa59 290-329
+history.test.ts
+  h_0ae9538d78aa59 8,892-977
+limits.client.tsx
+  h_0ae9538d78aa59 27,182-200,205,500
+presets.shared.ts
+  h_0ae9538d78aa59 1434,1450-1495
+presets.test.ts
+  h_0ae9538d78aa59 1322-1370
+source.server.ts
+  h_0ae9538d78aa59 3,158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "772f7661a3457e5c2d4f4106640333eda1ae54a3",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
