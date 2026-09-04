@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { probeAntigravityQuota } from "./antigravity-probe.server";
+import { probeAntigravityUsage } from "./antigravity-usage.server";
 import { type CredentialAdapters, expandPath } from "./credentials.server";
 import { probeGithubCopilotQuota } from "./github-copilot-probe.server";
 import { UsageInterpolationError, UsageRateLimitedError, UsageSourceError } from "./errors.server";
@@ -155,7 +155,7 @@ export function createNodeSourceAdapters(): UsageSourceAdapters {
   return {
     fetchJson: fetchJsonWithNode,
     runCommand: runCommandWithNode,
-    probeAntigravity: probeAntigravityQuota,
+    probeAntigravity: probeAntigravityUsage,
     probeGithubCopilot: () => probeGithubCopilotQuota(),
   };
 }

@@ -109,7 +109,7 @@ The original objection to a dollar figure still stands and is why it works this 
 ## Known gaps
 
 - **OpenCode** records usage in a SQLite database rather than JSONL. That database was empty on this machine, so nothing could be verified against it, and it is not read. Its usage does not appear in history.
-- **Antigravity** stores opaque `.pb` files with no token accounting in them. There is nothing to parse, so it can never appear in history regardless of future work here.
+- **Antigravity's own clients** keep their turns in per-conversation SQLite stores, not JSONL, so they contribute no series to this chart. Their token and request counts are read instead by the `antigravity` provider card, per client — see [Antigravity](PRESETS.md#antigravity). Antigravity models driven through omp do appear here, as `Google Antigravity (omp)`.
 
 ## Scan failures
 

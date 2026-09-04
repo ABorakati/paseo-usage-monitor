@@ -1319,6 +1319,55 @@ describe("antigravity reads its quota through a probe", () => {
   test("an empty probe result yields no readings rather than an empty bar", () => {
     expect(project("antigravity", { source: "antigravity", buckets: [] })).toEqual([]);
   });
+
+  test("projects each client's local usage under its own group", () => {
+    // The probe's own buckets answer for the consumer plan only, so a client's
+    // token and request counts arrive alongside them, per client.
+    const readings = project("antigravity", {
+      ...ANTIGRAVITY_PROBE,
+      usage: {
+        tokens: [
+          { id: "cli-tokens-session", label: "Last 5 hours", group: "Antigravity CLI", amount: 32_652_978 },
+        ],
+        requests: [
+          { id: "paseo-requests-day", label: "Last 24 hours", group: "Paseo (omp)", amount: 600 },
+        ],
+        spend: [
+          { id: "paseo-spend-week", label: "Last 7 days", group: "Paseo (omp)", amount: 1.489 },
+        ],
+      },
+    });
+
+    expect(readings.slice(4)).toMatchObject([
+      {
+        id: "tokens-cli-tokens-session",
+        label: "Tokens · Last 5 hours",
+        group: "Antigravity CLI",
+        unit: "tokens",
+        used: 32_652_978,
+        limit: null,
+        percent: null,
+      },
+      {
+        id: "requests-paseo-requests-day",
+        label: "Requests · Last 24 hours",
+        group: "Paseo (omp)",
+        unit: "requests",
+        used: 600,
+      },
+      {
+        id: "spend-paseo-spend-week",
+        label: "Spend · Last 7 days",
+        group: "Paseo (omp)",
+        unit: "usd",
+        used: 1.489,
+      },
+    ]);
+  });
+
+  test("adds no local rows when no client on this machine has any", () => {
+    expect(project("antigravity", ANTIGRAVITY_PROBE)).toHaveLength(4);
+  });
 });
 
 /**

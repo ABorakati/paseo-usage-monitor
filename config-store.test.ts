@@ -157,16 +157,17 @@ describe("usage config state", () => {
       credentialHints: ["env DEEPSEEK_API_KEY"],
       unverified: false,
     });
-    expect(antigravity).toEqual({
+    // The wording is the preset's own; what the summary owes the settings form
+    // is the identity, the empty credential chain and the probe endpoint.
+    expect(antigravity).toMatchObject({
       id: "antigravity",
       label: "Antigravity",
-      description:
-        "Unverified: Google publishes no Antigravity quota API, so this reads the user's own stored credential and calls an undocumented endpoint, and may break without notice.",
       unverified: true,
       credentialNames: [],
       credentialHints: [],
       endpoint: "Antigravity probe",
     });
+    expect(antigravity?.description).toMatch(/^Unverified: .*without notice/s);
   });
 
   test("reports stored credential names without returning their values", () => {

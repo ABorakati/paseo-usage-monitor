@@ -156,6 +156,27 @@ This one works. Live output on this machine:
 
 Two shared pools, each with a rolling 5-hour and a weekly window. That is exactly the model-family-plus-two-windows shape the `group` field and the `each` projection were designed for. All four buckets are always emitted, with null readings when the response omits one, so a missing bucket never shifts the others.
 
+### The quota bars are one ledger, not all of your usage
+
+`retrieveUserQuotaSummary` answers for the **consumer Antigravity plan**. A request that runs under your own Cloud project is billed elsewhere and never decrements those buckets, and that is exactly how Paseo reaches the model: the `google-antigravity` credential omp stores carries a `projectId`, so its traffic is on the standard-tier path.
+
+Measured here, with both credentials on the same Google account: `gemini-weekly` held `0.7627758` remaining at 18:50Z and the identical figure at 19:45Z, across 465 requests and 75M tokens of Paseo traffic. `gemini-5h` read `remainingFraction: 1` throughout. The bars were right; they were answering a different question.
+
+So the card also reports what each Antigravity client on this machine actually spent, from the logs each one writes:
+
+| Group             | Source                                                                     | Rows                                                             |
+| ----------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `Antigravity app` | `~/.gemini/antigravity/conversations/*.db`                                 | Tokens (5h, 7d), requests (24h)                                  |
+| `Antigravity CLI` | `~/.gemini/antigravity-cli/conversations/*.db`                             | Tokens (5h, 7d), requests (24h)                                  |
+| `Antigravity ACP` | `~/.gemini/antigravity-acp/conversations/*.db`                             | Tokens (5h, 7d), requests (24h)                                  |
+| `Paseo (omp)`     | the omp transcripts the [history](HISTORY.md) surface already reads         | Tokens (5h, 7d), requests (24h), spend (7d)                      |
+
+A group with nothing in the widest window contributes no rows, so a client you do not have installed costs you no zeros. These rows carry a `used` figure and no ceiling, because no client publishes the limit its plan applies — a bar would have to invent one.
+
+Each conversation store is SQLite, and one `steps` row is one turn. The `metadata` blob is protobuf with no schema published anywhere, so only two fields are read: the step's timestamp, and the generation's usage counters (uncached input, cached input, output). The output counter is reported twice — once whole, once split in two — and the reader drops any row where the split does not add up. That identity held on 261 of 261 live rows, and it is what distinguishes a decoded counter from a guessed one. A vendor schema change therefore shows up as a missing row, never as a wrong number.
+
+Only stores touched inside the window are opened, and each is walked newest-first and abandoned at the first turn older than the window. A full read of 21 recently-used stores took 368 ms here; the other 152 on disk were never opened.
+
 ### How it works
 
 You should know this before enabling it, so you can judge it yourself. Google publishes no Antigravity quota API. The probe:

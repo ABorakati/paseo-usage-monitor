@@ -24,6 +24,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
+import { formatUsageAmount } from "./amount.shared";
 import { readUsageConfig, writeUsageProvider, type UsageConfigState } from "./config.shared";
 import {
   readUsageLimits,
@@ -67,7 +68,6 @@ const CARD_RESIZE_STEP = 80;
 const MIN_RESIZED_CARD_HEIGHT = 260;
 const MAX_RESIZED_CARD_HEIGHT = 1_000;
 const DRAG_ROW_STEP = 260;
-const CURRENCY_SYMBOLS: Record<string, string> = { USD: "$", EUR: "€", GBP: "£" };
 const REFRESH_IDLE_STATE = { disabled: false };
 const REFRESH_BUSY_STATE = { disabled: true };
 const DISPLAY_SELECTED_STATE = { selected: true };
@@ -179,22 +179,30 @@ function formatUpdatedLabel(timestamp: string | null, now: number, stale: boolea
   return updated;
 }
 
+/**
+ * A quota with no ceiling still has a number worth showing. Some vendors
+ * publish consumption without publishing the plan's limit, and a card that
+ * printed a dash for those would hide the only figure it had.
+ */
+function formatQuotaValue(
+  reading: UsageQuotaReading,
+  valueMode: NonNullable<UsageDisplay["value"]>,
+): string {
+  const suffix = valueMode === "used" ? "used" : "left";
+  if (reading.percent !== null) {
+    const filled = valueMode === "used" ? reading.percent : 100 - reading.percent;
+    return `${formatPercent(filled)} ${suffix}`;
+  }
+  const amount = valueMode === "used" ? reading.used : reading.remaining;
+  if (amount === null) return EM_DASH;
+  return `${formatUsageAmount(amount, reading.unit)} ${suffix}`;
+}
+
 function formatBalanceAmount(reading: UsageBalanceReading): string {
   if (reading.remaining === null) {
     return EM_DASH;
   }
-  if (reading.unit === "percent") {
-    return formatPercent(reading.remaining);
-  }
-  if (reading.unit !== "usd") {
-    return Math.round(reading.remaining).toLocaleString();
-  }
-  const code = reading.currency === null ? "USD" : reading.currency.toUpperCase();
-  const symbol = CURRENCY_SYMBOLS[code];
-  if (symbol === undefined) {
-    return `${reading.remaining.toFixed(2)} ${code}`;
-  }
-  return `${symbol}${reading.remaining.toFixed(2)}`;
+  return formatUsageAmount(reading.remaining, reading.unit, reading.currency);
 }
 
 /**
@@ -489,10 +497,7 @@ function QuotaRow({
     reading.percent === null || valueMode === "used" ? reading.percent : 100 - reading.percent;
   const pace = quotaPacePercent(reading.window, now);
   const pacePercent = pace === null || valueMode === "used" ? pace : 100 - pace;
-  const valueLabel =
-    reading.percent === null
-      ? EM_DASH
-      : `${formatPercent(percentFilled ?? reading.percent)} ${valueMode === "used" ? "used" : "left"}`;
+  const valueLabel = formatQuotaValue(reading, valueMode);
   return (
     <View style={styles.row}>
       <View style={styles.rowHeader}>

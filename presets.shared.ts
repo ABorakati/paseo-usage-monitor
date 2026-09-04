@@ -1431,7 +1431,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     label: "Antigravity",
     icon: { kind: "monogram", text: "AG", color: "#84CC16" },
     description:
-      "Unverified: Google publishes no Antigravity quota API, so this reads the user's own stored credential and calls an undocumented endpoint, and may break without notice.",
+      "Unverified: Google publishes no Antigravity quota API, so the percentages read the user's own stored credential and an undocumented endpoint, and may break without notice. That route answers for the consumer plan only, so the rows under it count what each Antigravity client on this machine actually spent, from its own logs.",
     unverified: true,
     source: { kind: "probe", probe: "antigravity" },
     readings: [
@@ -1446,6 +1446,52 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         // no single durationMs to give: a fixed length would be wrong for half
         // of them. These bars show a reset time and no pace marker.
         window: { label: "Window", resetsAtPath: "resetsAt" },
+      },
+      /**
+       * The bars above are the vendor's consumer-plan pool, which Paseo's own
+       * traffic never decrements: it runs under the user's Cloud project. These
+       * rows are per-client local accounting, so heavy use is visible whichever
+       * Antigravity client spent it. Each is `used` with no ceiling, because no
+       * client publishes the limit its plan applies.
+       */
+      {
+        kind: "quota",
+        id: "tokens",
+        label: "Tokens",
+        unit: "tokens",
+        each: {
+          path: "usage.tokens",
+          idPath: "id",
+          labelPath: "label",
+          groupPath: "group",
+        },
+        usedPath: "amount",
+      },
+      {
+        kind: "quota",
+        id: "requests",
+        label: "Requests",
+        unit: "requests",
+        each: {
+          path: "usage.requests",
+          idPath: "id",
+          labelPath: "label",
+          groupPath: "group",
+        },
+        usedPath: "amount",
+      },
+      {
+        kind: "quota",
+        id: "spend",
+        label: "Spend",
+        unit: "usd",
+        each: {
+          path: "usage.spend",
+          idPath: "id",
+          labelPath: "label",
+          groupPath: "group",
+        },
+        usedPath: "amount",
       },
     ],
   }),

@@ -287,6 +287,46 @@ export async function readUsageHistorySnapshot(
   });
 }
 
+/**
+ * What one agent provider spent inside a rolling window, straight from the
+ * transcripts. A live quota card needs this because a vendor's own quota route
+ * can report a pool this traffic never touched: Antigravity meters its consumer
+ * plan, while Paseo's requests run under the user's own Cloud project and never
+ * appear there. The scan is the same one the history surface runs, so the two
+ * numbers cannot disagree and the file cache is shared.
+ */
+export interface AgentProviderWindow {
+  windowMs: number;
+  requests: number;
+  tokens: number;
+  /** Null as soon as one request in the window reported no cost of its own. */
+  costUsd: number | null;
+}
+
+export function readAgentProviderWindows(
+  providerId: string,
+  windowsMs: readonly number[],
+  adapters: HistoryAdapters,
+): AgentProviderWindow[] {
+  const to = adapters.now().getTime();
+  const widest = windowsMs.reduce((longest, span) => Math.max(longest, span), 0);
+  const cache = createScanCache(adapters);
+  const context: ScanContext = { adapters, from: to - widest, scanErrors: [], cache };
+  const rows = scanOmp(context).filter((row) => row.providerId === providerId);
+  cache.flush();
+  return windowsMs.map((windowMs) => {
+    const window: AgentProviderWindow = { windowMs, requests: 0, tokens: 0, costUsd: 0 };
+    for (const row of rows) {
+      if (row.timestampMs < to - windowMs || row.timestampMs > to) continue;
+      window.requests += 1;
+      window.tokens += row.breakdown.tokens;
+      const cost = row.breakdown.costUsd;
+      window.costUsd = cost === null || window.costUsd === null ? null : window.costUsd + cost;
+    }
+    return window;
+  });
+}
+
 function scanClaude(context: ScanContext): UsageRow[] {
   const entries = new Map<string, UsageRow>();
   const rows: UsageRow[] = [];

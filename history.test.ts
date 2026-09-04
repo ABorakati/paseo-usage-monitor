@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 import {
   createNodeHistoryAdapters,
   type HistoryAdapters,
+  readAgentProviderWindows,
   readUsageHistorySnapshot,
 } from "./history.server";
 import type {
@@ -885,6 +886,92 @@ describe("readUsageHistorySnapshot: omp sessions", () => {
     const snapshot = await readUsageHistorySnapshot(PROVIDER_QUERY, harness.adapters);
 
     expect(snapshot.totals.tokens).toBe(8);
+  });
+});
+
+describe("readAgentProviderWindows", () => {
+  const HOUR_MS = 3_600_000;
+  const SESSION_MS = 5 * HOUR_MS;
+  const WEEK_MS = 7 * 24 * HOUR_MS;
+
+  function ompHarness(lines: readonly string[]) {
+    return createHarness({ files: { [`${OMP_DIR}/a.jsonl`]: lines.join("\n") } });
+  }
+
+  test("keeps each window to the rows inside it", () => {
+    const harness = ompHarness([
+      ompModelChangeLine("2026-08-19T00:00:00.000Z", "google-antigravity/gemini-3-pro"),
+      // NOW is 2026-08-26T12:30Z: one turn inside the 5-hour window, one
+      // outside it but inside the week.
+      ompUsageLine({ timestamp: "2026-08-26T10:00:00.000Z", model: "g", id: "recent", input: 10, output: 0 }),
+      ompUsageLine({ timestamp: "2026-08-24T10:00:00.000Z", model: "g", id: "older", input: 400, output: 0 }),
+    ]);
+
+    const [session, week] = readAgentProviderWindows(
+      "omp-google-antigravity",
+      [SESSION_MS, WEEK_MS],
+      harness.adapters,
+    );
+
+    expect(session).toEqual({ windowMs: SESSION_MS, requests: 1, tokens: 10, costUsd: OMP_REPORTED_COST });
+    expect(week).toEqual({
+      windowMs: WEEK_MS,
+      requests: 2,
+      tokens: 410,
+      costUsd: OMP_REPORTED_COST * 2,
+    });
+  });
+
+  test("counts only the provider asked for", () => {
+    const harness = ompHarness([
+      ompModelChangeLine("2026-08-26T10:00:00.000Z", "google-antigravity/gemini-3-pro"),
+      ompUsageLine({ timestamp: "2026-08-26T11:00:00.000Z", model: "g", id: "gemini", input: 10, output: 0 }),
+      ompModelChangeLine("2026-08-26T11:30:00.000Z", "anthropic/claude-opus-5"),
+      ompUsageLine({ timestamp: "2026-08-26T12:00:00.000Z", model: "c", id: "claude", input: 999, output: 0 }),
+    ]);
+
+    const [window] = readAgentProviderWindows(
+      "omp-google-antigravity",
+      [SESSION_MS],
+      harness.adapters,
+    );
+
+    expect(window).toMatchObject({ requests: 1, tokens: 10 });
+  });
+
+  test("withholds the cost of a window where one turn priced itself and another did not", () => {
+    const harness = ompHarness([
+      ompModelChangeLine("2026-08-26T10:00:00.000Z", "google-antigravity/gemini-3-pro"),
+      ompUsageLine({ timestamp: "2026-08-26T11:00:00.000Z", model: "g", id: "priced", input: 10, output: 0 }),
+      ompUsageLine({
+        timestamp: "2026-08-26T11:10:00.000Z",
+        model: "g",
+        id: "unpriced",
+        input: 10,
+        output: 0,
+        costTotal: null,
+      }),
+    ]);
+
+    const [window] = readAgentProviderWindows(
+      "omp-google-antigravity",
+      [SESSION_MS],
+      harness.adapters,
+    );
+
+    expect(window).toMatchObject({ requests: 2, tokens: 20, costUsd: null });
+  });
+
+  test("reports an empty window rather than nothing when the provider is idle", () => {
+    const harness = ompHarness([]);
+
+    const [window] = readAgentProviderWindows(
+      "omp-google-antigravity",
+      [SESSION_MS],
+      harness.adapters,
+    );
+
+    expect(window).toEqual({ windowMs: SESSION_MS, requests: 0, tokens: 0, costUsd: 0 });
   });
 });
 
