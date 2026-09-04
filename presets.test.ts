@@ -1292,25 +1292,25 @@ describe("antigravity reads its quota through a probe", () => {
     ]);
     expect(readings[0]).toMatchObject({
       kind: "quota",
-      label: "Antigravity · Session",
+      label: "Plan pool · Session",
       group: "Gemini Models",
       unit: "percent",
       percent: 9.2,
       window: { label: "Window", resetsAt: "2026-08-28T22:11:13Z", durationMs: null },
     });
     expect(readings[1]).toMatchObject({
-      label: "Antigravity · Weekly",
+      label: "Plan pool · Weekly",
       group: "Gemini Models",
       percent: 25.1,
       window: { label: "Window", resetsAt: "2026-09-01T20:00:00Z" },
     });
     expect(readings[2]).toMatchObject({
-      label: "Antigravity · Session",
+      label: "Plan pool · Session",
       group: "Claude and GPT models",
       percent: 0,
     });
     expect(readings[3]).toMatchObject({
-      label: "Antigravity · Weekly",
+      label: "Plan pool · Weekly",
       group: "Claude and GPT models",
       percent: 0,
     });
@@ -1338,7 +1338,8 @@ describe("antigravity reads its quota through a probe", () => {
       },
     });
 
-    expect(readings.slice(4)).toMatchObject([
+    // Local accounting leads the card; the vendor's pool bars follow it.
+    expect(readings.slice(0, 3)).toMatchObject([
       {
         id: "tokens-cli-tokens-session",
         label: "Tokens · Last 5 hours",

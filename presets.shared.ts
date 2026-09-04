@@ -1435,24 +1435,11 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     unverified: true,
     source: { kind: "probe", probe: "antigravity" },
     readings: [
-      {
-        kind: "quota",
-        id: "bucket",
-        label: "Antigravity",
-        unit: "percent",
-        each: { path: "buckets", idPath: "id", labelPath: "label", groupPath: "group" },
-        percentPath: "usedPercent",
-        // The probe returns 5-hour and weekly buckets in one array, so there is
-        // no single durationMs to give: a fixed length would be wrong for half
-        // of them. These bars show a reset time and no pace marker.
-        window: { label: "Window", resetsAtPath: "resetsAt" },
-      },
       /**
-       * The bars above are the vendor's consumer-plan pool, which Paseo's own
-       * traffic never decrements: it runs under the user's Cloud project. These
-       * rows are per-client local accounting, so heavy use is visible whichever
-       * Antigravity client spent it. Each is `used` with no ceiling, because no
-       * client publishes the limit its plan applies.
+       * Local accounting first, because it is what answers "how much have I
+       * used": every Antigravity client on this machine, from the logs each one
+       * writes. Each row is `used` with no ceiling, because no client publishes
+       * the limit its plan applies, and a bar would have to invent one.
        */
       {
         kind: "quota",
@@ -1492,6 +1479,24 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           groupPath: "group",
         },
         usedPath: "amount",
+      },
+      /**
+       * The vendor's own pool, last, because it answers for the consumer plan
+       * only. Traffic under the user's own Cloud project — which is how Paseo
+       * reaches the model — never decrements it, so these bars can read 0%
+       * beside a day of heavy use. The label says whose ledger it is.
+       */
+      {
+        kind: "quota",
+        id: "bucket",
+        label: "Plan pool",
+        unit: "percent",
+        each: { path: "buckets", idPath: "id", labelPath: "label", groupPath: "group" },
+        percentPath: "usedPercent",
+        // The probe returns 5-hour and weekly buckets in one array, so there is
+        // no single durationMs to give: a fixed length would be wrong for half
+        // of them. These bars show a reset time and no pace marker.
+        window: { label: "Window", resetsAtPath: "resetsAt" },
       },
     ],
   }),

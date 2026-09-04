@@ -162,7 +162,7 @@ Two shared pools, each with a rolling 5-hour and a weekly window. That is exactl
 
 Measured here, with both credentials on the same Google account: `gemini-weekly` held `0.7627758` remaining at 18:50Z and the identical figure at 19:45Z, across 465 requests and 75M tokens of Paseo traffic. `gemini-5h` read `remainingFraction: 1` throughout. The bars were right; they were answering a different question.
 
-So the card also reports what each Antigravity client on this machine actually spent, from the logs each one writes:
+So the card leads with what each Antigravity client on this machine actually spent, from the logs each one writes, and the vendor pool follows it as **Plan pool · Session** and **Plan pool · Weekly**:
 
 | Group             | Source                                                                     | Rows                                                             |
 | ----------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
