@@ -117,21 +117,48 @@ function amountOf(rows: readonly AntigravityUsageRow[], id: string): number | nu
 
 const CLI_STORE = `${HOME}/.gemini/antigravity-cli/conversations/a.db`;
 describe("readAntigravityUsageRows", () => {
-  test("counts a native client's tokens into the window each turn falls in", () => {
+  test("counts a lone client's tokens into the window each turn falls in", () => {
     const rows = readAntigravityUsageRows(
-      adapters({ clientSteps: { [CLI_STORE]: [step(1, 100), step(30, 400), step(200, 999)] } }),
+      adapters({ clientSteps: { [CLI_STORE]: [step(1, 100), step(9, 400), step(200, 999)] } }),
     );
-    // The 30-hour-old turn is outside today, and the 200-hour-old one is
-    // outside the week, so neither may reach the shorter total.
-    expect(amountOf(rows.tokens, "cli-tokens-day")).toBe(100);
-    expect(amountOf(rows.tokens, "cli-tokens-week")).toBe(500);
+    // One client is the headline, so its rows carry the ids. The 9-hour-old
+    // turn is outside the session, and the 200-hour-old one outside the week.
+    expect(amountOf(rows.tokens, "cli-tokens-session")).toBe(100);
+    expect(amountOf(rows.tokens, "cli-tokens-day")).toBe(500);
   });
 
-  test("counts requests over the past day only", () => {
+  test("counts session requests over the past five hours only", () => {
     const rows = readAntigravityUsageRows(
-      adapters({ clientSteps: { [CLI_STORE]: [step(1, 10), step(23, 10), step(30, 10)] } }),
+      adapters({ clientSteps: { [CLI_STORE]: [step(1, 10), step(4, 10), step(6, 10)] } }),
     );
-    expect(amountOf(rows.requests, "cli-requests-day")).toBe(2);
+    expect(amountOf(rows.requests, "cli-requests-session")).toBe(2);
+    expect(amountOf(rows.requests, "cli-requests-day")).toBe(3);
+  });
+
+  test("reports an idle session as zero rather than dropping the headline row", () => {
+    const rows = readAntigravityUsageRows(
+      adapters({ clientSteps: { [CLI_STORE]: [step(9, 10)] } }),
+    );
+    // Somebody glancing at the card needs "nothing in the last five hours" to
+    // be stated, not inferred from a missing row.
+    expect(amountOf(rows.requests, "cli-requests-session")).toBe(0);
+    expect(amountOf(rows.tokens, "cli-tokens-session")).toBe(0);
+  });
+
+  test("omits a non-headline row whose window is empty", () => {
+    const rows = readAntigravityUsageRows(
+      adapters({
+        // Two clients, so the headline is the total and each client is a
+        // breakdown row. Only Paseo spent inside the session.
+        clientSteps: { [CLI_STORE]: [step(9, 10)] },
+        ompLines: [
+          ompModelChangeLine("2026-09-04T18:00:00.000Z"),
+          ompUsageLine("2026-09-04T19:30:00.000Z", 1000, 0.25),
+        ],
+      }),
+    );
+    expect(rows.requests.map((row) => row.id)).not.toContain("cli-requests-session");
+    expect(amountOf(rows.requests, "all-requests-session")).toBe(1);
   });
 
   test("reports no spend row for a client whose log carries no cost", () => {
@@ -139,15 +166,6 @@ describe("readAntigravityUsageRows", () => {
       adapters({ clientSteps: { [CLI_STORE]: [step(1, 10)] } }),
     );
     expect(rows.spend).toEqual([]);
-  });
-
-  test("omits a row whose window is empty instead of reporting a zero", () => {
-    const rows = readAntigravityUsageRows(
-      adapters({ clientSteps: { [CLI_STORE]: [step(48, 10)] } }),
-    );
-    // The only turn is older than today, so today's rows have nothing to say.
-    expect(rows.requests).toEqual([]);
-    expect(rows.tokens.map((row) => row.id)).toEqual(["cli-tokens-week"]);
   });
 
   test("counts Paseo's own antigravity traffic from the omp transcripts", () => {
@@ -160,9 +178,9 @@ describe("readAntigravityUsageRows", () => {
         ],
       }),
     );
+    expect(amountOf(rows.tokens, "paseo-tokens-session")).toBe(1000);
     expect(amountOf(rows.tokens, "paseo-tokens-day")).toBe(1000);
-    expect(amountOf(rows.tokens, "paseo-tokens-week")).toBe(5000);
-    expect(amountOf(rows.requests, "paseo-requests-day")).toBe(1);
+    expect(amountOf(rows.requests, "paseo-requests-session")).toBe(1);
     expect(amountOf(rows.spend, "paseo-spend-week")).toBe(1);
   });
 
@@ -187,7 +205,7 @@ describe("readAntigravityUsageRows", () => {
     expect(rows).toEqual({ tokens: [], requests: [], spend: [] });
   });
 
-  test("adds every client up, so the card leads with the total", () => {
+  test("adds every client up, so the session figure leads the card", () => {
     const rows = readAntigravityUsageRows(
       adapters({
         clientSteps: { [CLI_STORE]: [step(1, 10)] },
@@ -198,18 +216,38 @@ describe("readAntigravityUsageRows", () => {
       }),
     );
     expect(rows.requests[0]).toEqual({
-      id: "all-requests-day",
-      label: "Today",
+      id: "all-requests-session",
+      label: "Session · last 5h",
       group: "Every client",
       amount: 2,
     });
-    expect(amountOf(rows.tokens, "all-tokens-day")).toBe(1010);
+    expect(amountOf(rows.tokens, "all-tokens-session")).toBe(1010);
   });
 
-  test("withholds the combined spend while one client reports no cost", () => {
+  test("breaks a window down only where more than one client spent in it", () => {
     const rows = readAntigravityUsageRows(
       adapters({
-        // The CLI's own logs carry no cost, so a total would be a partial sum.
+        // The CLI's turn is 9 hours old: inside today, outside the session.
+        clientSteps: { [CLI_STORE]: [step(9, 10)] },
+        ompLines: [
+          ompModelChangeLine("2026-09-04T10:00:00.000Z"),
+          ompUsageLine("2026-09-04T19:30:00.000Z", 1000, 0.25),
+        ],
+      }),
+    );
+    expect(rows.requests.map((row) => `${row.group}/${row.label}`)).toEqual([
+      "Every client/Session · last 5h",
+      "Every client/Today",
+      "Antigravity CLI/Today",
+      "Paseo (omp)/Today",
+    ]);
+  });
+
+  test("names the spending clients when the combined spend is withheld", () => {
+    const rows = readAntigravityUsageRows(
+      adapters({
+        // The CLI's logs price nothing, so no total is possible; Paseo's own
+        // figure still has to reach the card.
         clientSteps: { [CLI_STORE]: [step(1, 10)] },
         ompLines: [
           ompModelChangeLine("2026-09-04T19:00:00.000Z"),
@@ -221,27 +259,13 @@ describe("readAntigravityUsageRows", () => {
     expect(amountOf(rows.spend, "paseo-spend-week")).toBe(0.25);
   });
 
-  test("states no total when one client is the only spender", () => {
+  test("makes the only active client the headline instead of a total", () => {
     const rows = readAntigravityUsageRows(
       adapters({ clientSteps: { [CLI_STORE]: [step(1, 10)] } }),
     );
-    expect(rows.requests.map((row) => row.group)).toEqual(["Antigravity CLI"]);
-  });
-
-  test("groups each row under the client that spent it", () => {
-    const rows = readAntigravityUsageRows(
-      adapters({
-        clientSteps: { [CLI_STORE]: [step(1, 10)] },
-        ompLines: [
-          ompModelChangeLine("2026-09-04T19:00:00.000Z"),
-          ompUsageLine("2026-09-04T19:30:00.000Z", 1000, 0.25),
-        ],
-      }),
-    );
     expect(rows.requests.map((row) => row.group)).toEqual([
-      "Every client",
       "Antigravity CLI",
-      "Paseo (omp)",
+      "Antigravity CLI",
     ]);
   });
 });

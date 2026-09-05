@@ -33,6 +33,8 @@ import {
 } from "./history.server";
 
 const HOUR_MS = 60 * 60 * 1000;
+/** The vendor meters a rolling five hours, so the headline row matches it. */
+const SESSION_WINDOW_MS = 5 * HOUR_MS;
 const DAY_WINDOW_MS = 24 * HOUR_MS;
 const WEEK_WINDOW_MS = 7 * 24 * HOUR_MS;
 
@@ -41,6 +43,7 @@ const OMP_ANTIGRAVITY_PROVIDER = "omp-google-antigravity";
 const PASEO_CLIENT_LABEL = "Paseo (omp)";
 const TOTAL_GROUP_LABEL = "Every client";
 
+const SESSION_LABEL = "Session · last 5h";
 const DAY_LABEL = "Today";
 const WEEK_LABEL = "Last 7 days";
 
@@ -69,30 +72,44 @@ export interface AntigravityUsage extends AntigravityQuota {
 interface ClientTotals {
   id: string;
   label: string;
+  /**
+   * The headline group's session rows are reported even at zero: "nothing in
+   * the last five hours" is the answer somebody glancing at the card wants,
+   * and an absent row would read as a broken reader instead.
+   */
+  headline: boolean;
+  sessionTokens: number;
+  sessionRequests: number;
   dayTokens: number;
   dayRequests: number;
-  weekTokens: number;
   /** Null where the client's log reports no cost of its own. */
   weekSpendUsd: number | null;
+  weekRequests: number;
 }
 
 function totalsFromClient(client: AntigravityClientRows, nowMs: number): ClientTotals {
   const totals: ClientTotals = {
     id: client.id,
     label: client.label,
+    headline: false,
+    sessionTokens: 0,
+    sessionRequests: 0,
     dayTokens: 0,
     dayRequests: 0,
-    weekTokens: 0,
     weekSpendUsd: null,
+    weekRequests: 0,
   };
   for (const row of client.rows) {
     const age = nowMs - row.timestampMs;
     if (age < 0 || age > WEEK_WINDOW_MS) continue;
     const tokens = row.uncachedInputTokens + row.cachedInputTokens + row.outputTokens;
-    totals.weekTokens += tokens;
+    totals.weekRequests += 1;
     if (age > DAY_WINDOW_MS) continue;
     totals.dayTokens += tokens;
     totals.dayRequests += 1;
+    if (age > SESSION_WINDOW_MS) continue;
+    totals.sessionTokens += tokens;
+    totals.sessionRequests += 1;
   }
   return totals;
 }
@@ -102,80 +119,136 @@ function totalsFromHarness(
   label: string,
   windows: readonly AgentProviderWindow[],
 ): ClientTotals | null {
-  const [day, week] = windows;
-  if (day === undefined || week === undefined) return null;
+  const [session, day, week] = windows;
+  if (session === undefined || day === undefined || week === undefined) return null;
   if (week.requests === 0) return null;
   return {
     id,
     label,
+    headline: false,
+    sessionTokens: session.tokens,
+    sessionRequests: session.requests,
     dayTokens: day.tokens,
     dayRequests: day.requests,
-    weekTokens: week.tokens,
     weekSpendUsd: week.costUsd,
+    weekRequests: week.requests,
   };
 }
 
 /**
- * The question the card answers first is "how much Antigravity have I used",
- * which is every client added up. The per-client rows below it say where it
- * went. With one client the total would restate that client, so it is omitted.
+ * The headline is every client added up, because the vendor's five-hour pool is
+ * shared: what matters is the total in the window, not which tool spent it. The
+ * per-client rows below say where it went. With one client the total would
+ * restate it, so that client becomes the headline instead.
  */
-function combinedTotals(clients: readonly ClientTotals[]): ClientTotals | null {
-  if (clients.length < 2) return null;
+function withHeadline(clients: readonly ClientTotals[]): ClientTotals[] {
+  const [only] = clients;
+  if (clients.length === 0) return [];
+  if (clients.length === 1 && only !== undefined) return [{ ...only, headline: true }];
   const priced = clients.filter((client) => client.weekSpendUsd !== null);
-  return {
+  const combined: ClientTotals = {
     id: "all",
     label: TOTAL_GROUP_LABEL,
+    headline: true,
+    sessionTokens: clients.reduce((sum, client) => sum + client.sessionTokens, 0),
+    sessionRequests: clients.reduce((sum, client) => sum + client.sessionRequests, 0),
     dayTokens: clients.reduce((sum, client) => sum + client.dayTokens, 0),
     dayRequests: clients.reduce((sum, client) => sum + client.dayRequests, 0),
-    weekTokens: clients.reduce((sum, client) => sum + client.weekTokens, 0),
     // A total that silently drops an unpriced client reads as complete money.
     weekSpendUsd:
       priced.length === clients.length
         ? priced.reduce((sum, client) => sum + (client.weekSpendUsd ?? 0), 0)
         : null,
+    weekRequests: clients.reduce((sum, client) => sum + client.weekRequests, 0),
   };
+  return [combined, ...clients];
+}
+
+interface RowInput {
+  id: string;
+  label: string;
+  group: string;
+  amount: number | null;
 }
 
 /**
- * Zero is never shown. "Tokens · Today: 0 used" is a row that costs a line and
- * says only that the window is empty, which the absent row says better.
+ * Outside the headline, zero is never shown: "Tokens · Today: 0 used" costs a
+ * line and says only that the window is empty, which the absent row says
+ * better.
  */
-function pushAmount(
-  rows: AntigravityUsageRow[],
-  row: { id: string; label: string; group: string; amount: number | null },
-): void {
-  if (row.amount === null || row.amount === 0) return;
+function pushAmount(rows: AntigravityUsageRow[], row: RowInput, keepZero = false): void {
+  if (row.amount === null) return;
+  if (row.amount === 0 && !keepZero) return;
   rows.push(row);
+}
+
+/**
+ * A window only one client touched needs no breakdown: its per-client row would
+ * repeat the headline figure under a second heading. So a metric is broken down
+ * only where two or more clients spent inside it.
+ */
+function contributors(
+  clients: readonly ClientTotals[],
+  amountOf: (client: ClientTotals) => number | null,
+): number {
+  return clients.filter((client) => (amountOf(client) ?? 0) > 0).length;
 }
 
 function usageRows(totals: readonly ClientTotals[]): AntigravityUsageRows {
   const rows: AntigravityUsageRows = { tokens: [], requests: [], spend: [] };
+  const breakdown = totals.filter((client) => !client.headline);
+  const splitSession = contributors(breakdown, (client) => client.sessionRequests) > 1;
+  const splitDay = contributors(breakdown, (client) => client.dayRequests) > 1;
+  // A combined spend is withheld while any client reports none, so the clients
+  // that do price themselves have to say so individually or the money vanishes.
+  const headlineSpend = totals.find((client) => client.headline)?.weekSpendUsd ?? null;
+  const splitSpend =
+    headlineSpend === null || contributors(breakdown, (client) => client.weekSpendUsd) > 1;
   for (const client of totals) {
-    pushAmount(rows.requests, {
-      id: `${client.id}-requests-day`,
-      label: DAY_LABEL,
-      group: client.label,
-      amount: client.dayRequests,
-    });
-    pushAmount(rows.tokens, {
-      id: `${client.id}-tokens-day`,
-      label: DAY_LABEL,
-      group: client.label,
-      amount: client.dayTokens,
-    });
-    pushAmount(rows.tokens, {
-      id: `${client.id}-tokens-week`,
-      label: WEEK_LABEL,
-      group: client.label,
-      amount: client.weekTokens,
-    });
-    pushAmount(rows.spend, {
-      id: `${client.id}-spend-week`,
-      label: WEEK_LABEL,
-      group: client.label,
-      amount: client.weekSpendUsd,
-    });
+    if (client.headline || splitSession) {
+      pushAmount(
+        rows.requests,
+        {
+          id: `${client.id}-requests-session`,
+          label: SESSION_LABEL,
+          group: client.label,
+          amount: client.sessionRequests,
+        },
+        client.headline,
+      );
+      pushAmount(
+        rows.tokens,
+        {
+          id: `${client.id}-tokens-session`,
+          label: SESSION_LABEL,
+          group: client.label,
+          amount: client.sessionTokens,
+        },
+        client.headline,
+      );
+    }
+    if (client.headline || splitDay) {
+      pushAmount(rows.requests, {
+        id: `${client.id}-requests-day`,
+        label: DAY_LABEL,
+        group: client.label,
+        amount: client.dayRequests,
+      });
+      pushAmount(rows.tokens, {
+        id: `${client.id}-tokens-day`,
+        label: DAY_LABEL,
+        group: client.label,
+        amount: client.dayTokens,
+      });
+    }
+    if (client.headline || splitSpend) {
+      pushAmount(rows.spend, {
+        id: `${client.id}-spend-week`,
+        label: WEEK_LABEL,
+        group: client.label,
+        amount: client.weekSpendUsd,
+      });
+    }
   }
   return rows;
 }
@@ -202,14 +275,12 @@ export function readAntigravityUsageRows(
     PASEO_CLIENT_LABEL,
     readAgentProviderWindows(
       OMP_ANTIGRAVITY_PROVIDER,
-      [DAY_WINDOW_MS, WEEK_WINDOW_MS],
+      [SESSION_WINDOW_MS, DAY_WINDOW_MS, WEEK_WINDOW_MS],
       adapters.history,
     ),
   );
-  const used = clients.filter((client) => client.weekTokens > 0 || client.dayRequests > 0);
-  const spenders = paseo === null ? used : [...used, paseo];
-  const combined = combinedTotals(spenders);
-  return usageRows(combined === null ? spenders : [combined, ...spenders]);
+  const used = clients.filter((client) => client.weekRequests > 0);
+  return usageRows(withHeadline(paseo === null ? used : [...used, paseo]));
 }
 
 export function createNodeAntigravityUsageAdapters(): AntigravityUsageAdapters {

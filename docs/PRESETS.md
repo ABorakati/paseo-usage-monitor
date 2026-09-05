@@ -162,21 +162,23 @@ Two shared pools, each with a rolling 5-hour and a weekly window. That is exactl
 
 Measured here, with both credentials on the same Google account: `gemini-weekly` held `0.7627758` remaining at 18:50Z and the identical figure at 19:45Z, across 465 requests and 75M tokens of Paseo traffic. `gemini-5h` read `remainingFraction: 1` throughout. The bars were right; they were answering a different question.
 
-So the card leads with what each Antigravity client on this machine actually spent, from the logs each one writes, and the vendor pool follows it as **Plan pool · Session** and **Plan pool · Weekly**:
+So the card leads with the rolling five hours every Antigravity client on this machine spent, from the logs each one writes, and the vendor pool follows it as **Plan pool · Session** and **Plan pool · Weekly**:
 
-| Group             | Source                                                              | Rows                                              |
-| ----------------- | ------------------------------------------------------------------- | ------------------------------------------------- |
-| `Every client`    | every group below, added up                                         | Requests today, tokens today, tokens 7d, spend 7d |
-| `Antigravity app` | `~/.gemini/antigravity/conversations/*.db`                          | Requests today, tokens today, tokens 7d           |
-| `Antigravity CLI` | `~/.gemini/antigravity-cli/conversations/*.db`                      | Requests today, tokens today, tokens 7d           |
-| `Antigravity ACP` | `~/.gemini/antigravity-acp/conversations/*.db`                      | Requests today, tokens today, tokens 7d           |
-| `Paseo (omp)`     | the omp transcripts the [history](HISTORY.md) surface already reads | Requests today, tokens today, tokens 7d, spend 7d |
+| Group             | Source                                                              | Rows                                       |
+| ----------------- | ------------------------------------------------------------------- | ------------------------------------------ |
+| `Every client`    | every group below, added up                                         | Session (last 5h), today, spend (7d)       |
+| `Antigravity app` | `~/.gemini/antigravity/conversations/*.db`                          | Session (last 5h), today                   |
+| `Antigravity CLI` | `~/.gemini/antigravity-cli/conversations/*.db`                      | Session (last 5h), today                   |
+| `Antigravity ACP` | `~/.gemini/antigravity-acp/conversations/*.db`                      | Session (last 5h), today                   |
+| `Paseo (omp)`     | the omp transcripts the [history](HISTORY.md) surface already reads | Session (last 5h), today, spend (7d)       |
 
-`Every client` is the figure that answers "how much Antigravity have I used", whichever tool spent it. It is omitted when only one client spent anything, because it would restate that client. A row whose window is empty is left out rather than printed as `0 used`, and a group with nothing in the past week contributes no rows at all. Spend appears only where the log priced itself, and a combined spend is withheld while any client reports none, because a partial sum reads as complete money.
+`Every client` leads with the five-hour figure because that is the window the vendor meters and the pool is shared: at a glance what matters is the total inside the window, not which tool spent it. Requests come before tokens, since a request is the unit the plans are counted in. That headline row is stated even at zero — "nothing in the last five hours" is an answer, while a missing row reads as a broken reader.
+
+Everything under the headline is suppressed when empty, and a window only one client touched is not broken down at all, because the breakdown row would repeat the headline. With one active client there is no total: that client becomes the headline. Spend appears only where the log priced itself; a combined spend is withheld while any client reports none, and the clients that do price themselves then say so individually.
 
 ### Giving the request rows a bar
 
-Google publishes no fixed allowance for these plans — the free tier's daily request cap has been cut repeatedly and appears in no API response — so the preset declares no ceiling and the rows render as bare counts. Name the allowance yourself and every request row becomes a bar with a percentage:
+Google publishes no numeric allowance for any of these plans — free, AI Pro or AI Ultra — and none appears in an API response, so the preset declares no ceiling and the rows render as bare counts. Name your own allowance and every request row becomes a bar with a percentage:
 
 ```json
 {
