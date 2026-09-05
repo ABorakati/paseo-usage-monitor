@@ -8,6 +8,7 @@ import {
 } from "./limits.shared";
 import { USAGE_PRESETS, getUsagePreset, listUsagePresetIds } from "./presets.shared";
 import { projectReadings, requiresSourceDocument } from "./readings.server";
+import { buildProviderRegistry } from "./registry.server";
 
 const presetEntries = Object.entries(USAGE_PRESETS);
 
@@ -1326,11 +1327,11 @@ describe("antigravity reads its quota through a probe", () => {
     const readings = project("antigravity", {
       ...ANTIGRAVITY_PROBE,
       usage: {
-        tokens: [
-          { id: "cli-tokens-session", label: "Last 5 hours", group: "Antigravity CLI", amount: 32_652_978 },
-        ],
         requests: [
-          { id: "paseo-requests-day", label: "Last 24 hours", group: "Paseo (omp)", amount: 600 },
+          { id: "paseo-requests-day", label: "Today", group: "Paseo (omp)", amount: 600 },
+        ],
+        tokens: [
+          { id: "cli-tokens-day", label: "Today", group: "Antigravity CLI", amount: 32_652_978 },
         ],
         spend: [
           { id: "paseo-spend-week", label: "Last 7 days", group: "Paseo (omp)", amount: 1.489 },
@@ -1341,20 +1342,20 @@ describe("antigravity reads its quota through a probe", () => {
     // Local accounting leads the card; the vendor's pool bars follow it.
     expect(readings.slice(0, 3)).toMatchObject([
       {
-        id: "tokens-cli-tokens-session",
-        label: "Tokens · Last 5 hours",
-        group: "Antigravity CLI",
-        unit: "tokens",
-        used: 32_652_978,
+        id: "requests-paseo-requests-day",
+        label: "Requests · Today",
+        group: "Paseo (omp)",
+        unit: "requests",
+        used: 600,
         limit: null,
         percent: null,
       },
       {
-        id: "requests-paseo-requests-day",
-        label: "Requests · Last 24 hours",
-        group: "Paseo (omp)",
-        unit: "requests",
-        used: 600,
+        id: "tokens-cli-tokens-day",
+        label: "Tokens · Today",
+        group: "Antigravity CLI",
+        unit: "tokens",
+        used: 32_652_978,
       },
       {
         id: "spend-paseo-spend-week",
@@ -1368,6 +1369,19 @@ describe("antigravity reads its quota through a probe", () => {
 
   test("adds no local rows when no client on this machine has any", () => {
     expect(project("antigravity", ANTIGRAVITY_PROBE)).toHaveLength(4);
+  });
+
+  test("a declared ceiling reaches the requests rows and nothing else", () => {
+    const [entry] = buildProviderRegistry({
+      antigravity: { preset: "antigravity", limits: { requests: 20 } },
+    });
+    const limits: Record<string, number | undefined> = {};
+    for (const reading of entry?.provider?.readings ?? []) {
+      if (reading.kind === "quota") limits[reading.id] = reading.limit;
+    }
+    expect(limits.requests).toBe(20);
+    expect(limits.tokens).toBeUndefined();
+    expect(limits.bucket).toBeUndefined();
   });
 });
 

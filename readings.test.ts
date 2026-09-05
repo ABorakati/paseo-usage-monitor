@@ -44,6 +44,39 @@ describe("projectReadings quota", () => {
     ]);
   });
 
+  test("bounds a count against a declared ceiling the response never carried", () => {
+    // Antigravity meters requests without publishing the plan's allowance, so
+    // the ceiling arrives from the user's config as a literal.
+    const mapping: UsageQuotaMapping = {
+      kind: "quota",
+      id: "requests",
+      label: "Requests",
+      unit: "requests",
+      usedPath: "amount",
+      limit: 20,
+    };
+
+    expect(project([mapping], { amount: 15 })).toMatchObject([
+      { used: 15, limit: 20, remaining: 5, percent: 75 },
+    ]);
+  });
+
+  test("prefers the vendor's own ceiling over a declared one", () => {
+    const mapping: UsageQuotaMapping = {
+      kind: "quota",
+      id: "requests",
+      label: "Requests",
+      unit: "requests",
+      usedPath: "used",
+      limitPath: "limit",
+      limit: 20,
+    };
+
+    expect(project([mapping], { used: 15, limit: 100 })).toMatchObject([
+      { limit: 100, percent: 15 },
+    ]);
+  });
+
   test("prefers an explicit percent path over the used/limit pair", () => {
     const mapping: UsageQuotaMapping = {
       kind: "quota",

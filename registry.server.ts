@@ -19,6 +19,24 @@ export interface UsageProviderEntry {
 }
 
 /**
+ * Stamps a user-declared ceiling onto the readings it names. A vendor that
+ * publishes no allowance leaves its rows as bare counts; the user knows the
+ * number from their plan page, and naming the mapping is how they hand it over
+ * without restating the whole reading list.
+ */
+function applyLimits(
+  readings: UsageProvider["readings"],
+  limits: Record<string, number>,
+): UsageProvider["readings"] {
+  if (Object.keys(limits).length === 0) return readings;
+  return readings.map((reading) => {
+    if (reading.kind !== "quota") return reading;
+    const limit = limits[reading.id];
+    return limit === undefined ? reading : { ...reading, limit };
+  });
+}
+
+/**
  * A preset supplies the shape; the override supplies what the user changed.
  * `readings` and `source` replace wholesale, because a half-merged reading list
  * would describe a document neither side meant. `credentials` and `display`
@@ -36,6 +54,7 @@ function applyOverride(preset: UsageProvider, override: UsageProviderOverride): 
       : { refreshIntervalMs: override.refreshIntervalMs }),
     ...(override.source === undefined ? {} : { source: override.source }),
     ...(override.readings === undefined ? {} : { readings: override.readings }),
+    limits: override.limits === undefined ? preset.limits : override.limits,
     ...(override.icon === undefined ? {} : { icon: override.icon }),
     credentials:
       override.credentials === undefined
@@ -52,7 +71,12 @@ function resolveEntry(id: string, override: UsageProviderOverride): UsageProvide
     if (!preset) {
       return { id, provider: null, error: `Unknown preset "${override.preset}"` };
     }
-    return { id, provider: applyOverride(preset, override), error: null };
+    const provider = applyOverride(preset, override);
+    return {
+      id,
+      provider: { ...provider, readings: applyLimits(provider.readings, provider.limits) },
+      error: null,
+    };
   }
 
   const parsed = UsageProviderSchema.safeParse(override);
@@ -65,7 +89,12 @@ function resolveEntry(id: string, override: UsageProviderOverride): UsageProvide
       .join("; ");
     return { id, provider: null, error: detail };
   }
-  return { id, provider: parsed.data, error: null };
+  const provider = parsed.data;
+  return {
+    id,
+    provider: { ...provider, readings: applyLimits(provider.readings, provider.limits) },
+    error: null,
+  };
 }
 
 export function buildProviderRegistry(overrides: UsageProviderOverrides): UsageProviderEntry[] {

@@ -139,7 +139,9 @@ function projectQuota(
   const scale = mapping.scale ?? 1;
   const amounts = completeQuotaAmounts({
     used: readScaledAmount(document, mapping.usedPath, scale),
-    limit: readScaledAmount(document, mapping.limitPath, scale),
+    // A path wins over a declared ceiling: a vendor that reports its own
+    // allowance is more current than a number typed into a config file.
+    limit: readScaledAmount(document, mapping.limitPath, scale) ?? mapping.limit ?? null,
     remaining: readScaledAmount(document, mapping.remainingPath, scale),
   });
   return {

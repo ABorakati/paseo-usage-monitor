@@ -116,15 +116,14 @@ function amountOf(rows: readonly AntigravityUsageRow[], id: string): number | nu
 }
 
 const CLI_STORE = `${HOME}/.gemini/antigravity-cli/conversations/a.db`;
-
 describe("readAntigravityUsageRows", () => {
   test("counts a native client's tokens into the window each turn falls in", () => {
     const rows = readAntigravityUsageRows(
-      adapters({ clientSteps: { [CLI_STORE]: [step(1, 100), step(9, 400), step(200, 999)] } }),
+      adapters({ clientSteps: { [CLI_STORE]: [step(1, 100), step(30, 400), step(200, 999)] } }),
     );
-    // The 9-hour-old turn is outside the session window, and the 200-hour-old
-    // one is outside the week, so neither may reach the shorter totals.
-    expect(amountOf(rows.tokens, "cli-tokens-session")).toBe(100);
+    // The 30-hour-old turn is outside today, and the 200-hour-old one is
+    // outside the week, so neither may reach the shorter total.
+    expect(amountOf(rows.tokens, "cli-tokens-day")).toBe(100);
     expect(amountOf(rows.tokens, "cli-tokens-week")).toBe(500);
   });
 
@@ -142,6 +141,15 @@ describe("readAntigravityUsageRows", () => {
     expect(rows.spend).toEqual([]);
   });
 
+  test("omits a row whose window is empty instead of reporting a zero", () => {
+    const rows = readAntigravityUsageRows(
+      adapters({ clientSteps: { [CLI_STORE]: [step(48, 10)] } }),
+    );
+    // The only turn is older than today, so today's rows have nothing to say.
+    expect(rows.requests).toEqual([]);
+    expect(rows.tokens.map((row) => row.id)).toEqual(["cli-tokens-week"]);
+  });
+
   test("counts Paseo's own antigravity traffic from the omp transcripts", () => {
     const rows = readAntigravityUsageRows(
       adapters({
@@ -152,7 +160,7 @@ describe("readAntigravityUsageRows", () => {
         ],
       }),
     );
-    expect(amountOf(rows.tokens, "paseo-tokens-session")).toBe(1000);
+    expect(amountOf(rows.tokens, "paseo-tokens-day")).toBe(1000);
     expect(amountOf(rows.tokens, "paseo-tokens-week")).toBe(5000);
     expect(amountOf(rows.requests, "paseo-requests-day")).toBe(1);
     expect(amountOf(rows.spend, "paseo-spend-week")).toBe(1);
@@ -179,6 +187,47 @@ describe("readAntigravityUsageRows", () => {
     expect(rows).toEqual({ tokens: [], requests: [], spend: [] });
   });
 
+  test("adds every client up, so the card leads with the total", () => {
+    const rows = readAntigravityUsageRows(
+      adapters({
+        clientSteps: { [CLI_STORE]: [step(1, 10)] },
+        ompLines: [
+          ompModelChangeLine("2026-09-04T19:00:00.000Z"),
+          ompUsageLine("2026-09-04T19:30:00.000Z", 1000, 0.25),
+        ],
+      }),
+    );
+    expect(rows.requests[0]).toEqual({
+      id: "all-requests-day",
+      label: "Today",
+      group: "Every client",
+      amount: 2,
+    });
+    expect(amountOf(rows.tokens, "all-tokens-day")).toBe(1010);
+  });
+
+  test("withholds the combined spend while one client reports no cost", () => {
+    const rows = readAntigravityUsageRows(
+      adapters({
+        // The CLI's own logs carry no cost, so a total would be a partial sum.
+        clientSteps: { [CLI_STORE]: [step(1, 10)] },
+        ompLines: [
+          ompModelChangeLine("2026-09-04T19:00:00.000Z"),
+          ompUsageLine("2026-09-04T19:30:00.000Z", 1000, 0.25),
+        ],
+      }),
+    );
+    expect(amountOf(rows.spend, "all-spend-week")).toBeUndefined();
+    expect(amountOf(rows.spend, "paseo-spend-week")).toBe(0.25);
+  });
+
+  test("states no total when one client is the only spender", () => {
+    const rows = readAntigravityUsageRows(
+      adapters({ clientSteps: { [CLI_STORE]: [step(1, 10)] } }),
+    );
+    expect(rows.requests.map((row) => row.group)).toEqual(["Antigravity CLI"]);
+  });
+
   test("groups each row under the client that spent it", () => {
     const rows = readAntigravityUsageRows(
       adapters({
@@ -189,10 +238,9 @@ describe("readAntigravityUsageRows", () => {
         ],
       }),
     );
-    expect(rows.tokens.map((row) => row.group)).toEqual([
+    expect(rows.requests.map((row) => row.group)).toEqual([
+      "Every client",
       "Antigravity CLI",
-      "Antigravity CLI",
-      "Paseo (omp)",
       "Paseo (omp)",
     ]);
   });

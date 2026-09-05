@@ -164,14 +164,30 @@ Measured here, with both credentials on the same Google account: `gemini-weekly`
 
 So the card leads with what each Antigravity client on this machine actually spent, from the logs each one writes, and the vendor pool follows it as **Plan pool · Session** and **Plan pool · Weekly**:
 
-| Group             | Source                                                                     | Rows                                                             |
-| ----------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `Antigravity app` | `~/.gemini/antigravity/conversations/*.db`                                 | Tokens (5h, 7d), requests (24h)                                  |
-| `Antigravity CLI` | `~/.gemini/antigravity-cli/conversations/*.db`                             | Tokens (5h, 7d), requests (24h)                                  |
-| `Antigravity ACP` | `~/.gemini/antigravity-acp/conversations/*.db`                             | Tokens (5h, 7d), requests (24h)                                  |
-| `Paseo (omp)`     | the omp transcripts the [history](HISTORY.md) surface already reads         | Tokens (5h, 7d), requests (24h), spend (7d)                      |
+| Group             | Source                                                              | Rows                                              |
+| ----------------- | ------------------------------------------------------------------- | ------------------------------------------------- |
+| `Every client`    | every group below, added up                                         | Requests today, tokens today, tokens 7d, spend 7d |
+| `Antigravity app` | `~/.gemini/antigravity/conversations/*.db`                          | Requests today, tokens today, tokens 7d           |
+| `Antigravity CLI` | `~/.gemini/antigravity-cli/conversations/*.db`                      | Requests today, tokens today, tokens 7d           |
+| `Antigravity ACP` | `~/.gemini/antigravity-acp/conversations/*.db`                      | Requests today, tokens today, tokens 7d           |
+| `Paseo (omp)`     | the omp transcripts the [history](HISTORY.md) surface already reads | Requests today, tokens today, tokens 7d, spend 7d |
 
-A group with nothing in the widest window contributes no rows, so a client you do not have installed costs you no zeros. These rows carry a `used` figure and no ceiling, because no client publishes the limit its plan applies — a bar would have to invent one.
+`Every client` is the figure that answers "how much Antigravity have I used", whichever tool spent it. It is omitted when only one client spent anything, because it would restate that client. A row whose window is empty is left out rather than printed as `0 used`, and a group with nothing in the past week contributes no rows at all. Spend appears only where the log priced itself, and a combined spend is withheld while any client reports none, because a partial sum reads as complete money.
+
+### Giving the request rows a bar
+
+Google publishes no fixed allowance for these plans — the free tier's daily request cap has been cut repeatedly and appears in no API response — so the preset declares no ceiling and the rows render as bare counts. Name the allowance yourself and every request row becomes a bar with a percentage:
+
+```json
+{
+  "antigravity": {
+    "preset": "antigravity",
+    "limits": { "requests": 20 }
+  }
+}
+```
+
+`limits` keys are reading ids — `requests`, `tokens`, `spend` — and each applies to every row that reading projects, so one number covers both the total and each client. A ceiling the vendor publishes always wins over a declared one, so this can never override a real limit. Read your own number off [antigravity.google/docs/plans](https://antigravity.google/docs/plans/): a preset default would be a confident wrong bar.
 
 Each conversation store is SQLite, and one `steps` row is one turn. The `metadata` blob is protobuf with no schema published anywhere, so only two fields are read: the step's timestamp, and the generation's usage counters (uncached input, cached input, output). The output counter is reported twice — once whole, once split in two — and the reader drops any row where the split does not add up. That identity held on 261 of 261 live rows, and it is what distinguishes a decoded counter from a guessed one. A vendor schema change therefore shows up as a missing row, never as a wrong number.
 

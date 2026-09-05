@@ -56,6 +56,7 @@ Malformed JSON, or JSON that fails the schema, makes the plugin throw a `UsageCo
 | `credentials`       | credential map            | no                        | `{}`     | See [Credentials](CREDENTIALS.md#credentials).                                          |
 | `source`            | source object             | no                        | —        | Omit only when every reading is schedule-driven and needs no request.                   |
 | `readings`          | array of readings, min 1  | required without `preset` | —        | See [Readings](#readings).                                                              |
+| `limits`            | map of reading id to number | no                      | `{}`     | Ceilings for readings whose vendor publishes none, so a bare count becomes a bar. See [Ceilings](#ceilings). |
 
 `unverified` is not settable from config. It is a property of a preset, marking one whose endpoint no vendor has published.
 
@@ -68,6 +69,7 @@ An entry with `preset` starts from that preset, then each field present on the e
 | `label`, `description`, `enabled`, `refreshIntervalMs` | Replaced.                                                               |
 | `source`                                               | Replaced as a whole object. You cannot override just the `url`.         |
 | `readings`                                             | Replaced as a whole array. There is no per-reading merge.               |
+| `limits`                                               | Replaced as a whole map.                                                |
 | `credentials`                                          | Merged **by credential name**; the entry wins per name, others survive. |
 
 Every shipped preset declares exactly one credential name, so repointing a preset's key means re-declaring that one name:
@@ -103,11 +105,27 @@ An entry naming a preset that does not exist becomes an error row reading `Unkno
 | `scale`                | number    | no       | Multiplies every amount. See [Scaling an amount](#scaling-an-amount). |
 | `usedPath`             | JSON path | no       | Amount consumed.                                                      |
 | `limitPath`            | JSON path | no       | Ceiling.                                                              |
+| `limit`                | number    | no       | Ceiling as a literal; set through the provider's `limits` map.         |
 | `remainingPath`        | JSON path | no       | Amount left.                                                          |
 | `percentPath`          | JSON path | no       | 0–100 consumed, straight from the response.                           |
 | `percentRemainingPath` | JSON path | no       | Use when the response reports what is _left_ as a percentage.         |
 
 Give a quota enough to place itself on a scale: `usedPath` with one of `limitPath` / `remainingPath`, or `percentPath` alone, or `percentRemainingPath` alone. The resolved reading carries `used`, `limit`, `remaining`, and `percent` (0–100 consumed, derived from whichever pair resolved). Any of them can be null.
+
+### Ceilings
+
+Some vendors meter you without publishing the allowance, so a reading resolves a `used` figure and no `limit`: the card prints the count and draws no bar. The provider's `limits` map supplies the missing ceiling, keyed by the reading's `id`:
+
+```json
+{
+  "antigravity": {
+    "preset": "antigravity",
+    "limits": { "requests": 20 }
+  }
+}
+```
+
+One entry covers every row that reading projects, including each `each` element. `limitPath` wins where it resolves, so a declared ceiling can never mask a limit the vendor actually reports. A key naming no quota reading is ignored, and a preset never ships a ceiling of its own — a guessed allowance would draw a confident wrong bar.
 
 ### `window`
 

@@ -1438,16 +1438,18 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
       /**
        * Local accounting first, because it is what answers "how much have I
        * used": every Antigravity client on this machine, from the logs each one
-       * writes. Each row is `used` with no ceiling, because no client publishes
-       * the limit its plan applies, and a bar would have to invent one.
+       * writes. Requests lead, because a request is the unit Antigravity's own
+       * plans are counted in, and `limits: {"requests": N}` in the config turns
+       * these rows into real bars. No preset default: an invented allowance
+       * would draw a confident wrong percentage.
        */
       {
         kind: "quota",
-        id: "tokens",
-        label: "Tokens",
-        unit: "tokens",
+        id: "requests",
+        label: "Requests",
+        unit: "requests",
         each: {
-          path: "usage.tokens",
+          path: "usage.requests",
           idPath: "id",
           labelPath: "label",
           groupPath: "group",
@@ -1456,11 +1458,11 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
       },
       {
         kind: "quota",
-        id: "requests",
-        label: "Requests",
-        unit: "requests",
+        id: "tokens",
+        label: "Tokens",
+        unit: "tokens",
         each: {
-          path: "usage.requests",
+          path: "usage.tokens",
           idPath: "id",
           labelPath: "label",
           groupPath: "group",

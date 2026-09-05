@@ -234,6 +234,14 @@ export const UsageQuotaMappingSchema = UsageReadingCommonSchema.extend({
   scale: UsageAmountScaleSchema.optional(),
   usedPath: z.string().min(1).optional(),
   limitPath: z.string().min(1).optional(),
+  /**
+   * A ceiling the response does not carry. Some vendors meter you without
+   * publishing the plan's allowance — Antigravity is one — so the number has to
+   * come from the user, who can read it off their plan page. Set through the
+   * provider's `limits` map rather than written here by a preset, because a
+   * preset that guessed an allowance would draw a confident wrong bar.
+   */
+  limit: z.number().positive().optional(),
   remainingPath: z.string().min(1).optional(),
   percentPath: z.string().min(1).optional(),
   /** Set when the response reports what is left as a percentage, not what is used. */
@@ -334,6 +342,13 @@ export const UsageProviderSchema = z.object({
   /** Omit when every reading is schedule-driven and needs no request. */
   source: UsageSourceSchema.optional(),
   readings: z.array(UsageReadingMappingSchema).min(1),
+  /**
+   * Ceilings for readings whose vendor publishes none, keyed by the reading
+   * mapping's own id — `{"requests": 20}` gives every row that mapping projects
+   * an allowance of 20, so the card can draw a bar and a percentage. A key that
+   * names no quota mapping is ignored.
+   */
+  limits: z.record(z.string(), z.number().positive()).default({}),
   display: UsageDisplaySchema.default({}),
 });
 
@@ -350,6 +365,7 @@ export const UsageProviderOverrideSchema = z.object({
   credentials: UsageCredentialsSchema.optional(),
   source: UsageSourceSchema.optional(),
   readings: z.array(UsageReadingMappingSchema).min(1).optional(),
+  limits: z.record(z.string(), z.number().positive()).optional(),
   display: UsageDisplaySchema.optional(),
   icon: UsageIconSchema.optional(),
 });
