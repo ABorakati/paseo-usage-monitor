@@ -1,0 +1,21 @@
+antigravity-usage.test.ts
+  s_b3e1ce12a06ee6::t_99b0915e27e9a4 120,122,124-127,130,132,134-135,138,140,142-145,148,150-158,160-168,181,183,208,219-220,224,227,230-231,233,238-243,246,249-250,258-265,268
+docs/PRESETS.md
+  s_b3e1ce12a06ee6::t_7f1941b448f451 165,167-173,175-177,181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "3ea784f863b69491b082e9d14b58c6db9ff016f7",
+  "prompts": {},
+  "sessions": {
+    "s_b3e1ce12a06ee6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07079-829e-71d3-b1ed-a7080d5cecfe",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
