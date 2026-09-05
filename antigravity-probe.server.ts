@@ -62,6 +62,13 @@ export interface AntigravityQuotaBucket {
 export interface AntigravityQuota {
   source: string;
   fetchedAt: string;
+  /**
+   * The plan this login is on, as Google reports it. It belongs on the card
+   * because it decides whether a bucket can move at all: only a paid plan
+   * refreshes the five-hour window, so a free-tier login reads 0% there
+   * however much it spends. A bar nobody can explain is worse than no bar.
+   */
+  tier: string | null;
   buckets: AntigravityQuotaBucket[];
 }
 
@@ -85,6 +92,7 @@ const CLOUD_CODE_BASE_URLS = [
   "https://daily-cloudcode-pa.googleapis.com",
 ];
 const QUOTA_SUMMARY_PATH = "/v1internal:retrieveUserQuotaSummary";
+const CODE_ASSIST_PATH = "/v1internal:loadCodeAssist";
 
 /** Send a token only if it survives the round trip with room to spare. */
 const TOKEN_EXPIRY_MARGIN_MS = 60_000;
@@ -98,6 +106,8 @@ const PROBE_BUDGET_MS = 9_000;
 const PHASE_KEYRING_MS = 4_000;
 const PHASE_OAUTH_CLIENT_MS = 4_000;
 const PHASE_REFRESH_MS = 5_000;
+/** The tier is a label, not a reading, so it gets the smallest slice. */
+const PHASE_TIER_MS = 2_500;
 const PHASE_QUOTA_MS = 5_000;
 const SUBPROCESS_TIMEOUT_MS = 3_000;
 
@@ -1182,6 +1192,7 @@ export function mapQuotaSummary(
   document: unknown,
   source: string,
   fetchedAt: string,
+  tier: string | null = null,
 ): AntigravityQuota {
   const root = asRecord(document);
   const groups = Array.isArray(root?.groups) ? root.groups : [];
@@ -1204,10 +1215,13 @@ export function mapQuotaSummary(
     const found = byId.get(id);
     const remaining = found === undefined ? null : found.bucket.remainingFraction;
     const resetTime = found === undefined ? null : found.bucket.resetTime;
+    const groupName = found?.group ?? group;
     return {
       id,
       label,
-      group: found?.group ?? group,
+      // The plan rides on the group heading, because that is where a reader
+      // looks when a bar reads 0% and they want to know why.
+      group: tier === null ? groupName : `${groupName} · ${tier}`,
       usedPercent:
         typeof remaining === "number" && Number.isFinite(remaining)
           ? Math.min(100, Math.max(0, (1 - remaining) * 100))
@@ -1217,7 +1231,7 @@ export function mapQuotaSummary(
     };
   });
 
-  return { source, fetchedAt, buckets };
+  return { source, fetchedAt, tier, buckets };
 }
 
 async function fetchQuotaSummary(
@@ -1262,6 +1276,46 @@ async function fetchQuotaSummary(
   throw new AntigravityProbeError(`could not reach the Antigravity quota endpoint: ${lastFailure}`);
 }
 
+/**
+ * Google names the tier by id, which is not what a card should print, so the
+ * three published ones get a label. An unknown id is passed through: a new
+ * plan name is still better than "unknown".
+ */
+const TIER_LABELS: Record<string, string> = {
+  "free-tier": "Free tier",
+  "standard-tier": "Standard tier",
+  "g1-pro-tier": "Google AI Pro",
+  "g1-ultra-tier": "Google AI Ultra",
+};
+
+/**
+ * Which plan the login is on. Best-effort by design: the quota numbers are the
+ * reading, and losing their label must never fail the provider, so any failure
+ * here reads as an unknown tier.
+ */
+async function fetchTierLabel(accessToken: string, signal: AbortSignal): Promise<string | null> {
+  try {
+    const response = await fetch(CLOUD_CODE_BASE_URLS[0] + CODE_ASSIST_PATH, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        authorization: `Bearer ${accessToken}`,
+        "user-agent": "antigravity",
+      },
+      body: JSON.stringify({ metadata: { pluginType: "GEMINI" } }),
+      signal,
+    });
+    if (!response.ok) return null;
+    const tier = asRecord(asRecord(await response.json())?.currentTier);
+    const id = tier?.id;
+    if (typeof id !== "string" || id.length === 0) return null;
+    return TIER_LABELS[id] ?? id;
+  } catch {
+    return null;
+  }
+}
+
 export async function probeAntigravityQuota(): Promise<AntigravityQuota> {
   const deadline = startDeadline(PROBE_BUDGET_MS);
   const accessToken = await acquireAccessToken(deadline);
@@ -1271,7 +1325,10 @@ export async function probeAntigravityQuota(): Promise<AntigravityQuota> {
     PHASE_QUOTA_MS,
     (signal) => fetchQuotaSummary(accessToken, signal),
   );
-  return mapQuotaSummary(document, source, new Date().toISOString());
+  const tier = await runPhase(deadline, "reading the plan tier", PHASE_TIER_MS, (signal) =>
+    fetchTierLabel(accessToken, signal),
+  ).catch(() => null);
+  return mapQuotaSummary(document, source, new Date().toISOString(), tier);
 }
 
 // ---------------------------------------------------------------------------

@@ -176,6 +176,12 @@ So the card leads with the rolling five hours every Antigravity client on this m
 
 Everything under the headline is suppressed when empty, and a window only one client touched is not broken down at all, because the breakdown row would repeat the headline. With one active client there is no total: that client becomes the headline. Spend appears only where the log priced itself; a combined spend is withheld while any client reports none, and the clients that do price themselves then say so individually.
 
+### The plan is named beside the pool
+
+Each pool group carries the plan the login is on, read from `v1internal:loadCodeAssist` on the same probe: **Gemini Models · Free tier**, or **· Google AI Pro** on a paid login. It is there because the plan decides whether a bucket can move at all. Google refreshes the five-hour window on the paid plans only; a free-tier login reports `remainingFraction: 1` on `gemini-5h` no matter how much it spends, and meters the weekly bucket alone. So a flat session bar under **Free tier** is not a broken reader: it is a plan that never populates that bucket.
+
+A paid subscription bought on a different Google account does not change what this login reports. If the session bar is flat and the plan reads **Free tier** while you pay for AI Pro, the plan is not attached to the account Antigravity is signed in as: sign in again with that account and the bar starts moving. The tier lookup is best-effort and never fails the provider; a failed lookup leaves the group unlabelled.
+
 ### Giving the request rows a bar
 
 Google publishes no numeric allowance for any of these plans — free, AI Pro or AI Ultra — and none appears in an API response, so the preset declares no ceiling and the rows render as bare counts. Name your own allowance and every request row becomes a bar with a percentage:

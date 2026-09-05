@@ -451,6 +451,7 @@ describe("mapQuotaSummary", () => {
     expect(mapQuotaSummary(QUOTA_SUMMARY, SOURCE, FETCHED_AT)).toEqual({
       source: SOURCE,
       fetchedAt: FETCHED_AT,
+      tier: null,
       buckets: [
         {
           id: "gemini-5h",
@@ -482,6 +483,20 @@ describe("mapQuotaSummary", () => {
         },
       ],
     });
+  });
+
+  test("names the plan on every group, so a flat bar says which plan it belongs to", () => {
+    // Only a paid plan refreshes the five-hour window, so a reader seeing 0%
+    // needs the plan beside it to tell a quiet hour from a plan that never
+    // reports that bucket at all.
+    const mapped = mapQuotaSummary(QUOTA_SUMMARY, SOURCE, FETCHED_AT, "Free tier");
+    expect(mapped.tier).toBe("Free tier");
+    expect(mapped.buckets.map((bucket) => bucket.group)).toEqual([
+      "Gemini Models · Free tier",
+      "Gemini Models · Free tier",
+      "Claude and GPT models · Free tier",
+      "Claude and GPT models · Free tier",
+    ]);
   });
 
   test("keeps every bucket slot when the response omits one, so indexes never shift", () => {
