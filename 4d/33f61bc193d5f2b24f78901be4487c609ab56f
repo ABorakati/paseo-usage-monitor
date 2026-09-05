@@ -1,0 +1,31 @@
+presets.test.ts
+  s_0621630d9a4747::t_e4cd76c68efbd4 11,1331-1334,1346,1350-1358,1373-1385
+readings.server.ts
+  s_0621630d9a4747::t_c8c17c823755e0 142-144
+registry.server.ts
+  s_fb7ba550618da6::t_4ebca4129d4344 21-38,57,74-79,92-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4d33f61bc193d5f2b24f78901be4487c609ab56f",
+  "prompts": {},
+  "sessions": {
+    "s_0621630d9a4747": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07072-dbf8-7992-b7f3-379a1ad8667a",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "ABorakati <ABorakati@users.noreply.github.com>"
+    },
+    "s_fb7ba550618da6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07073-91d6-7ef2-abd4-b6c717f8d646",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
