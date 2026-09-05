@@ -1,0 +1,18 @@
+antigravity-probe.server.ts
+  h_0ae9538d78aa59 65-71,95,109-110,1195,1218,1222-1224,1234,1279-1318,1328-1331
+antigravity-probe.test.ts
+  h_0ae9538d78aa59 454,488-501
+docs/PRESETS.md
+  h_0ae9538d78aa59 179-184
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "edacb46141ab9382e6fe93fd0844d0799b6d1aae",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
