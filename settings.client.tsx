@@ -1,6 +1,13 @@
 import { Icon, useRpc, type PluginSurfaceProps, type PluginTheme } from "@getpaseo/plugin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useReducer, type Dispatch } from "react";
+import {
+  useCallback,
+  type Dispatch,
+  useEffect,
+  useMemo,
+  useReducer,
+  useSyncExternalStore,
+} from "react";
 import type { input as ZodInput, ZodError } from "zod";
 import {
   KeyboardAvoidingView,
@@ -34,6 +41,11 @@ import {
   type UsageReadingMapping,
   type UsageSource,
 } from "./limits.shared";
+import {
+  clearProviderEditorRequest,
+  readProviderEditorRequest,
+  subscribeProviderEditorRequest,
+} from "./editor-request.client";
 import { getUsagePreset } from "./presets.shared";
 import { isDashboardVisible } from "./pills.shared";
 import { TooltipPressable as Pressable } from "./tooltip.client";
@@ -2623,6 +2635,23 @@ export function UsageSettingsBody({ theme, layout, showHeader }: UsageSettingsBo
     },
     [configQuery.data],
   );
+  /**
+   * A composer pill's card asks for its own provider by id. The request waits
+   * in module state until this screen has mounted and its config has loaded,
+   * because a press opens the surface and the editor needs the entry.
+   */
+  const requestedProviderId = useSyncExternalStore(
+    subscribeProviderEditorRequest,
+    readProviderEditorRequest,
+    readProviderEditorRequest,
+  );
+  useEffect(() => {
+    if (requestedProviderId === null || configQuery.data === undefined) {
+      return;
+    }
+    clearProviderEditorRequest();
+    editProvider(requestedProviderId);
+  }, [configQuery.data, editProvider, requestedProviderId]);
   const closeEditor = useCallback(() => {
     dispatchEditor({ type: "close" });
     dispatchSurface({ type: "error", message: null });

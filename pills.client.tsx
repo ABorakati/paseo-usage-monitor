@@ -17,16 +17,23 @@ import {
   type ViewStyle,
 } from "react-native";
 import { formatUsageAmount } from "./amount.shared";
+import { requestProviderEditor } from "./editor-request.client";
 import {
   EM_DASH,
   formatUpdatedLabel,
   formatWhenHint,
   isShowingStaleReadings,
   LIMITS_POLL_MS,
+  quotaPacePercent,
   USAGE_LIMITS_QUERY_KEY,
   useTickingClock,
 } from "./limits.client";
-import { readUsageLimits, type UsageIcon, type UsageProviderSnapshot } from "./limits.shared";
+import {
+  readUsageLimits,
+  type UsageIcon,
+  type UsageProviderSnapshot,
+  type UsageWindow,
+} from "./limits.shared";
 import { UsageMeter, usageTone } from "./meter.client";
 import {
   composerPillId,
@@ -60,12 +67,20 @@ const MARK_SIZE = 14;
  * panels leave above a rail pill.
  */
 const CARD_LIFT = 44;
+/**
+ * Fixed rather than a min/max pair: the card is absolute, so a flexible width
+ * would size itself to the pill it hangs off and jump about between providers.
+ */
+const CARD_WIDTH = 232;
+/** The card is wide enough for a bar, and a bar states progress plainly. */
+const CARD_METER_STYLE = "bar" as const;
 
 interface PillStyles {
   label: TextStyle;
   readout: TextStyle;
   stale: TextStyle;
   bar: ViewStyle;
+  gauge: ViewStyle;
   mark: ViewStyle;
   markText: TextStyle;
   markImage: ImageStyle;
@@ -73,6 +88,7 @@ interface PillStyles {
   cardTitle: TextStyle;
   cardHeadline: TextStyle;
   cardDetail: TextStyle;
+  cardMeter: ViewStyle;
   cardRow: ViewStyle;
   cardRule: ViewStyle;
   cardAction: TextStyle;
@@ -81,14 +97,29 @@ interface PillStyles {
 function createPillStyles(theme: PluginComposerPillProps["theme"], plate: string): PillStyles {
   const muted = theme.colors.foregroundMuted;
   const foreground = theme.colors.foreground;
+  /**
+   * The rail hands each pill a shrinking box and clips nothing, so anything
+   * that cannot shrink spills out of its own pill on a narrow pane. The text
+   * gives way first and truncates; the mark and the gauge hold their size,
+   * because a half-drawn gauge is worse than a shortened word.
+   */
+  const shrinkable: TextStyle = { flexShrink: 1, minWidth: 0 };
+  const fixed: ViewStyle = { flexShrink: 0, flexGrow: 0 };
   return {
-    label: { fontSize: 12, color: muted, flexShrink: 1 },
-    readout: { fontSize: 12, color: foreground, fontVariant: ["tabular-nums"] },
+    label: { fontSize: 12, color: muted, ...shrinkable },
+    readout: { fontSize: 12, color: foreground, fontVariant: ["tabular-nums"], ...shrinkable },
     // A stale number is still the best number available, so it dims rather
     // than disappears.
-    stale: { fontSize: 12, color: muted, fontVariant: ["tabular-nums"] },
-    bar: { width: RAIL_BAR_WIDTH },
+    stale: {
+      fontSize: 12,
+      color: muted,
+      fontVariant: ["tabular-nums"],
+      ...shrinkable,
+    },
+    bar: { ...fixed, width: RAIL_BAR_WIDTH },
+    gauge: fixed,
     mark: {
+      ...fixed,
       width: MARK_SIZE,
       height: MARK_SIZE,
       borderRadius: 4,
@@ -97,7 +128,7 @@ function createPillStyles(theme: PluginComposerPillProps["theme"], plate: string
       backgroundColor: plate,
     },
     markText: { fontSize: 8, fontWeight: "600", color: foreground },
-    markImage: { width: MARK_SIZE, height: MARK_SIZE, borderRadius: 4 },
+    markImage: { width: MARK_SIZE, height: MARK_SIZE, borderRadius: 4, flexShrink: 0 },
     /**
      * Anchored to the pill rather than portalled: the host's own anchored menu
      * belongs to the app, and a plugin only gets to draw inside its pill. The
@@ -108,8 +139,7 @@ function createPillStyles(theme: PluginComposerPillProps["theme"], plate: string
       position: "absolute",
       bottom: CARD_LIFT,
       left: 0,
-      minWidth: 196,
-      maxWidth: 300,
+      width: CARD_WIDTH,
       gap: 2,
       padding: 12,
       borderRadius: 12,
@@ -126,13 +156,19 @@ function createPillStyles(theme: PluginComposerPillProps["theme"], plate: string
     cardTitle: { fontSize: 14, fontWeight: "600", color: foreground },
     cardHeadline: { fontSize: 14, fontWeight: "600", color: foreground },
     cardDetail: { fontSize: 12, color: muted },
-    cardRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
+    cardMeter: { marginTop: 4, marginBottom: 6 },
+    cardRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    },
     cardRule: {
       height: 1,
       marginVertical: 6,
       backgroundColor: theme.colors.border,
     },
-    cardAction: { fontSize: 12, color: theme.colors.accent },
+    cardAction: { fontSize: 12, color: theme.colors.accent, flexShrink: 0 },
   };
 }
 
@@ -267,11 +303,13 @@ function PillCard({
   metrics,
   styles,
   tone,
+  theme,
 }: {
   provider: UsageProviderSnapshot;
   metrics: PillMetrics | null;
   styles: PillStyles;
   tone: string;
+  theme: PluginComposerPillProps["theme"];
 }) {
   const now = useTickingClock();
   const headline = useMemo(() => {
@@ -291,19 +329,36 @@ function PillCard({
     [metrics, provider],
   );
   const headlineStyle = useMemo(() => [styles.cardHeadline, { color: tone }], [styles, tone]);
-  // Closing the card is the host press firing alongside this one, which is the
-  // wanted order: the card gets out of the way and settings takes over.
-  const openSettingsSurface = useCallback(() => {
+  const trackedWindow = useMemo(() => trackedReadingWindow(provider, metrics), [metrics, provider]);
+  /**
+   * Opens this provider's own editor. Closing the card is the host press
+   * firing alongside this one, which is the wanted order: the card gets out of
+   * the way and the settings screen takes over.
+   */
+  const openProviderSettings = useCallback(() => {
+    requestProviderEditor(provider.providerId);
     clientContext?.openSurface(SETTINGS_SURFACE_ID);
-  }, []);
+  }, [provider.providerId]);
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>
+      <Text numberOfLines={1} style={styles.cardTitle}>
         {metrics?.windowLabel === null || metrics === null
           ? provider.label
           : `${provider.label} · ${metrics.windowLabel}`}
       </Text>
       {headline === null ? null : <Text style={headlineStyle}>{headline}</Text>}
+      {metrics === null || metrics.percentFilled === null ? null : (
+        <View style={styles.cardMeter}>
+          <UsageMeter
+            percentUsed={metrics.percentUsed ?? 0}
+            percentFilled={metrics.percentFilled}
+            pacePercent={quotaPacePercent(trackedWindow, now)}
+            style={CARD_METER_STYLE}
+            theme={theme}
+            compact
+          />
+        </View>
+      )}
       {amounts === null ? null : <Text style={styles.cardDetail}>{amounts}</Text>}
       {resets === null ? null : <Text style={styles.cardDetail}>{resets}</Text>}
       {provider.notice === null ? null : <Text style={styles.cardDetail}>{provider.notice}</Text>}
@@ -320,13 +375,29 @@ function PillCard({
       )}
       <View style={styles.cardRule} />
       <View style={styles.cardRow}>
-        <Text style={styles.cardDetail}>{updated ?? provider.label}</Text>
-        <Pressable accessibilityRole="button" onPress={openSettingsSurface}>
+        <Text numberOfLines={1} style={styles.cardDetail}>
+          {updated ?? provider.label}
+        </Text>
+        <Pressable accessibilityRole="button" onPress={openProviderSettings}>
           <Text style={styles.cardAction}>Settings</Text>
         </Pressable>
       </View>
     </View>
   );
+}
+
+/** The tracked reading's window, so the card's bar can carry a pace marker. */
+function trackedReadingWindow(
+  provider: UsageProviderSnapshot,
+  metrics: PillMetrics | null,
+): UsageWindow | null {
+  if (metrics === null) {
+    return null;
+  }
+  const reading = provider.readings.find(
+    (candidate) => candidate.kind === "quota" && candidate.label === metrics.readingLabel,
+  );
+  return reading !== undefined && reading.kind === "quota" ? reading.window : null;
 }
 
 function trackedReadingId(
@@ -419,7 +490,7 @@ export function pillComponentFor(providerId: string): ComponentType<PluginCompos
           </Text>
         )}
         {showGauge && metrics !== null && settings !== null ? (
-          <View style={settings.style === "bar" ? styles.bar : undefined}>
+          <View style={settings.style === "bar" ? styles.bar : styles.gauge}>
             <UsageMeter
               percentUsed={metrics.percentUsed ?? 0}
               percentFilled={metrics.percentFilled ?? 0}
@@ -435,7 +506,13 @@ export function pillComponentFor(providerId: string): ComponentType<PluginCompos
           <Text style={stale ? styles.stale : styles.readout}>{metrics?.readout ?? EM_DASH}</Text>
         )}
         {opened === providerId && provider !== null ? (
-          <PillCard provider={provider} metrics={metrics} styles={styles} tone={tone} />
+          <PillCard
+            provider={provider}
+            metrics={metrics}
+            styles={styles}
+            tone={tone}
+            theme={theme}
+          />
         ) : null}
       </>
     );
