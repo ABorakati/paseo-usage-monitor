@@ -1,0 +1,16 @@
+client/pills.client.test.ts
+  h_0ae9538d78aa59 2-9,193-302
+client/pills.client.tsx
+  h_0ae9538d78aa59 12,14,92-135,158,183-189,347,351-355,360,364-367,382,395,402,436-500,515,721,743-782,785-788,790,797,801,819,821-822,829,832,955
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8879aa587c400317025392b5d2d768412a3428f3",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
