@@ -1,0 +1,22 @@
+docs/CONFIGURATION.md
+  h_0ae9538d78aa59 137,141
+limits.shared.ts
+  h_0ae9538d78aa59 309-313,335
+pills.shared.ts
+  h_0ae9538d78aa59 134-153,178-181,183-186,189
+pills.test.ts
+  h_0ae9538d78aa59 127-152
+settings.client.tsx
+  h_0ae9538d78aa59 1172,1180,1185,1188,2137-2139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "47d7e39aa7c182d55d36fa2aa554ff0f458e7e70",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
