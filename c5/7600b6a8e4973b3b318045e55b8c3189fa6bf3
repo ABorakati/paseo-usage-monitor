@@ -1,0 +1,32 @@
+README.md
+  h_0ae9538d78aa59 94,101,111-121
+docs/CONFIGURATION.md
+  h_0ae9538d78aa59 98,112
+index.ts
+  h_0ae9538d78aa59 21,24,46-48,72-79
+limits.client.tsx
+  h_0ae9538d78aa59 43,1054-1059,1061,1111-1121
+limits.shared.ts
+  h_0ae9538d78aa59 329-334,360-365
+pills.client.tsx
+  h_0ae9538d78aa59 5,8-9,14-15,21-38,50-53,55-58,61-63,67-68,271-274,317-320,375-681
+pills.shared.ts
+  h_0ae9538d78aa59 25-32
+pills.test.ts
+  h_0ae9538d78aa59 2-9,13,28-44
+settings.client.tsx
+  h_0ae9538d78aa59 1,4,10,29,38,103,160-161,197-198,325,439-440,448,554-555,563,604-605,613,679-680,900,912-931,943-944,952-953,962-963,1577,1620-1643,1660-1661,1688-1691,1845-1861,1867,1874,1884,1891,1896-1903,1909,1911-1927,1995-2011,2014,2016,2021,2023,2422-2427,2702
+usage-limits.example.json
+  h_0ae9538d78aa59 9,14-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c57600b6a8e4973b3b318045e55b8c3189fa6bf3",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
