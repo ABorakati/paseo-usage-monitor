@@ -1,14 +1,16 @@
 import { describe, expect, test } from "vitest";
-import type {
-  UsageBalanceReading,
-  UsageDisplay,
-  UsagePillDisplay,
-  UsageProviderSnapshot,
-  UsageQuotaReading,
-  UsageRateReading,
+import {
+  type UsageBalanceReading,
+  type UsageDisplay,
+  type UsagePillDisplay,
+  UsagePillDisplaySchema,
+  type UsageProviderSnapshot,
+  type UsageQuotaReading,
+  type UsageRateReading,
 } from "./limits.shared";
 import {
   composerPillId,
+  isDashboardVisible,
   pillMetrics,
   type ResolvedPillSettings,
   resolvePillSettings,
@@ -22,6 +24,23 @@ const SEVEN_DAYS_MS = 604_800_000;
 function pill(overrides: Partial<UsagePillDisplay> = {}): UsagePillDisplay {
   return { enabled: true, label: "provider", readout: "percent", ...overrides };
 }
+
+describe("pill defaults", () => {
+  test("an opted-in pill shows its gauge and number, and no text", () => {
+    expect(UsagePillDisplaySchema.parse({ enabled: true })).toEqual({
+      enabled: true,
+      label: "none",
+      readout: "percent",
+    });
+  });
+
+  test("a provider keeps its dashboard card unless it says otherwise", () => {
+    expect(isDashboardVisible(undefined)).toBe(true);
+    expect(isDashboardVisible({})).toBe(true);
+    expect(isDashboardVisible({ dashboard: true })).toBe(true);
+    expect(isDashboardVisible({ dashboard: false })).toBe(false);
+  });
+});
 
 /** Metrics only run for an opted-in pill, so the fixture proves that once here. */
 function settings(

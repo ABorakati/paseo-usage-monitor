@@ -1,12 +1,13 @@
-import { Icon, useRpc, type PluginSurfaceProps } from "@getpaseo/plugin";
+import { Icon, useRpc, type PluginSurfaceProps, type PluginTheme } from "@getpaseo/plugin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useReducer, type Dispatch } from "react";
-import type { ZodError } from "zod";
+import type { input as ZodInput, ZodError } from "zod";
 import {
   KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
+  Switch,
   Text,
   TextInput,
   View,
@@ -25,6 +26,7 @@ import {
 } from "./config.shared";
 import {
   USAGE_PROVIDER_ID_PATTERN,
+  UsageDisplaySchema,
   UsageProviderOverrideSchema,
   type UsageDisplay,
   type UsageIcon,
@@ -33,6 +35,7 @@ import {
   type UsageSource,
 } from "./limits.shared";
 import { getUsagePreset } from "./presets.shared";
+import { isDashboardVisible } from "./pills.shared";
 import { TooltipPressable as Pressable } from "./tooltip.client";
 
 const CONFIG_QUERY_KEY = ["usage-config"];
@@ -97,6 +100,7 @@ interface SettingsStyles {
   modalBodyContent: ViewStyle;
   modalFooter: ViewStyle;
   closeButton: ViewStyle;
+  switchRow: ViewStyle;
 }
 
 interface ReadingDraft {
@@ -153,6 +157,8 @@ interface EditorState {
   iconMonogramText: string;
   iconMonogramColor: string;
   iconImageUri: string;
+  dashboardVisible: boolean;
+  displayOrder: string;
   displayStyle: "bar" | "ring";
   displayValue: "used" | "remaining";
   pillEnabled: boolean;
@@ -188,6 +194,8 @@ type EditorAction =
   | { type: "icon-monogram-text"; value: string }
   | { type: "icon-monogram-color"; value: string }
   | { type: "icon-image-uri"; value: string }
+  | { type: "dashboard-visible"; value: boolean }
+  | { type: "display-order"; value: string }
   | { type: "display-style"; value: "bar" | "ring" }
   | { type: "display-value"; value: "used" | "remaining" }
   | { type: "pill-enabled"; value: boolean }
@@ -314,6 +322,7 @@ interface ProviderEditorProps {
   editor: EditorState;
   preset: UsagePresetSummary | undefined;
   saving: boolean;
+  theme: PluginTheme;
   styles: SettingsStyles;
   dispatch: Dispatch<EditorAction>;
   onSave(): void;
@@ -427,6 +436,8 @@ const CLOSED_EDITOR: EditorState = {
   iconMonogramText: "",
   iconMonogramColor: "",
   iconImageUri: "",
+  dashboardVisible: true,
+  displayOrder: "",
   displayStyle: "bar",
   displayValue: "used",
   pillEnabled: false,
@@ -434,7 +445,7 @@ const CLOSED_EDITOR: EditorState = {
   pillStyle: "bar",
   pillValue: "used",
   pillReading: "",
-  pillLabel: "provider",
+  pillLabel: "none",
   pillReadout: "percent",
   display: undefined,
 };
@@ -540,6 +551,8 @@ function customEditorWithEntry(
     iconMonogramText: icon?.kind === "monogram" ? icon.text : "",
     iconMonogramColor: icon?.kind === "monogram" ? (icon.color ?? "") : "",
     iconImageUri: icon?.kind === "image" ? icon.uri : "",
+    dashboardVisible: isDashboardVisible(entry.display),
+    displayOrder: entry.display?.order !== undefined ? String(entry.display.order) : "",
     displayStyle: entry.display?.style ?? "bar",
     displayValue: entry.display?.value ?? "used",
     pillEnabled: entry.display?.pill?.enabled ?? false,
@@ -547,7 +560,7 @@ function customEditorWithEntry(
     pillStyle: entry.display?.pill?.style ?? (entry.display?.style === "ring" ? "ring" : "bar"),
     pillValue: entry.display?.pill?.value ?? entry.display?.value ?? "used",
     pillReading: entry.display?.pill?.reading ?? "",
-    pillLabel: entry.display?.pill?.label ?? "provider",
+    pillLabel: entry.display?.pill?.label ?? "none",
     pillReadout: entry.display?.pill?.readout ?? "percent",
     display: entry.display,
   };
@@ -588,6 +601,8 @@ function presetEditor(
     iconMonogramText: icon?.kind === "monogram" ? icon.text : "",
     iconMonogramColor: icon?.kind === "monogram" ? (icon.color ?? "") : "",
     iconImageUri: icon?.kind === "image" ? icon.uri : "",
+    dashboardVisible: isDashboardVisible(entry?.display),
+    displayOrder: entry?.display?.order !== undefined ? String(entry?.display.order) : "",
     displayStyle: entry?.display?.style ?? "bar",
     displayValue: entry?.display?.value ?? "used",
     pillEnabled: entry?.display?.pill?.enabled ?? false,
@@ -595,7 +610,7 @@ function presetEditor(
     pillStyle: entry?.display?.pill?.style ?? (entry?.display?.style === "ring" ? "ring" : "bar"),
     pillValue: entry?.display?.pill?.value ?? entry?.display?.value ?? "used",
     pillReading: entry?.display?.pill?.reading ?? "",
-    pillLabel: entry?.display?.pill?.label ?? "provider",
+    pillLabel: entry?.display?.pill?.label ?? "none",
     pillReadout: entry?.display?.pill?.readout ?? "percent",
     display: entry?.display,
   };
@@ -661,6 +676,8 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
   if (action.type === "icon-monogram-text") return { ...state, iconMonogramText: action.value };
   if (action.type === "icon-monogram-color") return { ...state, iconMonogramColor: action.value };
   if (action.type === "icon-image-uri") return { ...state, iconImageUri: action.value };
+  if (action.type === "dashboard-visible") return { ...state, dashboardVisible: action.value };
+  if (action.type === "display-order") return { ...state, displayOrder: action.value };
   if (action.type === "display-style") return { ...state, displayStyle: action.value };
   if (action.type === "display-value") return { ...state, displayValue: action.value };
   if (action.type === "pill-enabled") return { ...state, pillEnabled: action.value };
@@ -880,7 +897,7 @@ function buildProviderWrite(editor: EditorState): UsageProviderWrite {
     }
   }
 
-  const display: UsageDisplay = { ...editor.display };
+  const display: ZodInput<typeof UsageDisplaySchema> = { ...editor.display };
   if (icon !== undefined) {
     display.icon = icon;
   } else if (editor.iconKind === "default" && display.icon !== undefined) {
@@ -892,6 +909,26 @@ function buildProviderWrite(editor: EditorState): UsageProviderWrite {
   else display.style = editor.displayStyle;
   if (editor.displayValue === "used") delete display.value;
   else display.value = editor.displayValue;
+
+  if (editor.dashboardVisible) {
+    delete display.dashboard;
+  } else {
+    display.dashboard = false;
+  }
+
+  let displayOrder: number | undefined;
+  if (editor.displayOrder.trim() !== "") {
+    displayOrder = Number(editor.displayOrder.trim());
+    if (!Number.isInteger(displayOrder)) {
+      throw new UsageFormError("Dashboard card order must be an integer");
+    }
+  }
+  if (displayOrder !== undefined) {
+    display.order = displayOrder;
+  } else {
+    delete display.order;
+  }
+
   let pillOrder: number | undefined;
   if (editor.pillOrder.trim() !== "") {
     pillOrder = Number(editor.pillOrder.trim());
@@ -903,6 +940,8 @@ function buildProviderWrite(editor: EditorState): UsageProviderWrite {
   const pillReading = editor.pillReading.trim() !== "" ? editor.pillReading.trim() : undefined;
   const pillStyle = editor.pillStyle !== editor.displayStyle ? editor.pillStyle : undefined;
   const pillValue = editor.pillValue !== editor.displayValue ? editor.pillValue : undefined;
+  const pillLabel = editor.pillLabel !== "none" ? editor.pillLabel : undefined;
+  const pillReadout = editor.pillReadout !== "percent" ? editor.pillReadout : undefined;
 
   const hasPillSettings =
     editor.pillEnabled ||
@@ -910,8 +949,8 @@ function buildProviderWrite(editor: EditorState): UsageProviderWrite {
     pillReading !== undefined ||
     pillStyle !== undefined ||
     pillValue !== undefined ||
-    editor.pillLabel !== "provider" ||
-    editor.pillReadout !== "percent";
+    pillLabel !== undefined ||
+    pillReadout !== undefined;
 
   if (hasPillSettings) {
     display.pill = {
@@ -920,8 +959,8 @@ function buildProviderWrite(editor: EditorState): UsageProviderWrite {
       ...(pillStyle === undefined ? {} : { style: pillStyle }),
       ...(pillValue === undefined ? {} : { value: pillValue }),
       ...(pillReading === undefined ? {} : { reading: pillReading }),
-      label: editor.pillLabel,
-      readout: editor.pillReadout,
+      ...(pillLabel === undefined ? {} : { label: pillLabel }),
+      ...(pillReadout === undefined ? {} : { readout: pillReadout }),
     };
   } else {
     delete display.pill;
@@ -1535,6 +1574,7 @@ function ProviderEditor({
   editor,
   preset,
   saving,
+  theme,
   styles,
   dispatch,
   onSave,
@@ -1577,6 +1617,30 @@ function ProviderEditor({
     (value: string) => dispatch({ type: "icon-image-uri", value }),
     [dispatch],
   );
+  const switchTrackColor = useMemo(
+    () => ({
+      false: theme.colors.surface2,
+      true: theme.colors.accent,
+    }),
+    [theme.colors.surface2, theme.colors.accent],
+  );
+  const dashboardThumbColor = editor.dashboardVisible
+    ? theme.colors.accentForeground
+    : theme.colors.foregroundMuted;
+  const pillThumbColor = editor.pillEnabled
+    ? theme.colors.accentForeground
+    : theme.colors.foregroundMuted;
+  const pillTextThumbColor =
+    editor.pillLabel !== "none" ? theme.colors.accentForeground : theme.colors.foregroundMuted;
+
+  const toggleDashboardVisible = useCallback(
+    (value: boolean) => dispatch({ type: "dashboard-visible", value }),
+    [dispatch],
+  );
+  const changeDisplayOrder = useCallback(
+    (value: string) => dispatch({ type: "display-order", value }),
+    [dispatch],
+  );
   const chooseMeterBar = useCallback(
     () => dispatch({ type: "display-style", value: "bar" }),
     [dispatch],
@@ -1593,12 +1657,8 @@ function ProviderEditor({
     () => dispatch({ type: "display-value", value: "remaining" }),
     [dispatch],
   );
-  const choosePillEnabled = useCallback(
-    () => dispatch({ type: "pill-enabled", value: true }),
-    [dispatch],
-  );
-  const choosePillDisabled = useCallback(
-    () => dispatch({ type: "pill-enabled", value: false }),
+  const togglePillEnabled = useCallback(
+    (value: boolean) => dispatch({ type: "pill-enabled", value }),
     [dispatch],
   );
   const choosePillStyleRing = useCallback(
@@ -1625,16 +1685,16 @@ function ProviderEditor({
     () => dispatch({ type: "pill-reading", value: "" }),
     [dispatch],
   );
+  const togglePillText = useCallback(
+    (value: boolean) => dispatch({ type: "pill-label", value: value ? "provider" : "none" }),
+    [dispatch],
+  );
   const choosePillLabelProvider = useCallback(
     () => dispatch({ type: "pill-label", value: "provider" }),
     [dispatch],
   );
   const choosePillLabelReading = useCallback(
     () => dispatch({ type: "pill-label", value: "reading" }),
-    [dispatch],
-  );
-  const choosePillLabelNone = useCallback(
-    () => dispatch({ type: "pill-label", value: "none" }),
     [dispatch],
   );
   const choosePillReadoutPercent = useCallback(
@@ -1782,17 +1842,36 @@ function ProviderEditor({
               ) : null}
             </View>
             <View style={styles.paths}>
+              <View>
+                <Text style={styles.sectionTitle}>Dashboard</Text>
+                <Text style={styles.sectionDetail}>The card on the Usage Monitor surface</Text>
+              </View>
+              <View style={styles.switchRow}>
+                <View style={styles.grow}>
+                  <Text style={styles.label}>Show on dashboard</Text>
+                  <Text style={styles.muted}>Display a card on the main usage dashboard</Text>
+                </View>
+                <Switch
+                  value={editor.dashboardVisible}
+                  onValueChange={toggleDashboardVisible}
+                  trackColor={switchTrackColor}
+                  thumbColor={dashboardThumbColor}
+                  accessibilityLabel="Show on dashboard"
+                />
+              </View>
               <Text style={styles.label}>Meter</Text>
               <View style={styles.wrapRow}>
                 <Choice
                   label="Bar"
                   selected={editor.displayStyle === "bar"}
+                  disabled={!editor.dashboardVisible}
                   onPress={chooseMeterBar}
                   styles={styles}
                 />
                 <Choice
                   label="Ring"
                   selected={editor.displayStyle === "ring"}
+                  disabled={!editor.dashboardVisible}
                   onPress={chooseMeterRing}
                   styles={styles}
                 />
@@ -1802,35 +1881,50 @@ function ProviderEditor({
                 <Choice
                   label="Used"
                   selected={editor.displayValue === "used"}
+                  disabled={!editor.dashboardVisible}
                   onPress={chooseQuotaUsed}
                   styles={styles}
                 />
                 <Choice
                   label="Left"
                   selected={editor.displayValue === "remaining"}
+                  disabled={!editor.dashboardVisible}
                   onPress={chooseQuotaRemaining}
                   styles={styles}
                 />
               </View>
+              <Field
+                label="Card order (optional number)"
+                value={editor.displayOrder}
+                onChangeText={changeDisplayOrder}
+                placeholder="1"
+                disabled={!editor.dashboardVisible}
+                styles={styles}
+              />
               <Text style={styles.muted}>
                 Readings per row follow the card: a wider card shows more columns and a resize
                 reflows it, so there is nothing to set here.
               </Text>
             </View>
+            <View style={styles.divider} />
             <View style={styles.paths}>
-              <Text style={styles.label}>Composer pill</Text>
-              <View style={styles.wrapRow}>
-                <Choice
-                  label="Show above composer"
-                  selected={editor.pillEnabled}
-                  onPress={choosePillEnabled}
-                  styles={styles}
-                />
-                <Choice
-                  label="Hide"
-                  selected={!editor.pillEnabled}
-                  onPress={choosePillDisabled}
-                  styles={styles}
+              <View>
+                <Text style={styles.sectionTitle}>Composer pill</Text>
+                <Text style={styles.sectionDetail}>
+                  The rail directly above the chat composer prompt
+                </Text>
+              </View>
+              <View style={styles.switchRow}>
+                <View style={styles.grow}>
+                  <Text style={styles.label}>Show as pill above the composer</Text>
+                  <Text style={styles.muted}>Pin a compact usage gauge to the composer rail</Text>
+                </View>
+                <Switch
+                  value={editor.pillEnabled}
+                  onValueChange={togglePillEnabled}
+                  trackColor={switchTrackColor}
+                  thumbColor={pillThumbColor}
+                  accessibilityLabel="Show as pill above the composer"
                 />
               </View>
               <Text style={styles.label}>Pill style</Text>
@@ -1898,27 +1992,36 @@ function ProviderEditor({
                 Automatic tracks the shortest quota window (the session figure), falling back to a
                 balance.
               </Text>
-              <Text style={styles.label}>Pill label</Text>
+              <View style={styles.switchRow}>
+                <View style={styles.grow}>
+                  <Text style={styles.label}>Pill text</Text>
+                  <Text style={styles.muted}>
+                    Display a text label beside the gauge (off by default)
+                  </Text>
+                </View>
+                <Switch
+                  value={editor.pillLabel !== "none"}
+                  onValueChange={togglePillText}
+                  trackColor={switchTrackColor}
+                  thumbColor={pillTextThumbColor}
+                  disabled={!editor.pillEnabled}
+                  accessibilityLabel="Pill text"
+                />
+              </View>
+              <Text style={styles.label}>Label text</Text>
               <View style={styles.wrapRow}>
                 <Choice
-                  label="Provider"
+                  label="Provider name"
                   selected={editor.pillLabel === "provider"}
-                  disabled={!editor.pillEnabled}
+                  disabled={!editor.pillEnabled || editor.pillLabel === "none"}
                   onPress={choosePillLabelProvider}
                   styles={styles}
                 />
                 <Choice
-                  label="Reading"
+                  label="Reading name"
                   selected={editor.pillLabel === "reading"}
-                  disabled={!editor.pillEnabled}
+                  disabled={!editor.pillEnabled || editor.pillLabel === "none"}
                   onPress={choosePillLabelReading}
-                  styles={styles}
-                />
-                <Choice
-                  label="None"
-                  selected={editor.pillLabel === "none"}
-                  disabled={!editor.pillEnabled}
-                  onPress={choosePillLabelNone}
                   styles={styles}
                 />
               </View>
@@ -2316,6 +2419,12 @@ export function UsageSettingsBody({ theme, layout, showHeader }: UsageSettingsBo
         maxWidth: "100%",
       },
       grow: { flex: 1, minWidth: 0, gap: 4 },
+      switchRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap,
+      },
       label: { color: theme.colors.foreground, fontSize, fontWeight: "600" },
       text: { color: theme.colors.foreground, fontSize },
       muted: { color: theme.colors.foregroundMuted, fontSize: small },
@@ -2590,6 +2699,7 @@ export function UsageSettingsBody({ theme, layout, showHeader }: UsageSettingsBo
             editor={editor}
             preset={activePreset}
             saving={writeMutation.isPending}
+            theme={theme}
             styles={styles}
             dispatch={dispatchEditor}
             onSave={saveEditor}

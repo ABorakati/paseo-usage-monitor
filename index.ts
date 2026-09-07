@@ -18,9 +18,10 @@ import { UsageHistoryPanel, UsageHistorySurface } from "./history.client";
 import { readUsageHistory } from "./history.shared";
 import { UsageLimitsPanel, UsageLimitsSurface } from "./limits.client";
 import { readUsageLimits } from "./limits.shared";
-import { contributeComposerPills } from "./pills.client";
+import { contributeComposerPills, UsagePillDetailPanel } from "./pills.client";
 import { contributeExplorerSeed } from "./seed.client";
 import { claimExplorerSeed } from "./seed.shared";
+import { UsageSettingsSurface } from "./settings.client";
 
 export default function contribute(plugin: PluginContext) {
   plugin.handle(readUsageLimits, readLimits);
@@ -42,6 +43,9 @@ export default function contribute(plugin: PluginContext) {
   });
   plugin.addSurface("limits", UsageLimitsSurface);
   plugin.addSurface("history", UsageHistorySurface);
+  // Reachable on its own so a composer pill can send the reader straight to the
+  // settings that govern it, without routing through the dashboard's tab bar.
+  plugin.addSurface("settings", UsageSettingsSurface);
   plugin.addSidebarItem({ id: "limits", title: "Usage Monitor", icon: "Gauge", surface: "limits" });
   plugin.addSidebarItem({
     id: "history",
@@ -64,6 +68,14 @@ export default function contribute(plugin: PluginContext) {
     context: "workspace",
     locations: ["explorer", "workspace"],
     Component: UsageHistoryPanel,
+  });
+  plugin.addWorkspacePanel({
+    id: "pill",
+    title: "Usage detail",
+    icon: "Gauge",
+    context: "workspace",
+    locations: ["explorer", "workspace"],
+    Component: UsagePillDetailPanel,
   });
   plugin.addCommandCenterItem({
     id: "open-limits",

@@ -40,6 +40,7 @@ import {
   type UsageWindow,
 } from "./limits.shared";
 import { UsageMeter, clampPercent } from "./meter.client";
+import { isDashboardVisible } from "./pills.shared";
 import { UsageHistorySurface } from "./history.client";
 import { setTooltipTitle, TooltipPressable as Pressable } from "./tooltip.client";
 import { UsageSettingsBody } from "./settings.client";
@@ -1050,8 +1051,14 @@ function providerOrder(left: UsageProviderSnapshot, right: UsageProviderSnapshot
   return left.providerId.localeCompare(right.providerId);
 }
 
+/**
+ * The dashboard's own list. A provider turned off here still fetches and still
+ * feeds its composer pill; it just keeps no card. Filtering at the single point
+ * every consumer already goes through keeps the grid, the drag order and the
+ * optimistic writes looking at the same set.
+ */
 function orderedProviders(providers: readonly UsageProviderSnapshot[]): UsageProviderSnapshot[] {
-  return [...providers].sort(providerOrder);
+  return providers.filter((provider) => isDashboardVisible(provider.display)).sort(providerOrder);
 }
 
 function UsageProviderGrid({
@@ -1101,6 +1108,17 @@ function UsageProviderGrid({
     );
   }
   const providers = orderedProviders(snapshot.providers);
+  if (providers.length === 0) {
+    return (
+      <View style={styles.rows}>
+        <Text style={styles.emptyTitle}>Every provider is hidden here</Text>
+        <Text style={styles.hint}>
+          These providers are still tracked and can still show as composer pills. Turn one back on
+          with “Show on dashboard” in Usage providers.
+        </Text>
+      </View>
+    );
+  }
   return (
     <View onLayout={onLayout} style={styles.cardGrid}>
       {providers.map((provider, index) => (

@@ -91,13 +91,14 @@ Every endpoint, credential chain and caveat is in [Presets](docs/PRESETS.md), al
 
 The rail directly above the chat composer displays compact usage pills for quick checks while prompting.
 
-A provider stays off the rail until it opts in. Turn a provider on in **Usage providers** under **Composer pill** by selecting **Show above composer**, or set `"display": { "pill": { "enabled": true } }` in `usage-limits.json`.
+A provider stays off the rail until it opts in. Turn a provider on in **Usage providers** under **Composer pill** using the **Show as pill above the composer** switch, or set `"display": { "pill": { "enabled": true } }` in `usage-limits.json`. Visibility is independently switchable for both surfaces in the editor via two toggle switches: **Show on dashboard** (controls the dashboard card, on by default) and **Show as pill above the composer** (controls the rail pill).
 
 Each pill tracks one reading from that provider:
 
 - **Three styles** — dial gauge (`ring`), left-to-right bar (`bar`), or numeric readout alone (`none`). An omitted style inherits the card meter shape.
 - **Used vs remaining** — counts consumed quota (`used`) or headroom left (`remaining`). An omitted direction inherits the card direction.
 - **Tracked reading** — automatic selection tracks the shortest resetting quota window (the five-hour session quota), falling back to a balance reading when no quota exists. A specific reading mapping can also be pinned.
+- **Text label** — off by default (the brand mark already identifies the pill), with choices for provider name or reading label when turned on.
 
 Pressing a pill opens a per-provider detail panel showing every quota window, its progress bar, and its reset time.
 
@@ -107,15 +108,17 @@ The **Usage providers** sidebar surface adds, edits, tests and removes providers
 
 ### Card appearance
 
-Five things about how a provider draws live in the same editor as the provider itself, because they are properties of that provider rather than of the session you happen to be in. They persist to `display` in `usage-limits.json` and survive a reload.
+Display settings about how a provider draws live in the same editor as the provider itself, because they are properties of that provider rather than of the session you happen to be in. They persist to `display` in `usage-limits.json` and survive a reload.
 
-| Setting           | Choices                                                  | Stored as                                              |
-| ----------------- | -------------------------------------------------------- | ------------------------------------------------------ |
-| Icon & brand mark | Default, Lucide, Monogram, Image                         | `display.icon`, absent for the built-in mark           |
-| Meter             | Bar, Ring                                                | `display.style`, absent for Bar                        |
-| Quota reads       | Used, Left                                               | `display.value`, absent for Used                       |
-| Composer pill     | Show, Hide, style, value, reading, label, readout, order | `display.pill`, absent when disabled with all defaults |
-| Readings per row  | not settable - measured                                  | nothing                                                |
+| Setting           | Choices                                                      | Stored as                                              |
+| ----------------- | ------------------------------------------------------------ | ------------------------------------------------------ |
+| Icon & brand mark | Default, Lucide, Monogram, Image                             | `display.icon`, absent for the built-in mark           |
+| Show on dashboard | Switch (on/off)                                              | `display.dashboard`, absent when visible (default)     |
+| Meter             | Bar, Ring                                                    | `display.style`, absent for Bar                        |
+| Quota reads       | Used, Left                                                   | `display.value`, absent for Used                       |
+| Card order        | Integer                                                      | `display.order`, absent when unset                     |
+| Composer pill     | Switch (on/off), style, value, reading, text, readout, order | `display.pill`, absent when disabled with all defaults |
+| Readings per row  | not settable - measured                                      | nothing                                                |
 
 A default is stored as **absence**, not as a value: choosing Bar removes `display.style` rather than writing `"bar"`, because both renderers already read a missing key as the default. A config that stores every default would be longer without saying anything more.
 

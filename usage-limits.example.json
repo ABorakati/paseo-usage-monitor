@@ -6,13 +6,16 @@
         "enabled": true,
         "style": "ring",
         "value": "remaining",
-        "label": "provider",
-        "readout": "percent"
+        "label": "provider"
       }
     }
   },
   "codex": {
-    "preset": "codex"
+    "preset": "codex",
+    "display": {
+      "dashboard": false,
+      "pill": { "enabled": true, "style": "bar" }
+    }
   },
   "deepseek": {
     "preset": "deepseek",

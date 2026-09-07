@@ -326,8 +326,12 @@ export const UsagePillDisplaySchema = z.object({
    * and falls back to a balance when the provider publishes no quota.
    */
   reading: z.string().min(1).optional(),
-  /** Text beside the gauge: the provider's name, the reading's name, or neither. */
-  label: z.enum(["provider", "reading", "none"]).default("provider"),
+  /**
+   * Text beside the gauge. Off by default: the rail sits under a transcript
+   * where horizontal room is the scarce thing, and the provider's own mark
+   * already says whose number this is.
+   */
+  label: z.enum(["provider", "reading", "none"]).default("none"),
   /** The number beside the gauge: a percentage, the amount itself, or neither. */
   readout: z.enum(["percent", "amount", "none"]).default("percent"),
 });
@@ -353,6 +357,12 @@ export const UsageDisplaySchema = z.object({
   collapsed: z.boolean().optional(),
   /** Overrides the provider's own mark. */
   icon: UsageIconSchema.optional(),
+  /**
+   * Whether the provider keeps a card on the dashboard. Absent reads as
+   * visible, so an existing config keeps every card it already had, and a
+   * provider can live on the rail alone once it is turned off here.
+   */
+  dashboard: z.boolean().optional(),
   /** The provider's slot on the composer rail. */
   pill: UsagePillDisplaySchema.optional(),
 });

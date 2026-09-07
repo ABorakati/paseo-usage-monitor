@@ -22,6 +22,14 @@ export function composerPillId(providerId: string): string {
   return `${PILL_ID_PREFIX}${providerId}`;
 }
 
+/**
+ * A provider is on the dashboard unless it says otherwise, so a config written
+ * before the rail existed keeps every card it had.
+ */
+export function isDashboardVisible(display: UsageDisplay | undefined): boolean {
+  return display?.dashboard !== false;
+}
+
 export interface ResolvedPillSettings {
   /** Ascending along the rail; null sorts after every number. */
   order: number | null;

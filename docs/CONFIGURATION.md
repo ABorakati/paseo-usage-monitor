@@ -95,6 +95,7 @@ An entry naming a preset that does not exist becomes an error row reading `Unkno
 | `value`     | `"used" \| "remaining"` | no       | `"used"` | Whether the meter counts consumption or headroom.                                               |
 | `collapsed` | boolean                 | no       | `false`  | Collapsed cards render only their header and worst reading.                                     |
 | `icon`      | icon object             | no       | —        | Overrides the provider mark.                                                                    |
+| `dashboard` | boolean                 | no       | `true`   | Whether the provider keeps a card on the dashboard. Absent reads as visible (`true`).           |
 | `pill`      | pill display object     | no       | —        | Shows this provider on the composer rail. Omitted when disabled with all other fields default.  |
 
 ### `display.pill`
@@ -108,7 +109,7 @@ A composer pill is a glance above the chat prompt: one gauge, one number, and on
 | `style`   | `"ring" \| "bar" \| "none"`         | no       | card `style` | Dial, left-to-right bar, or number alone (`none`). Inherits the card's own `display.style` (default `"bar"`).   |
 | `value`   | `"used" \| "remaining"`             | no       | card `value` | Counts consumption (`used`) or headroom (`remaining`). Inherits the card's own `display.value` (default `"used"`). |
 | `reading` | string                              | no       | automatic    | Mapping id to track. Omitted picks the shortest quota window (the session figure), falling back to a balance.  |
-| `label`   | `"provider" \| "reading" \| "none"` | no       | `"provider"` | Text beside the gauge: vendor name, reading label, or neither.                                                  |
+| `label`   | `"provider" \| "reading" \| "none"` | no       | `"none"`     | Text beside the gauge: vendor name, reading label, or neither. Off by default.                                  |
 | `readout` | `"percent" \| "amount" \| "none"`   | no       | `"percent"`  | Value beside the gauge: percentage, currency or unit amount, or neither.                                        |
 
 Two fields inherit from the card when omitted:
