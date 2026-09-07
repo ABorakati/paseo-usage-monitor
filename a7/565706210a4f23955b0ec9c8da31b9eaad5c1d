@@ -1,0 +1,26 @@
+docs/PRESETS.md
+  h_0ae9538d78aa59 19,75,239-280
+meter.client.tsx
+  h_0ae9538d78aa59 33-38,57,59,67,75,82,128,139,141-142
+pills.client.tsx
+  h_0ae9538d78aa59 7-15,53,99-100,169-179,272,289,303,319-339,348,361-380,387,397-444
+pills.shared.ts
+  h_0ae9538d78aa59 8,233-295
+pills.test.ts
+  h_0ae9538d78aa59 19,437-482
+presets.shared.ts
+  h_0ae9538d78aa59 93-94,178-207
+presets.test.ts
+  h_0ae9538d78aa59 408-439,779,806-829,1387
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a7565706210a4f23955b0ec9c8da31b9eaad5c1d",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
