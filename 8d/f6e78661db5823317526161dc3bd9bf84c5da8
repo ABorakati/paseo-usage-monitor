@@ -1,0 +1,16 @@
+pills.shared.ts
+  h_0ae9538d78aa59 73-99,115-117,160-180,185-188,198-199,201,208
+pills.test.ts
+  h_0ae9538d78aa59 187-242,290,295-301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8df6e78661db5823317526161dc3bd9bf84c5da8",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
