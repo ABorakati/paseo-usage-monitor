@@ -4,8 +4,15 @@ import {
   type PluginComposerPillProps,
   useRpc,
 } from "@getpaseo/plugin";
-import { useQuery } from "@tanstack/react-query";
-import { type ComponentType, useCallback, useMemo, useSyncExternalStore } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type ComponentType,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   Image,
   type ImageStyle,
@@ -40,10 +47,10 @@ import {
   type ComposerPillEntry,
   type PillMetrics,
   pillMetrics,
-  type ResolvedPillSettings,
   resolvePillSettings,
   selectComposerPills,
   selectPillReading,
+  usageWindowRows,
 } from "./pills.shared";
 
 /**
@@ -89,6 +96,8 @@ interface PillStyles {
   cardHeadline: TextStyle;
   cardDetail: TextStyle;
   cardMeter: ViewStyle;
+  cardRefresh: ViewStyle;
+  cardWindow: ViewStyle;
   cardRow: ViewStyle;
   cardRule: ViewStyle;
   cardAction: TextStyle;
@@ -157,6 +166,17 @@ function createPillStyles(theme: PluginComposerPillProps["theme"], plate: string
     cardHeadline: { fontSize: 14, fontWeight: "600", color: foreground },
     cardDetail: { fontSize: 12, color: muted },
     cardMeter: { marginTop: 4, marginBottom: 6 },
+    // A 24px target on a 13px glyph: small enough not to compete with the
+    // title, big enough to press without aiming.
+    cardRefresh: {
+      width: 24,
+      height: 24,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 6,
+      flexShrink: 0,
+    },
+    cardWindow: { gap: 4, marginTop: 6 },
     cardRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -248,54 +268,8 @@ function subscribeOpenPill(listener: () => void): () => void {
 function readOpenPill(): string | null {
   return openPillId;
 }
-
 /**
- * Every other window the provider publishes, one line each. A quota reads as
- * consumption because that is what runs out; a balance reads as what is left,
- * because "75% used" of a credit account buries the number that matters.
- */
-function summaryLines(provider: UsageProviderSnapshot, skipReadingId: string | null): string[] {
-  const lines: string[] = [];
-  for (const reading of provider.readings) {
-    if (reading.id === skipReadingId || reading.kind === "rate") {
-      continue;
-    }
-    const settings = reading.kind === "balance" ? BALANCE_LINE_SETTINGS : QUOTA_LINE_SETTINGS;
-    const metrics = pillMetrics(reading, settings);
-    if (metrics.readout === null) {
-      continue;
-    }
-    const name = metrics.windowLabel ?? reading.label;
-    if (reading.kind === "balance") {
-      lines.push(`${name} · ${metrics.readout} left`);
-      continue;
-    }
-    lines.push(
-      metrics.percentUsed === null
-        ? `${name} · ${metrics.readout}`
-        : `${name} · ${metrics.readout} used`,
-    );
-  }
-  return lines;
-}
-
-const QUOTA_LINE_SETTINGS: ResolvedPillSettings = {
-  order: null,
-  style: "bar",
-  value: "used",
-  reading: null,
-  label: "none",
-  readout: "percent",
-};
-
-const BALANCE_LINE_SETTINGS: ResolvedPillSettings = {
-  ...QUOTA_LINE_SETTINGS,
-  value: "remaining",
-  readout: "amount",
-};
-
-/**
- * The card a pill opens: the tracked reading in full, then one line per other
+ * The card a pill opens: the tracked reading in full, then one row per other
  * window so a weekly allowance is one glance away from a session figure.
  */
 function PillCard({
@@ -312,6 +286,7 @@ function PillCard({
   theme: PluginComposerPillProps["theme"];
 }) {
   const now = useTickingClock();
+  const { refreshing, refresh } = useProviderRefresh(provider.fetchedAt);
   const headline = useMemo(() => {
     if (metrics === null || metrics.readout === null) {
       return null;
@@ -325,7 +300,7 @@ function PillCard({
   const resets = formatWhenHint("Resets", metrics?.resetsAt ?? null, now);
   const updated = formatUpdatedLabel(provider.fetchedAt, now, isShowingStaleReadings(provider));
   const others = useMemo(
-    () => summaryLines(provider, trackedReadingId(provider, metrics)),
+    () => usageWindowRows(provider.readings, trackedReadingId(provider, metrics)),
     [metrics, provider],
   );
   const headlineStyle = useMemo(() => [styles.cardHeadline, { color: tone }], [styles, tone]);
@@ -341,11 +316,27 @@ function PillCard({
   }, [provider.providerId]);
   return (
     <View style={styles.card}>
-      <Text numberOfLines={1} style={styles.cardTitle}>
-        {metrics?.windowLabel === null || metrics === null
-          ? provider.label
-          : `${provider.label} · ${metrics.windowLabel}`}
-      </Text>
+      <View style={styles.cardRow}>
+        <Text numberOfLines={1} style={styles.cardTitle}>
+          {metrics?.windowLabel === null || metrics === null
+            ? provider.label
+            : `${provider.label} · ${metrics.windowLabel}`}
+        </Text>
+        <Pressable
+          accessibilityLabel={`Refresh ${provider.label} usage`}
+          accessibilityRole="button"
+          accessibilityState={refreshing ? CARD_BUSY : CARD_IDLE}
+          disabled={refreshing}
+          onPress={refresh}
+          style={styles.cardRefresh}
+        >
+          <Icon
+            name="RefreshCw"
+            size={13}
+            color={refreshing ? theme.colors.foregroundMuted : theme.colors.foreground}
+          />
+        </Pressable>
+      </View>
       {headline === null ? null : <Text style={headlineStyle}>{headline}</Text>}
       {metrics === null || metrics.percentFilled === null ? null : (
         <View style={styles.cardMeter}>
@@ -354,6 +345,7 @@ function PillCard({
             percentFilled={metrics.percentFilled}
             pacePercent={quotaPacePercent(trackedWindow, now)}
             style={CARD_METER_STYLE}
+            trackColor={theme.colors.surface0}
             theme={theme}
             compact
           />
@@ -366,17 +358,33 @@ function PillCard({
       {others.length === 0 ? null : (
         <>
           <View style={styles.cardRule} />
-          {others.map((line) => (
-            <Text key={line} style={styles.cardDetail}>
-              {line}
-            </Text>
+          {others.map((row) => (
+            <View key={row.id} style={styles.cardWindow}>
+              <View style={styles.cardRow}>
+                <Text numberOfLines={1} style={styles.cardDetail}>
+                  {row.name}
+                </Text>
+                <Text style={styles.cardDetail}>{row.readout}</Text>
+              </View>
+              {row.percentFilled === null ? null : (
+                <UsageMeter
+                  percentUsed={row.percentUsed ?? 0}
+                  percentFilled={row.percentFilled}
+                  pacePercent={quotaPacePercent(row.window, now)}
+                  style={CARD_METER_STYLE}
+                  trackColor={theme.colors.surface0}
+                  theme={theme}
+                  compact
+                />
+              )}
+            </View>
           ))}
         </>
       )}
       <View style={styles.cardRule} />
       <View style={styles.cardRow}>
         <Text numberOfLines={1} style={styles.cardDetail}>
-          {updated ?? provider.label}
+          {refreshing ? "Refreshing…" : (updated ?? provider.label)}
         </Text>
         <Pressable accessibilityRole="button" onPress={openProviderSettings}>
           <Text style={styles.cardAction}>Settings</Text>
@@ -384,6 +392,54 @@ function PillCard({
       </View>
     </View>
   );
+}
+
+const CARD_BUSY = { busy: true, disabled: true };
+const CARD_IDLE = { busy: false, disabled: false };
+/**
+ * How stale a reading has to be before opening a card is worth a vendor call.
+ * Anthropic throttles its own quota endpoint after very few requests, so a
+ * refresh on every press would spend that budget on numbers that just arrived.
+ */
+const REFRESH_ON_OPEN_AFTER_MS = 60_000;
+
+/**
+ * Forces a vendor read and publishes it to the shared snapshot. Opening the
+ * card refreshes on its own when the numbers have aged; the button always
+ * refreshes, because a reader who presses it is asking about now.
+ */
+function useProviderRefresh(fetchedAt: string | null): {
+  refreshing: boolean;
+  refresh: () => void;
+} {
+  const readSnapshot = useRpc(readUsageLimits);
+  const queryClient = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = useCallback(() => {
+    setRefreshing(true);
+    void (async () => {
+      try {
+        const snapshot = await readSnapshot({ refresh: true });
+        queryClient.setQueryData(USAGE_LIMITS_QUERY_KEY, snapshot);
+      } catch (error: unknown) {
+        // The last good numbers stay on the card, and the provider's own
+        // notice explains why they did not move.
+        console.warn("[usage-monitor] refresh failed", error);
+      } finally {
+        setRefreshing(false);
+      }
+    })();
+  }, [queryClient, readSnapshot]);
+  const aged =
+    fetchedAt === null || Date.now() - new Date(fetchedAt).getTime() > REFRESH_ON_OPEN_AFTER_MS;
+  useEffect(() => {
+    if (aged) {
+      refresh();
+    }
+    // Runs once per open: the card mounts on press and unmounts on close.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return { refreshing, refresh };
 }
 
 /** The tracked reading's window, so the card's bar can carry a pace marker. */

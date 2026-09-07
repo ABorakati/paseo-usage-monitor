@@ -16,7 +16,7 @@ If your provider is not in the table below, read [What is not supported, and why
 
 | Preset                          | Kind         | Reads                                                         | Endpoint                                                                         | Credential         | Sources, tried in order                                                                                                     |
 | ------------------------------- | ------------ | ------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `claude`                        | Subscription | Session, weekly and per-model limits                          | `GET https://api.anthropic.com/api/oauth/usage`                                  | `token`            | `claudeAiOauth.accessToken` in `${CLAUDE_CONFIG_DIR}/.credentials.json`, then `~/.claude/.credentials.json`                 |
+| `claude`                        | Subscription | Session, weekly and per-model limits, plus paid extra usage    | `GET https://api.anthropic.com/api/oauth/usage`                                  | `token`            | `claudeAiOauth.accessToken` in `${CLAUDE_CONFIG_DIR}/.credentials.json`, then `~/.claude/.credentials.json`                 |
 | `claude-statusline`             | Subscription | Session and weekly limits                                     | None — reads `~/.claude/paseo-rate-limits.json`                                  | —                  | Its own statusline hook writes the file; nothing is authenticated                                                           |
 | `codex`                         | Subscription | Session, weekly, code-review, reserve, banked resets, credits | `GET https://chatgpt.com/backend-api/wham/usage`                                 | `token`            | `tokens.access_token` in `${CODEX_HOME}/auth.json`, then `~/.codex/auth.json`, then `~/.config/codex/auth.json`             |
 | `cursor`                        | Subscription | Plan spend, limit and remaining balance                       | `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage` | `token`            | `CURSOR_ACCESS_TOKEN`, `CURSOR_TOKEN`, then `${CURSOR_HOME}/auth.json`, `~/.config/cursor/auth.json`, `~/.cursor/auth.json` |
@@ -72,7 +72,7 @@ The ones with a trap in them:
 - **`deepinfra`** reports a prepaid balance as a **negative number**, handled by `scale: -1`.
 - **`venice`** returns both a DIEM epoch quota and a USD balance in one call. Which one actually bills depends on the account's consumption currency, so both are shown rather than guessing.
 - **`openrouter` vs `openrouter-credits`** answer different questions. The first is the spend cap on _the key you are using_; an unlimited key reports no numbers at all, which is correct and not a failure. The second is _account-wide_ credits purchased against credits used. A 401 from `openrouter-credits` means the key is not provisioned for the credits endpoint, not that the credential is wrong.
-- **`claude`** polls every 30 minutes because its endpoint throttles hard — see [Rate limits](#rate-limits). **`claude-statusline`** reads the same two windows from a local file every minute instead, with no credential and no request — see [Reading Claude quota without a token](CREDENTIALS.md#reading-claude-quota-without-a-token).
+- **`claude`** polls every 30 minutes because its endpoint throttles hard — see [Rate limits](#rate-limits). It also reports **paid extra usage**, the overage billed once the plan's included limits are spent — see [Extra usage](#extra-usage) for which of the endpoint's two overage views it reads and why it draws no ceiling. **`claude-statusline`** reads the same two windows from a local file every minute instead, with no credential and no request — see [Reading Claude quota without a token](CREDENTIALS.md#reading-claude-quota-without-a-token). It carries no extra-usage row: the CLI hands a statusline nothing but the two windows.
 - **`xai`** needs a **Management API key** and the **team id**, not an inference key: the balance route lives on `management-api.x.ai` and is per team. The vendor reports the balance in USD cents as a liability, so a credit arrives negative; `scale: -0.01` turns `"-2500"` into $25 in hand.
 - **`zai-coding-plan` vs `zhipuai-coding-plan`** are host-locked like the Moonshot pair. Both read the **GLM Coding Plan subscription**, not pay-as-you-go credit: a plain API key with credits and no plan is accepted by the route and answered with `当前用户不存在coding plan`, "this user has no coding plan", which the preset's `failure` declaration turns into an error row saying so. Neither vendor publishes a route for the pay-as-you-go balance; that number lives in the console only. The session and weekly bars are `TOKENS_LIMIT` or `CREDIT_LIMIT` entries picked out of the `limits` array by their `unit`; the MCP bar is the `TIME_LIMIT` entry. Team accounts on bigmodel.cn also need `Bigmodel-Organization` and `Bigmodel-Project` headers, which these presets do not send — override `source.headers` for a team scope.
 - **`minimax-cn`** is `minimax` on the mainland host. A key is issued for one host and answers a login failure on the other.
@@ -235,6 +235,48 @@ Recorded output for an individual plan, which is the shape the tests project:
 | `completions` | no      | 0           | 0         | 2026-10-01 |
 
 The risks are the Antigravity ones in miniature: this impersonates the Copilot client rather than using a published API, and it can break the day the extensions change their route or headers. It reads a credential file but no keyring and no vendor binary. It stays flagged `unverified`, and the flag is shown on the card.
+
+## Extra usage
+
+Extra usage is what Anthropic bills after a plan's included limits are spent, and `GET https://api.anthropic.com/api/oauth/usage` publishes it beside the rate-limit windows. It arrives twice, in two objects that describe the same pot:
+
+```json
+{
+  "extra_usage": {
+    "is_enabled": false,
+    "monthly_limit": null,
+    "used_credits": null,
+    "utilization": null,
+    "currency": null,
+    "decimal_places": null,
+    "disabled_reason": null,
+    "user_disabled": true,
+    "spend_limit_reached": false,
+    "credits_ever_enabled": true,
+    "daily": null,
+    "weekly": null
+  },
+  "spend": {
+    "used": { "amount_minor": 0, "currency": "USD", "exponent": 2 },
+    "limit": null,
+    "percent": 0,
+    "severity": "normal",
+    "enabled": false,
+    "cap": null,
+    "balance": null,
+    "auto_reload": null,
+    "can_purchase_credits": false,
+    "can_toggle": false
+  }
+}
+```
+
+The preset reads `spend.used.amount_minor` with `scale: 0.01`, as `usd`, and labels it **Extra usage**. Two reasons for that path over `extra_usage.used_credits`:
+
+- `spend.used` says what its own number means. `exponent: 2` with `currency: "USD"` makes `amount_minor` cents, so the scale is read off the response rather than assumed.
+- `extra_usage.used_credits` names no unit. Its decimal point would come from the sibling `decimal_places`, which reads `null` until a user switches credits on, so scaling it today would be a guess.
+
+**The reading draws no bar, by evidence rather than by choice.** On the account this was captured from, `spend.limit`, `spend.cap` and `extra_usage.monthly_limit` are all `null` — no spend cap was ever set — so no populated ceiling has been observed, and nothing here can say whether one arrives as a bare number or as another minor-unit money object like `spend.used`. A path guessed wrong by a factor of a hundred would draw a confident wrong bar, which is worse than no bar. `spend.percent` is a share of that same unseen cap and reads `0` while no cap exists, so it is unmapped too: `0%` printed beside a real dollar amount would say the opposite of the truth. The row therefore reports the amount spent and nothing else. If you have set a monthly spend limit, type it in yourself under the provider's `limits` map as `"extra-usage": 20` and the bar appears — see [Ceilings](CONFIGURATION.md#ceilings).
 
 ## Rate limits
 

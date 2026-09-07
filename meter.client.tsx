@@ -30,6 +30,12 @@ export interface UsageMeterProps {
    * 14px and lets a 4px bar fill whatever width its parent gives it.
    */
   scale?: "card" | "rail";
+  /**
+   * The empty part of the gauge. Defaults to `surface2`, which disappears on a
+   * surface of the same colour, so a caller that draws on one passes something
+   * darker to keep the groove visible.
+   */
+  trackColor?: string;
   theme: PluginTheme;
   compact: boolean;
 }
@@ -48,9 +54,9 @@ interface MeterStyles {
 function createStyles(
   theme: PluginTheme,
   tone: string,
-  sizes: { barHeight: number; ringSize: number; ringStroke: number },
+  sizes: { barHeight: number; ringSize: number; ringStroke: number; track: string },
 ): MeterStyles {
-  const { barHeight, ringSize, ringStroke } = sizes;
+  const { barHeight, ringSize, ringStroke, track } = sizes;
   const arc: ViewStyle = {
     position: "absolute",
     top: 0,
@@ -58,7 +64,7 @@ function createStyles(
     height: ringSize,
     borderRadius: ringSize / 2,
     borderWidth: ringStroke,
-    borderColor: theme.colors.surface2,
+    borderColor: track,
     borderTopColor: tone,
     borderRightColor: tone,
   };
@@ -66,14 +72,14 @@ function createStyles(
     barTrack: {
       height: barHeight,
       borderRadius: barHeight / 2,
-      backgroundColor: theme.colors.surface2,
+      backgroundColor: track,
       overflow: "hidden",
     },
     ring: {
       width: ringSize,
       height: ringSize,
       borderRadius: ringSize / 2,
-      backgroundColor: theme.colors.surface2,
+      backgroundColor: track,
       alignItems: "center",
       justifyContent: "center",
       overflow: "hidden",
@@ -119,6 +125,7 @@ export function UsageMeter({
   pacePercent,
   style = "bar",
   scale = "card",
+  trackColor,
   theme,
   compact,
 }: UsageMeterProps) {
@@ -129,9 +136,10 @@ export function UsageMeter({
   const barHeight = rail ? 4 : compact ? 4 : 6;
   const ringSize = rail ? 14 : compact ? 42 : 50;
   const ringStroke = rail ? 3 : compact ? 5 : 6;
+  const track = trackColor ?? theme.colors.surface2;
   const styles = useMemo(
-    () => createStyles(theme, tone, { barHeight, ringSize, ringStroke }),
-    [theme, tone, barHeight, ringSize, ringStroke],
+    () => createStyles(theme, tone, { barHeight, ringSize, ringStroke, track }),
+    [theme, tone, barHeight, ringSize, ringStroke, track],
   );
   const barFill = useMemo<ViewStyle>(
     () => ({

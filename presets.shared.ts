@@ -90,7 +90,8 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
   claude: definePreset({
     label: "Claude",
     icon: { kind: "monogram", text: "Cl", color: "#D97706" },
-    description: "Claude Code session, weekly and per-model limits over the OAuth usage endpoint",
+    description:
+      "Claude Code session, weekly and per-model limits plus paid extra usage, over the OAuth usage endpoint",
     // This endpoint was never designed to be polled: Claude Code itself takes
     // quota from rate-limit response headers on ordinary API calls and uses this
     // endpoint only as a seed. Measured live, it answers HTTP 429 with
@@ -173,6 +174,36 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           resetsAtPath: "resets_at",
           durationMs: SEVEN_DAYS_MS,
         },
+      },
+      {
+        kind: "quota",
+        id: "extra-usage",
+        label: "Extra usage",
+        unit: "usd",
+        // What the plan's included limits no longer cover and Anthropic bills
+        // for. The response reports it twice. `extra_usage` carries
+        // `is_enabled`, `used_credits`, `monthly_limit`, `utilization`,
+        // `currency` and `decimal_places`; `spend` carries a money object,
+        // `{ amount_minor, currency: "USD", exponent: 2 }`, plus `percent`,
+        // `limit`, `cap`, `balance` and `severity`.
+        //
+        // `spend` is the one that says what its own number means: the live
+        // capture had `exponent: 2`, so `amount_minor` is cents and scales to
+        // dollars here. `extra_usage.used_credits` names no unit at all — its
+        // scale would come from a sibling `decimal_places` that reads null
+        // until credits are switched on — so reading it would be a guess about
+        // where the decimal point goes.
+        scale: 0.01,
+        usedPath: "spend.used.amount_minor",
+        // No ceiling, by evidence rather than by choice. On the account this
+        // was captured from, `spend.limit`, `spend.cap` and
+        // `extra_usage.monthly_limit` all read null, so no populated ceiling
+        // has ever been seen and nothing here can say whether one arrives as
+        // a bare number or as another minor-unit money object. A guessed path
+        // that mis-scaled by a hundred would draw a confident wrong bar, and
+        // `spend.percent` is a share of that same unseen cap: it reads 0 while
+        // no cap exists, which beside a non-zero amount would say the opposite
+        // of the truth. So this reading reports the amount spent and no more.
       },
     ],
   }),

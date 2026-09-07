@@ -5,6 +5,7 @@ import type {
   UsageProviderSnapshot,
   UsageQuotaReading,
   UsageReading,
+  UsageWindow,
 } from "./limits.shared";
 
 /**
@@ -227,6 +228,69 @@ export function pillMetrics(
     windowLabel: window?.label ?? null,
     resetsAt: window?.resetsAt ?? null,
   };
+}
+
+export interface UsageWindowRow {
+  id: string;
+  /** "Weekly", "Weekly · Fable", "Credits". */
+  name: string;
+  readout: string;
+  percentUsed: number | null;
+  percentFilled: number | null;
+  window: UsageWindow | null;
+}
+
+const QUOTA_ROW_SETTINGS: ResolvedPillSettings = {
+  order: null,
+  style: "bar",
+  value: "used",
+  reading: null,
+  label: "none",
+  readout: "percent",
+};
+
+const BALANCE_ROW_SETTINGS: ResolvedPillSettings = {
+  ...QUOTA_ROW_SETTINGS,
+  value: "remaining",
+  readout: "amount",
+};
+
+/**
+ * The windows a card lists beneath its headline, one row each, skipping the
+ * one the headline already states. A quota reads as consumption because that
+ * is what runs out; a balance reads as what is left, because "75% used" of a
+ * credit account buries the number that matters.
+ *
+ * A row is named from its reading, not from its window. Claude scopes a second
+ * weekly allowance to one model and calls both windows "Weekly", so naming by
+ * window printed "Weekly" twice and hid which was which.
+ */
+export function usageWindowRows(
+  readings: readonly UsageReading[],
+  skipReadingId: string | null,
+): UsageWindowRow[] {
+  const rows: UsageWindowRow[] = [];
+  for (const reading of readings) {
+    if (reading.id === skipReadingId || !isPillReading(reading)) {
+      continue;
+    }
+    const settings = reading.kind === "balance" ? BALANCE_ROW_SETTINGS : QUOTA_ROW_SETTINGS;
+    const metrics = pillMetrics(reading, settings);
+    if (metrics.readout === null) {
+      continue;
+    }
+    const suffix =
+      reading.kind === "balance" ? " left" : metrics.percentUsed === null ? "" : " used";
+    rows.push({
+      id: reading.id,
+      name: reading.label.trim() === "" ? (metrics.windowLabel ?? reading.id) : reading.label,
+      readout: `${metrics.readout}${suffix}`,
+      percentUsed: metrics.percentUsed,
+      percentFilled: metrics.percentFilled,
+      window: reading.kind === "quota" ? reading.window : null,
+    });
+  }
+  return rows;
 }
 
 export interface ComposerPillEntry {

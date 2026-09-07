@@ -405,6 +405,38 @@ const RESPONSE_FIXTURES: Record<string, unknown> = {
         scope: { model: { display_name: "Opus" } },
       },
     ],
+    // Both overage views the live endpoint carries, keys and nesting as
+    // captured. `extra_usage` reports nulls until a user switches credits on,
+    // which is why the reading reads the self-describing `spend` money object
+    // instead: `exponent: 2` says `amount_minor` is cents. The captured
+    // account had no spend cap, so `limit`, `cap` and `monthly_limit` are the
+    // nulls the vendor really sent.
+    extra_usage: {
+      is_enabled: false,
+      monthly_limit: null,
+      used_credits: null,
+      utilization: null,
+      currency: null,
+      decimal_places: null,
+      disabled_reason: null,
+      user_disabled: true,
+      spend_limit_reached: false,
+      credits_ever_enabled: true,
+      daily: null,
+      weekly: null,
+    },
+    spend: {
+      used: { amount_minor: 1234, currency: "USD", exponent: 2 },
+      limit: null,
+      percent: 0,
+      severity: "normal",
+      enabled: false,
+      cap: null,
+      balance: null,
+      auto_reload: null,
+      can_purchase_credits: false,
+      can_toggle: false,
+    },
   },
   // What Claude Code hands a statusline command: the same two windows and the
   // same field names as the endpoint above, and nothing else. Its own
@@ -744,6 +776,7 @@ describe("verified presets resolve their recorded responses", () => {
       "session",
       "weekly",
       "scoped-weekly-scoped",
+      "extra-usage",
     ]);
     expect(readingById("claude", "session")).toMatchObject({
       kind: "quota",
@@ -768,6 +801,30 @@ describe("verified presets resolve their recorded responses", () => {
   test("claude never repeats the session or weekly percentage as a scoped bucket", () => {
     const scoped = project("claude").filter((reading) => reading.id.startsWith("scoped-"));
     expect(scoped.map((reading) => reading.kind === "quota" && reading.percent)).toEqual([12]);
+  });
+
+  /**
+   * Extra usage is what Anthropic bills once the plan's included limits are
+   * spent, and the endpoint publishes it as a minor-unit money object beside
+   * the rate-limit windows. Two things have to hold: cents reach the card as
+   * dollars, and no ceiling is invented for an account that set no spend cap.
+   */
+  test("claude reports paid extra usage in dollars and invents no ceiling", () => {
+    expect(readingById("claude", "extra-usage")).toEqual({
+      kind: "quota",
+      id: "extra-usage",
+      label: "Extra usage",
+      group: null,
+      unit: "usd",
+      window: null,
+      used: 12.34,
+      limit: null,
+      remaining: null,
+      // `spend.percent` is a share of a cap this account does not have, so it is
+      // deliberately unmapped: a 0% bar beside a real dollar amount would read
+      // as "nothing spent".
+      percent: null,
+    });
   });
 
   test("codex turns epoch-second reset_at into ISO and reads a string balance", () => {
@@ -1327,9 +1384,7 @@ describe("antigravity reads its quota through a probe", () => {
     const readings = project("antigravity", {
       ...ANTIGRAVITY_PROBE,
       usage: {
-        requests: [
-          { id: "paseo-requests-day", label: "Today", group: "Paseo (omp)", amount: 600 },
-        ],
+        requests: [{ id: "paseo-requests-day", label: "Today", group: "Paseo (omp)", amount: 600 }],
         tokens: [
           { id: "cli-tokens-day", label: "Today", group: "Antigravity CLI", amount: 32_652_978 },
         ],

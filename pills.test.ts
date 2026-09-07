@@ -16,6 +16,7 @@ import {
   resolvePillSettings,
   selectComposerPills,
   selectPillReading,
+  usageWindowRows,
 } from "./pills.shared";
 
 const FIVE_HOURS_MS = 18_000_000;
@@ -431,5 +432,51 @@ describe("composerPillId", () => {
   test("namespaces a provider id into the host's contribution id grammar", () => {
     expect(composerPillId("zai-coding-plan")).toBe("usage-zai-coding-plan");
     expect(composerPillId("claude")).toMatch(/^[a-z][a-z0-9-]*$/);
+  });
+});
+
+describe("usageWindowRows", () => {
+  test("tells two same-window readings apart by their own labels", () => {
+    const rows = usageWindowRows(
+      [
+        quota({ id: "weekly", label: "Weekly", percent: 39 }),
+        quota({ id: "scoped-weekly-scoped", label: "Weekly · Fable", percent: 60 }),
+      ],
+      null,
+    );
+
+    expect(rows.map((row) => `${row.name} ${row.readout}`)).toEqual([
+      "Weekly 39% used",
+      "Weekly · Fable 60% used",
+    ]);
+  });
+
+  test("skips the reading the headline already states", () => {
+    const rows = usageWindowRows([quota({ id: "session" }), quota({ id: "weekly" })], "session");
+
+    expect(rows.map((row) => row.id)).toEqual(["weekly"]);
+  });
+
+  test("carries the geometry each row needs to draw its own bar", () => {
+    const [row] = usageWindowRows([quota({ id: "weekly", percent: 39 })], null);
+
+    expect(row).toMatchObject({ percentUsed: 39, percentFilled: 39 });
+    expect(row?.window).toMatchObject({ label: "Session" });
+  });
+
+  test("a balance states what is left, not what is spent", () => {
+    const rows = usageWindowRows([balance()], null);
+
+    expect(rows[0]?.readout).toBe("$12.50 left");
+  });
+
+  test("a schedule has no window to draw and is left out", () => {
+    expect(usageWindowRows([rate()], null)).toEqual([]);
+  });
+
+  test("a reading with no number at all is left out rather than shown empty", () => {
+    const blank = quota({ id: "blank", percent: null, used: null, limit: null, remaining: null });
+
+    expect(usageWindowRows([blank], null)).toEqual([]);
   });
 });
