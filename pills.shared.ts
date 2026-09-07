@@ -2,6 +2,7 @@ import { formatUsageAmount } from "./amount.shared";
 import type {
   UsageBalanceReading,
   UsageDisplay,
+  UsagePillMatchRule,
   UsageProviderSnapshot,
   UsageQuotaReading,
   UsageReading,
@@ -29,6 +30,150 @@ export function composerPillId(providerId: string): string {
  */
 export function isDashboardVisible(display: UsageDisplay | undefined): boolean {
   return display?.dashboard !== false;
+}
+
+/**
+ * Which agents a preset's pill belongs above, as `harness` or `harness:vendor`.
+ *
+ * A harness reports itself as the agent's provider and its models as
+ * `vendor/model`, so one vendor is one entry here. The vendor namespaces are
+ * per harness and do not agree with each other: the same Kimi subscription is
+ * `kimi` under omp, `kimi-coding` under pi and `kimi-for-coding` under
+ * opencode. Every entry below was read off a real catalog — omp's
+ * `~/.omp/agent/models.db` and its binary, pi's bundled `models.generated.js`,
+ * opencode's models.dev cache — rather than guessed from a vendor's name.
+ *
+ * A vendor whose usage no endpoint reports (cloud-billed accounts, header-only
+ * rate limits, console-only plans) has no preset, so it appears nowhere here.
+ * Presets that exist only as reading ids inside a probe (`gemini-5h`,
+ * `premium`) name no provider and get no rules either.
+ */
+const SUGGESTED_MATCH_SPECS: Record<string, readonly string[]> = {
+  claude: ["claude", "omp:anthropic", "pi:anthropic", "opencode:anthropic"],
+  "claude-statusline": ["claude", "omp:anthropic", "pi:anthropic", "opencode:anthropic"],
+  codex: [
+    "codex",
+    "omp:openai-codex",
+    "omp:openai",
+    "pi:openai-codex",
+    "pi:openai",
+    "opencode:openai",
+  ],
+  "github-copilot": [
+    "copilot",
+    "omp:github-copilot",
+    "pi:github-copilot",
+    "opencode:github-copilot",
+  ],
+  antigravity: ["omp:google-antigravity", "opencode:google-agy"],
+  cursor: ["cursor", "omp:cursor"],
+  grok: ["omp:grok"],
+  xai: ["omp:xai", "pi:xai", "opencode:xai"],
+  deepseek: ["omp:deepseek", "pi:deepseek", "opencode:deepseek"],
+  "deepseek-rate": ["omp:deepseek", "pi:deepseek", "opencode:deepseek"],
+  kimi: ["omp:kimi", "pi:kimi-coding", "opencode:kimi-for-coding"],
+  moonshot: ["omp:moonshot", "pi:moonshotai", "opencode:moonshotai"],
+  "moonshot-cn": ["pi:moonshotai-cn", "opencode:moonshotai-cn"],
+  minimax: [
+    "omp:minimax",
+    "omp:minimax-code",
+    "pi:minimax",
+    "opencode:minimax",
+    "opencode:minimax-coding-plan",
+  ],
+  "minimax-cn": [
+    "omp:minimax-cn",
+    "omp:minimax-code-cn",
+    "pi:minimax-cn",
+    "opencode:minimax-cn",
+    "opencode:minimax-cn-coding-plan",
+  ],
+  // `zai` is this catalogue's alias for the same Coding Plan preset.
+  "zai-coding-plan": [
+    "omp:zai",
+    "omp:zai-coding-plan",
+    "pi:zai",
+    "opencode:zai",
+    "opencode:zai-coding-plan",
+  ],
+  zai: ["omp:zai", "omp:zai-coding-plan", "pi:zai", "opencode:zai", "opencode:zai-coding-plan"],
+  "zhipuai-coding-plan": [
+    "omp:zhipuai-coding-plan",
+    "opencode:zhipuai",
+    "opencode:zhipuai-coding-plan",
+  ],
+  "opencode-go": ["omp:opencode-go", "pi:opencode-go", "opencode:opencode-go"],
+  "opencode-zen": ["omp:opencode-zen", "pi:opencode", "opencode:opencode"],
+  openrouter: ["omp:openrouter", "pi:openrouter", "opencode:openrouter"],
+  "openrouter-credits": ["omp:openrouter", "pi:openrouter", "opencode:openrouter"],
+  vercel: ["omp:vercel-ai-gateway", "pi:vercel-ai-gateway", "opencode:vercel"],
+  siliconflow: ["omp:siliconflow", "opencode:siliconflow"],
+  "siliconflow-cn": ["omp:siliconflow-cn", "opencode:siliconflow-cn"],
+  stepfun: ["omp:stepfun", "opencode:stepfun"],
+  "stepfun-ai": ["opencode:stepfun-ai"],
+  novita: ["omp:novita", "opencode:novita-ai"],
+  deepinfra: ["omp:deepinfra", "opencode:deepinfra"],
+  chutes: ["omp:chutes", "opencode:chutes"],
+  synthetic: ["omp:synthetic", "opencode:synthetic"],
+  zenmux: ["omp:zenmux", "opencode:zenmux"],
+  venice: ["omp:venice", "opencode:venice"],
+  "nano-gpt": ["omp:nanogpt", "omp:nano-gpt", "opencode:nano-gpt"],
+  poe: ["opencode:poe"],
+};
+
+/** Suggested mappings become explicit config only when the user selects matching. */
+export function getDefaultPillMatchRules(presetOrProviderId: string): UsagePillMatchRule[] {
+  const specs = SUGGESTED_MATCH_SPECS[presetOrProviderId.trim().toLowerCase()] ?? [];
+  return specs.map((spec) => {
+    const separator = spec.indexOf(":");
+    if (separator < 0) return { harness: spec };
+    return { harness: spec.slice(0, separator), provider: spec.slice(separator + 1) };
+  });
+}
+
+/** The host calls the harness `provider`; the model's first segment names its vendor. */
+export function matchesPillSelection(
+  pill: UsageDisplay["pill"],
+  selection: { provider: string | null; model: string | null },
+): boolean {
+  if (!pill?.enabled) {
+    return false;
+  }
+  if (pill.visibility !== "matching") {
+    return true;
+  }
+  const harness = selection.provider?.toLowerCase() ?? null;
+  const qualifiedModel = selection.model?.toLowerCase() ?? null;
+  const separator = qualifiedModel?.indexOf("/") ?? -1;
+  const provider =
+    qualifiedModel !== null && separator >= 0 ? qualifiedModel.slice(0, separator) : null;
+  const model =
+    qualifiedModel !== null && separator >= 0
+      ? qualifiedModel.slice(separator + 1)
+      : qualifiedModel;
+  return (pill.matchRules ?? []).some((rule) => {
+    if (rule.harness === undefined && rule.provider === undefined && rule.model === undefined) {
+      return false;
+    }
+    if (rule.harness !== undefined && rule.harness.toLowerCase() !== harness) {
+      return false;
+    }
+    if (rule.provider !== undefined && rule.provider.toLowerCase() !== provider) {
+      return false;
+    }
+    if (rule.model !== undefined) {
+      if (model === null) {
+        return false;
+      }
+      const pattern = rule.model.toLowerCase();
+      if (!pattern.includes("*")) {
+        return pattern === model;
+      }
+      const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+      return new RegExp(`^${escaped}$`).test(model);
+    }
+    return true;
+  });
 }
 
 export interface ResolvedPillSettings {
@@ -297,6 +442,7 @@ export interface ComposerPillEntry {
   providerId: string;
   providerLabel: string;
   settings: ResolvedPillSettings;
+  pill: UsageDisplay["pill"];
 }
 
 /**
@@ -320,6 +466,7 @@ export function selectComposerPills(
       providerId: provider.providerId,
       providerLabel: provider.label,
       settings,
+      pill: provider.display.pill,
     });
   }
   return entries.sort(comparePillEntries);

@@ -6,7 +6,6 @@ import {
   writeUsageProvider,
 } from "./config.shared";
 import {
-  claimSeed,
   readConfig,
   readHistory,
   readLimits,
@@ -19,8 +18,6 @@ import { readUsageHistory } from "./history.shared";
 import { UsageLimitsPanel, UsageLimitsSurface } from "./limits.client";
 import { readUsageLimits } from "./limits.shared";
 import { contributeComposerPills } from "./pills.client";
-import { contributeExplorerSeed } from "./seed.client";
-import { claimExplorerSeed } from "./seed.shared";
 import { UsageSettingsSurface } from "./settings.client";
 
 export default function contribute(plugin: PluginContext) {
@@ -30,17 +27,7 @@ export default function contribute(plugin: PluginContext) {
   plugin.handle(writeUsageProvider, writeProvider);
   plugin.handle(removeUsageProvider, removeProvider);
   plugin.handle(testUsageProvider, testProvider);
-  plugin.handle(claimExplorerSeed, claimSeed);
-  // One client entrypoint per plugin is all the host allows, so the seed and
-  // the composer rail share it and tear down in reverse.
-  plugin.addClientSide((client) => {
-    const stopSeed = contributeExplorerSeed(client);
-    const stopPills = contributeComposerPills(client);
-    return () => {
-      stopPills();
-      stopSeed();
-    };
-  });
+  plugin.addClientSide(contributeComposerPills);
   plugin.addSurface("limits", UsageLimitsSurface);
   plugin.addSurface("history", UsageHistorySurface);
   // Reachable on its own so a composer pill can send the reader straight to the

@@ -15,14 +15,12 @@ import type { UsageSnapshot } from "./limits.shared";
 import { buildProviderRegistry } from "./registry.server";
 import { createUsageService, type UsageService } from "./service.server";
 import { createNodeReadingStoreAdapters, createReadingStore } from "./reading-store.server";
-import { createNodeSeedStoreAdapters, createSeedStore } from "./seed.server";
 import { createNodeSourceAdapters } from "./source.server";
 
 const configAdapters = createNodeConfigAdapters();
 const credentialAdapters = createNodeCredentialAdapters();
 const sourceAdapters = createNodeSourceAdapters();
 const readingStore = createReadingStore(createNodeReadingStoreAdapters());
-const seedStore = createSeedStore(createNodeSeedStoreAdapters());
 const historyAdapters = createNodeHistoryAdapters();
 const configPath = usageConfigPath(configAdapters);
 const configStoreAdapters = createNodeUsageConfigStoreAdapters(configAdapters);
@@ -85,9 +83,4 @@ export function removeProvider(input: { id: string }): UsageConfigState {
 
 export function testProvider(input: { id: string }): Promise<UsageProviderTestResult> {
   return testUsageProviderEntry(input.id, configStoreAdapters);
-}
-
-/** One-time Explorer sidebar seed per workspace; see `seed.shared.ts`. */
-export function claimSeed(input: { workspaceId: string }): { claimed: boolean } {
-  return { claimed: seedStore.claim(input.workspaceId) };
 }

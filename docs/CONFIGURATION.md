@@ -46,32 +46,34 @@ Malformed JSON, or JSON that fails the schema, makes the plugin throw a `UsageCo
 
 ## Provider entry
 
-| Field               | Type                      | Required                  | Default  | Notes                                                                                   |
-| ------------------- | ------------------------- | ------------------------- | -------- | --------------------------------------------------------------------------------------- |
-| `preset`            | string                    | no                        | —        | Names a built-in preset to start from. Without it, `label` and `readings` are required. |
-| `label`             | string                    | required without `preset` | —        | Card title.                                                                             |
-| `description`       | string                    | no                        | —        | Subtitle.                                                                               |
-| `enabled`           | boolean                   | no                        | `true`   | `false` keeps the entry in the file but stops it being read.                            |
-| `refreshIntervalMs` | integer, 30000 – 86400000 | no                        | `300000` | Cache TTL for this provider.                                                            |
-| `credentials`       | credential map            | no                        | `{}`     | See [Credentials](CREDENTIALS.md#credentials).                                          |
-| `source`            | source object             | no                        | —        | Omit only when every reading is schedule-driven and needs no request.                   |
-| `readings`          | array of readings, min 1  | required without `preset` | —        | See [Readings](#readings).                                                              |
-| `limits`            | map of reading id to number | no                      | `{}`     | Ceilings for readings whose vendor publishes none, so a bare count becomes a bar. See [Ceilings](#ceilings). |
-| `display`           | display object            | no                        | `{}`     | Card layout and composer rail pill settings. See [Display and composer pills](#display-and-composer-pills). |
+| Field               | Type                        | Required                  | Default  | Notes                                                                                                        |
+| ------------------- | --------------------------- | ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `preset`            | string                      | no                        | —        | Names a built-in preset to start from. Without it, `label` and `readings` are required.                      |
+| `label`             | string                      | required without `preset` | —        | Card title.                                                                                                  |
+| `description`       | string                      | no                        | —        | Subtitle.                                                                                                    |
+| `enabled`           | boolean                     | no                        | `true`   | `false` keeps the entry in the file but stops it being read.                                                 |
+| `refreshIntervalMs` | integer, 30000 – 86400000   | no                        | `300000` | Cache TTL for this provider.                                                                                 |
+| `credentials`       | credential map              | no                        | `{}`     | See [Credentials](CREDENTIALS.md#credentials).                                                               |
+| `source`            | source object               | no                        | —        | Omit only when every reading is schedule-driven and needs no request.                                        |
+| `readings`          | array of readings, min 1    | required without `preset` | —        | See [Readings](#readings).                                                                                   |
+| `limits`            | map of reading id to number | no                        | `{}`     | Ceilings for readings whose vendor publishes none, so a bare count becomes a bar. See [Ceilings](#ceilings). |
+| `display`           | display object              | no                        | `{}`     | Card layout and composer rail pill settings. See [Display and composer pills](#display-and-composer-pills).  |
+
 `unverified` is not settable from config. It is a property of a preset, marking one whose endpoint no vendor has published.
 
 ## Preset merge rules
 
 An entry with `preset` starts from that preset, then each field present on the entry replaces the preset's field. The replacement is wholesale, with two exceptions:
 
-| Field                                                  | Merge                                                                                                            |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `label`, `description`, `enabled`, `refreshIntervalMs` | Replaced.                                                                                                        |
-| `source`                                               | Replaced as a whole object. You cannot override just the `url`.                                                  |
-| `readings`                                             | Replaced as a whole array. There is no per-reading merge.                                                        |
-| `limits`                                               | Replaced as a whole map.                                                                                         |
-| `credentials`                                          | Merged **by credential name**; the entry wins per name, others survive.                                          |
-| `display`                                              | Merged **field by field** against the preset, and `display.pill` merges field by field the same way.             |
+| Field                                                  | Merge                                                                                                |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `label`, `description`, `enabled`, `refreshIntervalMs` | Replaced.                                                                                            |
+| `source`                                               | Replaced as a whole object. You cannot override just the `url`.                                      |
+| `readings`                                             | Replaced as a whole array. There is no per-reading merge.                                            |
+| `limits`                                               | Replaced as a whole map.                                                                             |
+| `credentials`                                          | Merged **by credential name**; the entry wins per name, others survive.                              |
+| `display`                                              | Merged **field by field** against the preset, and `display.pill` merges field by field the same way. |
+
 Every shipped preset declares exactly one credential name, so repointing a preset's key means re-declaring that one name:
 
 ```json
@@ -84,6 +86,7 @@ Every shipped preset declares exactly one credential name, so repointing a prese
 ```
 
 An entry naming a preset that does not exist becomes an error row reading `Unknown preset "<id>"`, labelled with the config key. An entry that fails validation becomes an error row carrying the joined Zod issues. Neither vanishes from the snapshot.
+
 ## Display and composer pills
 
 `display` controls how a provider renders on its card and whether it appears on the rail above the composer. Unlike `source`, `readings`, and `limits`, which replace presets wholesale, `display` merges field by field against a preset, and `display.pill` merges field by field the same way.
@@ -102,23 +105,61 @@ An entry naming a preset that does not exist becomes an error row reading `Unkno
 
 A composer pill is a glance above the chat prompt: one gauge, one number, and one reading per opted-in provider. A provider stays off the rail until it opts in (`enabled: true`), so installing the plugin does not crowd every composer by default.
 
-| Field     | Type                                | Required | Default      | Notes                                                                                                           |
-| --------- | ----------------------------------- | -------- | ------------ | --------------------------------------------------------------------------------------------------------------- |
-| `enabled` | boolean                             | no       | `false`      | Whether this provider appears on the composer rail.                                                             |
-| `order`   | integer                             | no       | —            | Ascending position along the rail; pills without an order sort after ordered ones, by id.                       |
-| `style`   | `"ring" \| "bar" \| "none"`         | no       | card `style` | Dial, left-to-right bar, or number alone (`none`). Inherits the card's own `display.style` (default `"bar"`).   |
-| `value`   | `"used" \| "remaining"`             | no       | card `value` | Counts consumption (`used`) or headroom (`remaining`). Inherits the card's own `display.value` (default `"used"`). |
-| `reading` | string                              | no       | automatic    | Mapping id to track. Omitted picks the shortest quota window (the session figure), falling back to a balance.  |
-| `label`   | `"provider" \| "reading" \| "none"` | no       | `"none"`     | Text beside the gauge: vendor name, reading label, or neither. Off by default.                                  |
-| `readout` | `"percent" \| "amount" \| "none"`   | no       | `"percent"`  | Value beside the gauge: percentage, currency or unit amount, or neither.                                        |
+| Field        | Type                                | Required | Default      | Notes                                                                                                                              |
+| ------------ | ----------------------------------- | -------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`    | boolean                             | no       | `false`      | Whether this provider appears on the composer rail.                                                                                |
+| `order`      | integer                             | no       | —            | Ascending position along the rail; pills without an order sort after ordered ones, by id.                                          |
+| `style`      | `"ring" \| "bar" \| "none"`         | no       | card `style` | Dial, left-to-right bar, or number alone (`none`). Inherits the card's own `display.style` (default `"bar"`).                      |
+| `value`      | `"used" \| "remaining"`             | no       | card `value` | Counts consumption (`used`) or headroom (`remaining`). Inherits the card's own `display.value` (default `"used"`).                 |
+| `reading`    | string                              | no       | automatic    | Mapping id to track. Omitted picks the shortest quota window (the session figure), falling back to a balance.                      |
+| `label`      | `"provider" \| "reading" \| "none"` | no       | `"none"`     | Text beside the gauge: vendor name, reading label, or neither. Off by default.                                                     |
+| `readout`    | `"percent" \| "amount" \| "none"`   | no       | `"percent"`  | Value beside the gauge: percentage, currency or unit amount, or neither.                                                           |
+| `visibility` | `"always" \| "matching"`            | no       | `"always"`   | `"always"` shows the pill on every composer. `"matching"` shows it only on agents whose harness and model a rule accepts.          |
+| `matchRules` | array of match rules                | no       | —            | Checked only under `visibility: "matching"`. See [Matching the agent's harness and model](#matching-the-agents-harness-and-model). |
 
 Two fields inherit from the card when omitted:
+
 - `style` falls back to `display.style` on the card (defaulting to `"bar"`).
 - `value` falls back to `display.value` on the card (defaulting to `"used"`).
 
 Without a pinned `reading`, the pill tracks the shortest quota window because that is the number a composer acts on: the five-hour session quota runs out mid-task while a weekly quota rarely does. A provider with no quota readings falls back to its balance reading.
 
 When `enabled` is `false` and no other pill field is configured, the `pill` object is omitted from the saved config file to avoid empty no-op blocks.
+
+### Matching the agent's harness and model
+
+A pill under `visibility: "matching"` appears only on the composers whose agent a rule accepts, so a Claude pill sits above Claude Code chats and stays off the Codex ones. The plugin reads each agent's own harness and model — the open agents at startup, then the update stream — and registers or removes that agent's pill as those values change.
+
+| Field      | Type   | Required | Notes                                                                                             |
+| ---------- | ------ | -------- | ------------------------------------------------------------------------------------------------- |
+| `harness`  | string | no       | Agent harness id, such as `claude`, `codex`, or `omp`. Compared case-insensitively.               |
+| `provider` | string | no       | Model vendor: the segment before `/` in a qualified model id, such as `openai` in `openai/gpt-6`. |
+| `model`    | string | no       | Model id after that segment, or the whole id when unqualified. `*` matches any run of characters. |
+
+Each rule needs at least one field. Fields inside one rule are ANDed, and the rules themselves are ORed, so `[{ "harness": "codex" }, { "harness": "omp", "provider": "openai" }]` reads as "Codex, or OpenAI models under omp". A blank field means any value. An empty `matchRules` array matches nothing and keeps the pill hidden.
+
+Vendor matching is exact, not a name search: `provider: "openai"` matches `openai/gpt-6` under any harness, and never matches an OpenAI-looking model served by another vendor id. A rule naming `provider` or `model` cannot match an agent whose model is unset.
+
+The settings surface offers suggested rules for the selected preset and writes them as ordinary `matchRules` you can then edit. Every preset in this catalogue has a suggestion, covering the CLI harnesses (`claude`, `codex`, `copilot`, `cursor`) and the vendor namespaces of the three multi-vendor harnesses (`omp`, `pi`, `opencode`).
+
+Those namespaces do not agree with each other, which is the reason the suggestions are a table rather than a guess from the vendor's name:
+
+| Account                | omp                  | pi                  | opencode                   |
+| ---------------------- | -------------------- | ------------------- | -------------------------- |
+| Kimi Code              | `kimi`               | `kimi-coding`       | `kimi-for-coding`          |
+| Moonshot pay-as-you-go | `moonshot`           | `moonshotai`        | `moonshotai`               |
+| MiniMax coding plan    | `minimax-code`       | `minimax`           | `minimax-coding-plan`      |
+| Nano-GPT               | `nanogpt`            | —                   | `nano-gpt`                 |
+| Vercel AI Gateway      | `vercel-ai-gateway`  | `vercel-ai-gateway` | `vercel`                   |
+| Novita                 | `novita`             | —                   | `novita-ai`                |
+| Antigravity            | `google-antigravity` | —                   | `google-agy` (auth plugin) |
+| OpenCode Zen           | `opencode-zen`       | `opencode`          | `opencode`                 |
+
+Two traps the table avoids. A model id is not an account: `deepseek-v4-flash` is sold by OpenCode Zen, OpenCode Go and DeepSeek itself, so suggestions match the vendor segment and never the model name. And a vendor id is not a plan: `moonshot` bills an API key while `kimi` meters a Kimi Code subscription, so they are separate presets with separate rules.
+
+What matching follows is the agent's **current** harness and model, which is what the host reports to plugins. Picking a different model in the composer moves the pills once that choice reaches the agent — the daemon applies it on the next send — not while the picker is still open. The rail itself belongs to an existing agent, so a brand-new chat shows no pills until its agent exists.
+
+Editing rules from the settings surface takes effect on the rail's next read of the config, within a minute. Saving from the surface is immediate for the dashboard cards; the rail is a separate poller.
 
 ## Readings
 
@@ -140,7 +181,7 @@ When `enabled` is `false` and no other pill field is configured, the `pill` obje
 | `scale`                | number    | no       | Multiplies every amount. See [Scaling an amount](#scaling-an-amount). |
 | `usedPath`             | JSON path | no       | Amount consumed.                                                      |
 | `limitPath`            | JSON path | no       | Ceiling.                                                              |
-| `limit`                | number    | no       | Ceiling as a literal; set through the provider's `limits` map.         |
+| `limit`                | number    | no       | Ceiling as a literal; set through the provider's `limits` map.        |
 | `remainingPath`        | JSON path | no       | Amount left.                                                          |
 | `percentPath`          | JSON path | no       | 0–100 consumed, straight from the response.                           |
 | `percentRemainingPath` | JSON path | no       | Use when the response reports what is _left_ as a percentage.         |

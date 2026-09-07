@@ -45,6 +45,7 @@ import { UsageMeter, usageTone } from "./meter.client";
 import {
   composerPillId,
   type ComposerPillEntry,
+  matchesPillSelection,
   type PillMetrics,
   pillMetrics,
   resolvePillSettings,
@@ -679,9 +680,32 @@ function resolveLabel(
   return provider?.label ?? null;
 }
 
+/**
+ * The host copies a contribution's fields once, so a pill re-registers only
+ * when one of them changes. The selection a rule reads is part of that: an
+ * agent that switches model must lose the pills that no longer match it.
+ */
+interface Registration {
+  remove: () => void;
+  signature: string;
+}
+
+interface AgentSelection {
+  workspaceId: string;
+  /** The harness a rule matches on `harness`. */
+  provider: string | null;
+  /** Qualified `vendor/model` id a rule matches on `provider` and `model`. */
+  model: string | null;
+}
+
 interface AgentUpsert {
   kind: "upsert";
-  agent: { id: string; workspaceId?: string | null };
+  agent: {
+    id: string;
+    workspaceId?: string | null;
+    provider?: string | null;
+    model?: string | null;
+  };
 }
 interface AgentRemoval {
   kind: "remove";
@@ -689,27 +713,30 @@ interface AgentRemoval {
 }
 type AgentUpdate = AgentUpsert | AgentRemoval;
 
-function registrationKey(workspaceId: string, agentId: string, providerId: string): string {
-  return `${workspaceId}\u0000${agentId}\u0000${providerId}`;
+function registrationKey(agentId: string, providerId: string): string {
+  return `${agentId}\u0000${providerId}`;
 }
 
-interface Registration {
-  remove: () => void;
-  /** Re-registers only when something the host copies changes. */
+interface WantedPill {
+  agentId: string;
+  workspaceId: string;
+  entry: ComposerPillEntry;
+  /** Only the fields the host copies; a change here forces re-registration. */
   signature: string;
 }
 
 /**
  * Pills are per agent, and the host wants one registration per composer, so the
- * live set is the cross product of open agents and opted-in providers. The
- * component reads the numbers itself; this loop only decides which pills exist.
+ * live set is the cross product of open agents and the providers whose rules
+ * accept that agent's own harness and model. The component reads the numbers
+ * itself; this loop only decides which pills exist.
  */
 export function contributeComposerPills(client: PluginClientContext): () => void {
   // A panel component gets theme, host and layout, and no way to open anything.
   // The client entrypoint is the only place holding that capability, so the
   // detail panel borrows it from here rather than duplicating navigation.
   clientContext = client;
-  const workspaceByAgent = new Map<string, string>();
+  const selectionByAgent = new Map<string, AgentSelection>();
   const registrations = new Map<string, Registration>();
   let entries: ComposerPillEntry[] = [];
   let stopped = false;
@@ -718,22 +745,23 @@ export function contributeComposerPills(client: PluginClientContext): () => void
     if (stopped) {
       return;
     }
-    const wanted = new Map<
-      string,
-      { workspaceId: string; agentId: string; entry: ComposerPillEntry }
-    >();
-    for (const [agentId, workspaceId] of workspaceByAgent) {
+    const wanted = new Map<string, WantedPill>();
+    for (const [agentId, selection] of selectionByAgent) {
       for (const entry of entries) {
-        wanted.set(registrationKey(workspaceId, agentId, entry.providerId), {
-          workspaceId,
+        if (!matchesPillSelection(entry.pill, selection)) {
+          continue;
+        }
+        wanted.set(registrationKey(agentId, entry.providerId), {
           agentId,
+          workspaceId: selection.workspaceId,
           entry,
+          signature: JSON.stringify([selection.workspaceId, entry.providerLabel]),
         });
       }
     }
     for (const [key, registration] of registrations) {
       const target = wanted.get(key);
-      if (target !== undefined && target.entry.providerLabel === registration.signature) {
+      if (target !== undefined && target.signature === registration.signature) {
         continue;
       }
       registration.remove();
@@ -743,7 +771,7 @@ export function contributeComposerPills(client: PluginClientContext): () => void
       if (registrations.has(key)) {
         continue;
       }
-      const { workspaceId, agentId, entry } = target;
+      const { agentId, workspaceId, entry } = target;
       const remove = client.addComposerPill({
         id: composerPillId(entry.providerId),
         title: `${entry.providerLabel} usage`,
@@ -756,16 +784,55 @@ export function contributeComposerPills(client: PluginClientContext): () => void
           toggleOpenPill(entry.providerId);
         },
       });
-      registrations.set(key, { remove, signature: entry.providerLabel });
+      registrations.set(key, { remove, signature: target.signature });
     }
   }
 
+  function trackAgent(agent: {
+    id: string;
+    workspaceId?: string | null;
+    provider?: string | null;
+    model?: string | null;
+  }): boolean {
+    const workspaceId = agent.workspaceId;
+    if (typeof workspaceId !== "string" || workspaceId === "") {
+      return false;
+    }
+    const selection: AgentSelection = {
+      workspaceId,
+      provider: agent.provider ?? null,
+      model: agent.model ?? null,
+    };
+    const previous = selectionByAgent.get(agent.id);
+    if (
+      previous !== undefined &&
+      previous.workspaceId === selection.workspaceId &&
+      previous.provider === selection.provider &&
+      previous.model === selection.model
+    ) {
+      return false;
+    }
+    selectionByAgent.set(agent.id, selection);
+    return true;
+  }
+
+  /**
+   * The subscription only reports changes, so a page that opens onto idle
+   * agents would see none of them. The list is the starting state the
+   * subscription then keeps current.
+   */
   async function refresh(): Promise<void> {
-    const snapshot = await client.rpc(readUsageLimits, { refresh: false });
+    const [snapshot, directory] = await Promise.all([
+      client.rpc(readUsageLimits, { refresh: false }),
+      client.paseo.agents.list(),
+    ]);
     if (stopped) {
       return;
     }
     entries = selectComposerPills(snapshot.providers);
+    for (const entry of directory.entries) {
+      trackAgent(entry.agent);
+    }
     sync();
   }
 
@@ -779,20 +846,14 @@ export function contributeComposerPills(client: PluginClientContext): () => void
 
   const unsubscribe: () => void = client.paseo.agents.subscribe((update: AgentUpdate) => {
     if (update.kind === "remove") {
-      if (workspaceByAgent.delete(update.agentId)) {
+      if (selectionByAgent.delete(update.agentId)) {
         sync();
       }
       return;
     }
-    const workspaceId = update.agent.workspaceId;
-    if (typeof workspaceId !== "string" || workspaceId === "") {
-      return;
+    if (trackAgent(update.agent)) {
+      sync();
     }
-    if (workspaceByAgent.get(update.agent.id) === workspaceId) {
-      return;
-    }
-    workspaceByAgent.set(update.agent.id, workspaceId);
-    sync();
   });
 
   refreshQuietly();

@@ -49,7 +49,7 @@ That clones the repository, compiles it on the daemon, and reaches **running** i
 Once running, the plugin shows up in three places:
 
 - **Left sidebar** — two entries, **Usage Monitor** (gauge icon) and **Usage history** (chart icon). These open full-width surfaces.
-- **Explorer side panel** — inside any workspace, the Explorer sidebar hosts **Usage Monitor** and **Usage history**. Both panels default to the Explorer sidebar (`locations: ["explorer", "workspace"]`) and auto-seed into new workspaces once on creation.
+- **Explorer side panel** — inside any workspace, the Explorer sidebar can host **Usage Monitor** and **Usage history**. Both panels default to the Explorer sidebar (`locations: ["explorer", "workspace"]`); add one with `Open Usage Monitor` from the command palette and the workspace remembers it. Nothing is placed for you: the host's only way for a plugin to add an Explorer panel also navigates the app to that workspace, which would yank you off whatever you were doing.
 - **Composer rail** — per-provider usage pills pinned above the chat prompt input.
 - **Workspace tabs** — both panels can still be opened as full workspace tabs whenever you want via the command palette.
 - **Command palette** — `Open Usage Monitor` and `Open usage history` (open in Explorer), plus `Open Usage Monitor as workspace tab` and `Open usage history as workspace tab`.
@@ -99,6 +99,7 @@ Each pill tracks one reading from that provider:
 - **Used vs remaining** — counts consumed quota (`used`) or headroom left (`remaining`). An omitted direction inherits the card direction.
 - **Tracked reading** — automatic selection tracks the shortest resetting quota window (the five-hour session quota), falling back to a balance reading when no quota exists. A specific reading mapping can also be pinned.
 - **Text label** — off by default (the brand mark already identifies the pill), with choices for provider name or reading label when turned on.
+- **When it shows** — **Always show**, or **Match the agent**. Matching keeps the pill on the composers whose agent it belongs to: a Claude pill above Claude Code chats, a Codex pill above Codex ones, chosen by harness, model vendor, or model pattern. See [Matching the agent's harness and model](docs/CONFIGURATION.md#matching-the-agents-harness-and-model).
 
 Pressing a pill opens a per-provider detail panel showing every quota window, its progress bar, and its reset time.
 
@@ -110,15 +111,15 @@ The **Usage providers** sidebar surface adds, edits, tests and removes providers
 
 Display settings about how a provider draws live in the same editor as the provider itself, because they are properties of that provider rather than of the session you happen to be in. They persist to `display` in `usage-limits.json` and survive a reload.
 
-| Setting           | Choices                                                      | Stored as                                              |
-| ----------------- | ------------------------------------------------------------ | ------------------------------------------------------ |
-| Icon & brand mark | Default, Lucide, Monogram, Image                             | `display.icon`, absent for the built-in mark           |
-| Show on dashboard | Switch (on/off)                                              | `display.dashboard`, absent when visible (default)     |
-| Meter             | Bar, Ring                                                    | `display.style`, absent for Bar                        |
-| Quota reads       | Used, Left                                                   | `display.value`, absent for Used                       |
-| Card order        | Integer                                                      | `display.order`, absent when unset                     |
-| Composer pill     | Switch (on/off), style, value, reading, text, readout, order | `display.pill`, absent when disabled with all defaults |
-| Readings per row  | not settable - measured                                      | nothing                                                |
+| Setting           | Choices                                                                                     | Stored as                                              |
+| ----------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Icon & brand mark | Default, Lucide, Monogram, Image                                                            | `display.icon`, absent for the built-in mark           |
+| Show on dashboard | Switch (on/off)                                                                             | `display.dashboard`, absent when visible (default)     |
+| Meter             | Bar, Ring                                                                                   | `display.style`, absent for Bar                        |
+| Quota reads       | Used, Left                                                                                  | `display.value`, absent for Used                       |
+| Card order        | Integer                                                                                     | `display.order`, absent when unset                     |
+| Composer pill     | Switch (on/off), when it shows, matching rules, style, value, reading, text, readout, order | `display.pill`, absent when disabled with all defaults |
+| Readings per row  | not settable - measured                                                                     | nothing                                                |
 
 A default is stored as **absence**, not as a value: choosing Bar removes `display.style` rather than writing `"bar"`, because both renderers already read a missing key as the default. A config that stores every default would be longer without saying anything more.
 

@@ -306,6 +306,18 @@ export const UsageReadingMappingSchema = z.discriminatedUnion("kind", [
   UsageRateMappingSchema,
 ]);
 
+/** Fields within a rule all match; any matching rule makes the pill visible. */
+export const UsagePillMatchRuleSchema = z
+  .object({
+    harness: z.string().trim().min(1).optional(),
+    provider: z.string().trim().min(1).optional(),
+    model: z.string().trim().min(1).optional(),
+  })
+  .refine(
+    (rule) => rule.harness !== undefined || rule.provider !== undefined || rule.model !== undefined,
+    { message: "A pill match rule needs a harness, provider, or model" },
+  );
+
 /**
  * How a provider reads as a pill on the composer rail. Separate from the card's
  * own layout because the rail is a glance, not a screen: one reading, one
@@ -314,6 +326,10 @@ export const UsageReadingMappingSchema = z.discriminatedUnion("kind", [
  */
 export const UsagePillDisplaySchema = z.object({
   enabled: z.boolean().default(false),
+  /** Existing enabled pills stay visible until matching is explicitly selected. */
+  visibility: z.enum(["always", "matching"]).default("always"),
+  /** Empty or absent rules match nothing. Model patterns support only `*` wildcards. */
+  matchRules: z.array(UsagePillMatchRuleSchema).optional(),
   /** Ascending along the rail; pills without one sort after those with one, then by id. */
   order: z.number().int().optional(),
   /** A ring reads as a dial, a bar left to right, `none` shows the number alone. */
@@ -527,6 +543,7 @@ export const readUsageLimits = defineRpc({
 export type UsageUnit = z.infer<typeof UsageUnitSchema>;
 export type UsageDisplay = z.infer<typeof UsageDisplaySchema>;
 export type UsagePillDisplay = z.infer<typeof UsagePillDisplaySchema>;
+export type UsagePillMatchRule = z.infer<typeof UsagePillMatchRuleSchema>;
 export type UsageIcon = z.infer<typeof UsageIconSchema>;
 export type UsageCredentialSource = z.infer<typeof UsageCredentialSourceSchema>;
 export type UsageCredentials = z.infer<typeof UsageCredentialsSchema>;

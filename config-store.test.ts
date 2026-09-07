@@ -488,4 +488,38 @@ describe("testUsageProviderEntry", () => {
       readingCount: 0,
     });
   });
+
+  test("redacts sensitive tokens in test failure messages", async () => {
+    const store = createMemoryStore(
+      { [CONFIG_PATH]: "{}" },
+      {
+        sourceError: new UsageSourceError(
+          "GET request to https://api.vendor.example/v1/quota?apiKey=sk-super-secret-123456789 failed with HTTP 500",
+        ),
+      },
+    );
+    writeUsageProviderEntry(
+      {
+        id: "custom",
+        entry: {
+          label: "Custom",
+          source: {
+            kind: "http",
+            url: "https://api.vendor.example/v1/quota",
+            method: "GET",
+            headers: {},
+          },
+          readings: [
+            { kind: "quota", id: "reqs", label: "Requests", unit: "requests", usedPath: "used" },
+          ],
+        },
+        secrets: {},
+      },
+      store.adapters,
+    );
+    const result = await testUsageProviderEntry("custom", store.adapters);
+    expect(result.ok).toBe(false);
+    expect(result.message).not.toContain("super-secret-123456789");
+    expect(result.message).toContain("apiKey=sk-...789");
+  });
 });

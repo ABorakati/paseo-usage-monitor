@@ -10,7 +10,9 @@ import {
 } from "./limits.shared";
 import {
   composerPillId,
+  getDefaultPillMatchRules,
   isDashboardVisible,
+  matchesPillSelection,
   pillMetrics,
   type ResolvedPillSettings,
   resolvePillSettings,
@@ -23,16 +25,25 @@ const FIVE_HOURS_MS = 18_000_000;
 const SEVEN_DAYS_MS = 604_800_000;
 
 function pill(overrides: Partial<UsagePillDisplay> = {}): UsagePillDisplay {
-  return { enabled: true, label: "provider", readout: "percent", ...overrides };
+  return {
+    enabled: true,
+    visibility: "always",
+    label: "provider",
+    readout: "percent",
+    ...overrides,
+  };
 }
 
 describe("pill defaults", () => {
-  test("an opted-in pill shows its gauge and number, and no text", () => {
-    expect(UsagePillDisplaySchema.parse({ enabled: true })).toEqual({
-      enabled: true,
-      label: "none",
-      readout: "percent",
-    });
+  test("existing enabled config keeps its manual visibility with no match rules", () => {
+    const existing = UsagePillDisplaySchema.parse({ enabled: true });
+    expect(matchesPillSelection(existing, { provider: "omp", model: null })).toBe(true);
+    expect(
+      matchesPillSelection(UsagePillDisplaySchema.parse({}), {
+        provider: "claude",
+        model: null,
+      }),
+    ).toBe(false);
   });
 
   test("a provider keeps its dashboard card unless it says otherwise", () => {
@@ -41,6 +52,267 @@ describe("pill defaults", () => {
     expect(isDashboardVisible({ dashboard: true })).toBe(true);
     expect(isDashboardVisible({ dashboard: false })).toBe(false);
   });
+});
+
+describe("pill selection rules", () => {
+  test("requires every field within a rule and accepts any matching rule", () => {
+    const matching = pill({
+      visibility: "matching",
+      matchRules: [{ harness: "claude" }, { harness: "omp", provider: "openai", model: "gpt-6*" }],
+    });
+    expect(matchesPillSelection(matching, { provider: "CLAUDE", model: null })).toBe(true);
+    expect(matchesPillSelection(matching, { provider: "OMP", model: "OpenAI/GPT-6-mini" })).toBe(
+      true,
+    );
+    expect(matchesPillSelection(matching, { provider: "codex", model: "openai/gpt-6" })).toBe(
+      false,
+    );
+    expect(matchesPillSelection(matching, { provider: "omp", model: "openai/gpt-5" })).toBe(false);
+    expect(matchesPillSelection(matching, { provider: "omp", model: "other/gpt-6" })).toBe(false);
+  });
+
+  test("does not confuse a GPT model name with an OpenAI vendor", () => {
+    const matching = pill({
+      visibility: "matching",
+      matchRules: getDefaultPillMatchRules("codex"),
+    });
+    expect(matchesPillSelection(matching, { provider: "codex", model: null })).toBe(true);
+    expect(matchesPillSelection(matching, { provider: "omp", model: "openai/gpt-6" })).toBe(true);
+    expect(matchesPillSelection(matching, { provider: "omp", model: "openai-codex/gpt-6" })).toBe(
+      true,
+    );
+    expect(matchesPillSelection(matching, { provider: "omp", model: "github-copilot/gpt-6" })).toBe(
+      false,
+    );
+    expect(
+      matchesPillSelection(matching, { provider: "omp", model: "openrouter/openai/gpt-6" }),
+    ).toBe(false);
+    expect(matchesPillSelection(matching, { provider: "omp", model: "gpt-6" })).toBe(false);
+    expect(matchesPillSelection(matching, { provider: "omp", model: "openai-custom/gpt-6" })).toBe(
+      false,
+    );
+  });
+
+  test("treats regex punctuation literally and only asterisk as a wildcard", () => {
+    const matching = pill({
+      visibility: "matching",
+      matchRules: [{ model: "gpt-6.0+(fast)[v2]?*" }],
+    });
+    expect(
+      matchesPillSelection(matching, {
+        provider: "omp",
+        model: "vendor/GPT-6.0+(FAST)[V2]?mini",
+      }),
+    ).toBe(true);
+    expect(
+      matchesPillSelection(matching, {
+        provider: "omp",
+        model: "gpt-6.0+(fast)[v2]?",
+      }),
+    ).toBe(true);
+    expect(
+      matchesPillSelection(matching, {
+        provider: "omp",
+        model: "gpt-6X000fastv2mini",
+      }),
+    ).toBe(false);
+    expect(
+      matchesPillSelection(matching, {
+        provider: "omp",
+        model: "prefix-gpt-6.0+(fast)[v2]?mini",
+      }),
+    ).toBe(false);
+  });
+
+  test("matches the entire model part, including segments after the first slash", () => {
+    const matching = pill({
+      visibility: "matching",
+      matchRules: [{ provider: "openrouter", model: "openai/gpt-6" }],
+    });
+    expect(
+      matchesPillSelection(matching, {
+        provider: "omp",
+        model: "openrouter/openai/gpt-6",
+      }),
+    ).toBe(true);
+    expect(
+      matchesPillSelection(matching, {
+        provider: "omp",
+        model: "openrouter/gpt-6",
+      }),
+    ).toBe(false);
+    expect(
+      matchesPillSelection(matching, {
+        provider: "omp",
+        model: "openrouter/openai/gpt-6-mini",
+      }),
+    ).toBe(false);
+  });
+
+  test("null models cannot satisfy a provider or model rule, including wildcard", () => {
+    const selection = { provider: "omp", model: null };
+    expect(
+      matchesPillSelection(
+        pill({
+          visibility: "matching",
+          matchRules: [{ provider: "openai" }, { model: "*" }],
+        }),
+        selection,
+      ),
+    ).toBe(false);
+    expect(
+      matchesPillSelection(
+        pill({
+          visibility: "matching",
+          matchRules: [{ harness: "omp" }],
+        }),
+        selection,
+      ),
+    ).toBe(true);
+  });
+
+  test("missing and explicitly empty rules match nothing without preset fallback", () => {
+    const selection = { provider: "claude", model: "claude-sonnet" };
+    expect(matchesPillSelection(pill({ visibility: "matching" }), selection)).toBe(false);
+    expect(
+      matchesPillSelection(
+        pill({
+          visibility: "matching",
+          matchRules: [],
+        }),
+        selection,
+      ),
+    ).toBe(false);
+    expect(getDefaultPillMatchRules("custom-provider")).toEqual([]);
+    expect(
+      matchesPillSelection(
+        pill({
+          visibility: "matching",
+          matchRules: getDefaultPillMatchRules("claude"),
+        }),
+        selection,
+      ),
+    ).toBe(true);
+  });
+
+  test("a suggestion follows one subscription across every harness that sells it", () => {
+    const kimi = pill({ visibility: "matching", matchRules: getDefaultPillMatchRules("kimi") });
+    expect(matchesPillSelection(kimi, { provider: "omp", model: "kimi/k2-thinking" })).toBe(true);
+    expect(matchesPillSelection(kimi, { provider: "pi", model: "kimi-coding/k3" })).toBe(true);
+    expect(
+      matchesPillSelection(kimi, { provider: "opencode", model: "kimi-for-coding/k2.7-code" }),
+    ).toBe(true);
+    // Moonshot's pay-as-you-go API is a different account from a Kimi plan.
+    expect(matchesPillSelection(kimi, { provider: "pi", model: "moonshotai/kimi-k2.6" })).toBe(
+      false,
+    );
+    // Each harness spells the vendor its own way and only its own way.
+    expect(matchesPillSelection(kimi, { provider: "omp", model: "kimi-coding/k3" })).toBe(false);
+  });
+
+  test("suggestions keep mainland and global gateways apart", () => {
+    const global = pill({
+      visibility: "matching",
+      matchRules: getDefaultPillMatchRules("minimax"),
+    });
+    const mainland = pill({
+      visibility: "matching",
+      matchRules: getDefaultPillMatchRules("minimax-cn"),
+    });
+    const cnSelection = { provider: "opencode", model: "minimax-cn/MiniMax-M2.5" };
+    const globalSelection = { provider: "omp", model: "minimax-code/MiniMax-M2.5" };
+    expect(matchesPillSelection(mainland, cnSelection)).toBe(true);
+    expect(matchesPillSelection(global, cnSelection)).toBe(false);
+    expect(matchesPillSelection(global, globalSelection)).toBe(true);
+    expect(matchesPillSelection(mainland, globalSelection)).toBe(false);
+  });
+
+  test("opencode's own two products are suggested apart, by vendor not model name", () => {
+    const go = pill({
+      visibility: "matching",
+      matchRules: getDefaultPillMatchRules("opencode-go"),
+    });
+    const zen = pill({
+      visibility: "matching",
+      matchRules: getDefaultPillMatchRules("opencode-zen"),
+    });
+    // The same model id is sold under both, so only the vendor segment decides.
+    const shared = "deepseek-v4-flash";
+    expect(matchesPillSelection(go, { provider: "opencode", model: `opencode-go/${shared}` })).toBe(
+      true,
+    );
+    expect(
+      matchesPillSelection(zen, { provider: "opencode", model: `opencode-go/${shared}` }),
+    ).toBe(false);
+    expect(matchesPillSelection(zen, { provider: "opencode", model: `opencode/${shared}` })).toBe(
+      true,
+    );
+    expect(matchesPillSelection(go, { provider: "opencode", model: `opencode/${shared}` })).toBe(
+      false,
+    );
+  });
+
+  test("a probe's reading ids are not providers and suggest nothing", () => {
+    expect(getDefaultPillMatchRules("gemini-5h")).toEqual([]);
+    expect(getDefaultPillMatchRules("premium")).toEqual([]);
+    expect(getDefaultPillMatchRules("antigravity")).not.toEqual([]);
+  });
+
+  test("manual always overrides rules while the master switch overrides both modes", () => {
+    const selection = { provider: "claude", model: null };
+    expect(matchesPillSelection(pill({ visibility: "always", matchRules: [] }), selection)).toBe(
+      true,
+    );
+    expect(
+      matchesPillSelection(
+        pill({
+          enabled: false,
+          visibility: "always",
+        }),
+        selection,
+      ),
+    ).toBe(false);
+    expect(
+      matchesPillSelection(
+        pill({
+          enabled: false,
+          visibility: "matching",
+          matchRules: [{ harness: "claude" }],
+        }),
+        selection,
+      ),
+    ).toBe(false);
+    expect(matchesPillSelection(undefined, selection)).toBe(false);
+  });
+
+  test("rejects empty rules and blank fields while normalizing surrounding whitespace", () => {
+    expect(UsagePillDisplaySchema.safeParse({ matchRules: [{}] }).success).toBe(false);
+    expect(
+      UsagePillDisplaySchema.safeParse({
+        matchRules: [{ harness: "omp", provider: "  " }],
+      }).success,
+    ).toBe(false);
+    const matching = UsagePillDisplaySchema.parse({
+      enabled: true,
+      visibility: "matching",
+      matchRules: [{ harness: " OMP ", provider: " OpenAI ", model: " GPT-6* " }],
+    });
+    expect(matchesPillSelection(matching, { provider: "omp", model: "openai/gpt-6" })).toBe(true);
+  });
+});
+
+test("a composer without a selected harness cannot satisfy a harness rule", () => {
+  const selection = { provider: null, model: null };
+  expect(
+    matchesPillSelection(
+      pill({
+        visibility: "matching",
+        matchRules: [{ harness: "claude" }],
+      }),
+      selection,
+    ),
+  ).toBe(false);
+  expect(matchesPillSelection(pill({ visibility: "always" }), selection)).toBe(true);
 });
 
 /** Metrics only run for an opted-in pill, so the fixture proves that once here. */

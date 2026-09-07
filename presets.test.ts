@@ -7,6 +7,7 @@ import {
   type UsageProvider,
 } from "./limits.shared";
 import { USAGE_PRESETS, getUsagePreset, listUsagePresetIds } from "./presets.shared";
+import { getDefaultPillMatchRules } from "./pills.shared";
 import { projectReadings, requiresSourceDocument } from "./readings.server";
 import { buildProviderRegistry } from "./registry.server";
 
@@ -84,6 +85,25 @@ describe("usage presets", () => {
   test("ships a non-empty catalogue", () => {
     expect(presetEntries.length).toBeGreaterThan(0);
     expect(listUsagePresetIds()).toEqual(Object.keys(USAGE_PRESETS));
+  });
+
+  /**
+   * A suggested rule names a harness and a vendor, never a model pattern: the
+   * vendor segment is what identifies the account being metered, and a model
+   * name is shared across accounts (`deepseek-v4-flash` is sold by three).
+   */
+  test.each(listUsagePresetIds())("%s suggests only harness-and-vendor rules", (id) => {
+    for (const rule of getDefaultPillMatchRules(id)) {
+      expect(rule.harness).toBeTruthy();
+      expect(rule.model).toBeUndefined();
+    }
+  });
+  test("every preset in the catalogue is suggested somewhere", () => {
+    const unsuggested = listUsagePresetIds().filter(
+      (id) => getDefaultPillMatchRules(id).length === 0,
+    );
+    expect(unsuggested).toEqual([]);
+    expect(getDefaultPillMatchRules("no-such-preset")).toEqual([]);
   });
 
   test.each(presetEntries)("%s carries materialised schema defaults", (_id, provider) => {

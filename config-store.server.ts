@@ -10,6 +10,7 @@ import {
 } from "./config.server";
 import { createNodeCredentialAdapters, type CredentialAdapters } from "./credentials.server";
 import { UsageConfigError } from "./errors.server";
+import { redactSecrets } from "./redact.server";
 import type { UsageConfigState, UsagePresetSummary, UsageProviderWrite } from "./config.shared";
 import {
   USAGE_PROVIDER_ID_PATTERN,
@@ -424,7 +425,7 @@ export async function testUsageProviderEntry(
   }
   return {
     ok: false,
-    message: provider.error ?? provider.notice ?? "Provider test failed",
+    message: redactSecrets(provider.error ?? provider.notice ?? "Provider test failed"),
     readingCount,
   };
 }

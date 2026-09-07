@@ -47,7 +47,7 @@ import {
   subscribeProviderEditorRequest,
 } from "./editor-request.client";
 import { getUsagePreset } from "./presets.shared";
-import { isDashboardVisible } from "./pills.shared";
+import { getDefaultPillMatchRules, isDashboardVisible } from "./pills.shared";
 import { TooltipPressable as Pressable } from "./tooltip.client";
 
 const CONFIG_QUERY_KEY = ["usage-config"];
@@ -62,7 +62,7 @@ const ACCESS_DISABLED = { disabled: true };
 const ACCESS_ENABLED = { disabled: false };
 const ACCESS_PRESET_SELECTED = { selected: true };
 const ACCESS_PRESET_UNSELECTED = { selected: false };
-const BUTTON_HIT_SLOP = { top: 7, bottom: 7, left: 4, right: 4 };
+const BUTTON_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 };
 const CLOSE_BUTTON_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 };
 
 interface SettingsStyles {
@@ -145,6 +145,14 @@ interface ReadingDraft {
 type ReadingTextField = Exclude<keyof ReadingDraft, "key" | "kind">;
 type UsageSourceKind = UsageSource["kind"];
 type UsageProbeName = Extract<UsageSource, { kind: "probe" }>["probe"];
+type PillMatchRule = NonNullable<NonNullable<UsageDisplay["pill"]>["matchRules"]>[number];
+
+interface PillMatchRuleDraft {
+  key: string;
+  harness: string;
+  provider: string;
+  model: string;
+}
 
 interface EditorState {
   mode: "idle" | "preset" | "custom";
@@ -174,6 +182,8 @@ interface EditorState {
   displayStyle: "bar" | "ring";
   displayValue: "used" | "remaining";
   pillEnabled: boolean;
+  pillVisibility: "always" | "matching";
+  pillMatchRules: PillMatchRuleDraft[] | undefined;
   pillOrder: string;
   pillStyle: "ring" | "bar" | "none";
   pillValue: "used" | "remaining";
@@ -211,6 +221,11 @@ type EditorAction =
   | { type: "display-style"; value: "bar" | "ring" }
   | { type: "display-value"; value: "used" | "remaining" }
   | { type: "pill-enabled"; value: boolean }
+  | { type: "pill-visibility"; value: "always" | "matching" }
+  | { type: "suggest-pill-match-rules" }
+  | { type: "add-pill-match-rule" }
+  | { type: "remove-pill-match-rule"; key: string }
+  | { type: "pill-match-rule-field"; key: string; field: keyof PillMatchRule; value: string }
   | { type: "pill-order"; value: string }
   | { type: "pill-style"; value: "ring" | "bar" | "none" }
   | { type: "pill-value"; value: "used" | "remaining" }
@@ -263,6 +278,14 @@ interface ActionButtonProps {
   tone?: "normal" | "primary" | "danger";
   disabled?: boolean;
   icon?: string;
+}
+
+interface PillMatchRuleEditorProps {
+  rule: PillMatchRuleDraft;
+  index: number;
+  disabled: boolean;
+  dispatch: Dispatch<EditorAction>;
+  styles: SettingsStyles;
 }
 
 interface ProviderCardProps {
@@ -425,6 +448,18 @@ function emptyReading(kind: ReadingDraft["kind"] = "quota"): ReadingDraft {
   };
 }
 
+let nextPillMatchRuleKey = 0;
+
+function pillMatchRuleDraft(rule: PillMatchRule = {}): PillMatchRuleDraft {
+  nextPillMatchRuleKey += 1;
+  return {
+    key: `pill-match-rule-${nextPillMatchRuleKey}`,
+    harness: rule.harness ?? "",
+    provider: rule.provider ?? "",
+    model: rule.model ?? "",
+  };
+}
+
 const CLOSED_EDITOR: EditorState = {
   mode: "idle",
   editingId: null,
@@ -453,6 +488,8 @@ const CLOSED_EDITOR: EditorState = {
   displayStyle: "bar",
   displayValue: "used",
   pillEnabled: false,
+  pillVisibility: "always",
+  pillMatchRules: undefined,
   pillOrder: "",
   pillStyle: "bar",
   pillValue: "used",
@@ -568,6 +605,8 @@ function customEditorWithEntry(
     displayStyle: entry.display?.style ?? "bar",
     displayValue: entry.display?.value ?? "used",
     pillEnabled: entry.display?.pill?.enabled ?? false,
+    pillVisibility: entry.display?.pill?.visibility ?? "always",
+    pillMatchRules: entry.display?.pill?.matchRules?.map(pillMatchRuleDraft),
     pillOrder: entry.display?.pill?.order !== undefined ? String(entry.display.pill.order) : "",
     pillStyle: entry.display?.pill?.style ?? (entry.display?.style === "ring" ? "ring" : "bar"),
     pillValue: entry.display?.pill?.value ?? entry.display?.value ?? "used",
@@ -618,6 +657,8 @@ function presetEditor(
     displayStyle: entry?.display?.style ?? "bar",
     displayValue: entry?.display?.value ?? "used",
     pillEnabled: entry?.display?.pill?.enabled ?? false,
+    pillVisibility: entry?.display?.pill?.visibility ?? "always",
+    pillMatchRules: entry?.display?.pill?.matchRules?.map(pillMatchRuleDraft),
     pillOrder: entry?.display?.pill?.order !== undefined ? String(entry.display.pill.order) : "",
     pillStyle: entry?.display?.pill?.style ?? (entry?.display?.style === "ring" ? "ring" : "bar"),
     pillValue: entry?.display?.pill?.value ?? entry?.display?.value ?? "used",
@@ -693,6 +734,45 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
   if (action.type === "display-style") return { ...state, displayStyle: action.value };
   if (action.type === "display-value") return { ...state, displayValue: action.value };
   if (action.type === "pill-enabled") return { ...state, pillEnabled: action.value };
+  if (action.type === "pill-visibility") {
+    return {
+      ...state,
+      pillVisibility: action.value,
+      pillMatchRules:
+        action.value === "matching" && state.pillMatchRules === undefined
+          ? getDefaultPillMatchRules(state.presetId ?? state.id).map(pillMatchRuleDraft)
+          : state.pillMatchRules,
+    };
+  }
+  if (action.type === "suggest-pill-match-rules") {
+    return {
+      ...state,
+      pillMatchRules: getDefaultPillMatchRules(state.presetId ?? state.id).map(pillMatchRuleDraft),
+    };
+  }
+  if (action.type === "add-pill-match-rule") {
+    return { ...state, pillMatchRules: [...(state.pillMatchRules ?? []), pillMatchRuleDraft()] };
+  }
+  if (action.type === "remove-pill-match-rule") {
+    return {
+      ...state,
+      pillMatchRules: (state.pillMatchRules ?? []).filter((rule) => rule.key !== action.key),
+    };
+  }
+  if (action.type === "pill-match-rule-field") {
+    return {
+      ...state,
+      pillMatchRules: (state.pillMatchRules ?? []).map((rule) => {
+        if (rule.key !== action.key) return rule;
+        return {
+          key: rule.key,
+          harness: action.field === "harness" ? action.value : rule.harness,
+          provider: action.field === "provider" ? action.value : rule.provider,
+          model: action.field === "model" ? action.value : rule.model,
+        };
+      }),
+    };
+  }
   if (action.type === "pill-order") return { ...state, pillOrder: action.value };
   if (action.type === "pill-style") return { ...state, pillStyle: action.value };
   if (action.type === "pill-value") return { ...state, pillValue: action.value };
@@ -954,9 +1034,16 @@ function buildProviderWrite(editor: EditorState): UsageProviderWrite {
   const pillValue = editor.pillValue !== editor.displayValue ? editor.pillValue : undefined;
   const pillLabel = editor.pillLabel !== "none" ? editor.pillLabel : undefined;
   const pillReadout = editor.pillReadout !== "percent" ? editor.pillReadout : undefined;
+  const pillMatchRules = editor.pillMatchRules?.map((rule) => ({
+    ...optionalValue("harness", rule.harness),
+    ...optionalValue("provider", rule.provider),
+    ...optionalValue("model", rule.model),
+  }));
 
   const hasPillSettings =
     editor.pillEnabled ||
+    editor.pillVisibility === "matching" ||
+    pillMatchRules !== undefined ||
     pillOrder !== undefined ||
     pillReading !== undefined ||
     pillStyle !== undefined ||
@@ -967,6 +1054,8 @@ function buildProviderWrite(editor: EditorState): UsageProviderWrite {
   if (hasPillSettings) {
     display.pill = {
       enabled: editor.pillEnabled,
+      visibility: editor.pillVisibility,
+      ...(pillMatchRules === undefined ? {} : { matchRules: pillMatchRules }),
       ...(pillOrder === undefined ? {} : { order: pillOrder }),
       ...(pillStyle === undefined ? {} : { style: pillStyle }),
       ...(pillValue === undefined ? {} : { value: pillValue }),
@@ -1032,6 +1121,73 @@ function Field({
         secureTextEntry={secure}
         style={multiline ? styles.multilineInput : styles.input}
         value={value}
+      />
+    </View>
+  );
+}
+function PillMatchRuleEditor({
+  rule,
+  index,
+  disabled,
+  dispatch,
+  styles,
+}: PillMatchRuleEditorProps) {
+  const changeHarness = useCallback(
+    (value: string) =>
+      dispatch({ type: "pill-match-rule-field", key: rule.key, field: "harness", value }),
+    [dispatch, rule.key],
+  );
+  const changeProvider = useCallback(
+    (value: string) =>
+      dispatch({ type: "pill-match-rule-field", key: rule.key, field: "provider", value }),
+    [dispatch, rule.key],
+  );
+  const changeModel = useCallback(
+    (value: string) =>
+      dispatch({ type: "pill-match-rule-field", key: rule.key, field: "model", value }),
+    [dispatch, rule.key],
+  );
+  const remove = useCallback(
+    () => dispatch({ type: "remove-pill-match-rule", key: rule.key }),
+    [dispatch, rule.key],
+  );
+  return (
+    <View style={styles.reading}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.label}>Rule {index + 1}</Text>
+        <ActionButton
+          label="Remove"
+          accessibilityLabel={`Remove pill rule ${index + 1}`}
+          onPress={remove}
+          disabled={disabled}
+          styles={styles}
+          tone="danger"
+          icon="Trash2"
+        />
+      </View>
+      <Field
+        label="Harness"
+        value={rule.harness}
+        onChangeText={changeHarness}
+        placeholder="e.g. omp"
+        disabled={disabled}
+        styles={styles}
+      />
+      <Field
+        label="Provider"
+        value={rule.provider}
+        onChangeText={changeProvider}
+        placeholder="e.g. openai"
+        disabled={disabled}
+        styles={styles}
+      />
+      <Field
+        label="Model pattern (* wildcard)"
+        value={rule.model}
+        onChangeText={changeModel}
+        placeholder="e.g. gpt-*"
+        disabled={disabled}
+        styles={styles}
       />
     </View>
   );
@@ -1673,6 +1829,19 @@ function ProviderEditor({
     (value: boolean) => dispatch({ type: "pill-enabled", value }),
     [dispatch],
   );
+  const choosePillAlways = useCallback(
+    () => dispatch({ type: "pill-visibility", value: "always" }),
+    [dispatch],
+  );
+  const choosePillMatching = useCallback(
+    () => dispatch({ type: "pill-visibility", value: "matching" }),
+    [dispatch],
+  );
+  const suggestPillMatchRules = useCallback(
+    () => dispatch({ type: "suggest-pill-match-rules" }),
+    [dispatch],
+  );
+  const addPillMatchRule = useCallback(() => dispatch({ type: "add-pill-match-rule" }), [dispatch]);
   const choosePillStyleRing = useCallback(
     () => dispatch({ type: "pill-style", value: "ring" }),
     [dispatch],
@@ -1939,6 +2108,73 @@ function ProviderEditor({
                   accessibilityLabel="Show as pill above the composer"
                 />
               </View>
+              <Text style={styles.label}>Pill visibility</Text>
+              <View style={styles.wrapRow}>
+                <Choice
+                  label="Always show"
+                  selected={editor.pillVisibility === "always"}
+                  disabled={!editor.pillEnabled || saving}
+                  onPress={choosePillAlways}
+                  styles={styles}
+                />
+                <Choice
+                  label="Match the agent"
+                  selected={editor.pillVisibility === "matching"}
+                  disabled={!editor.pillEnabled || saving}
+                  onPress={choosePillMatching}
+                  styles={styles}
+                />
+              </View>
+              {editor.pillVisibility === "matching" ? (
+                <View style={styles.paths}>
+                  <Text style={styles.muted}>
+                    Blank fields mean any value. Each row must contain at least one field. Fields
+                    within a row use AND. Rows use OR. No matching row hides the pill.
+                  </Text>
+                  <Text style={styles.muted}>
+                    Harness is the agent harness, such as claude, codex, or omp. Provider matches
+                    the vendor before the first slash in the agent model. Model patterns match the
+                    part after that slash, or the whole unqualified model. Matching ignores case.
+                    Only * acts as a wildcard.
+                  </Text>
+                  <Text style={styles.muted}>
+                    Rules read each agent's current harness and model. A model you pick in the
+                    composer moves the pills once it reaches the agent, on the next send.
+                  </Text>
+                  {(editor.pillMatchRules ?? []).map((rule, index) => (
+                    <PillMatchRuleEditor
+                      key={rule.key}
+                      rule={rule}
+                      index={index}
+                      disabled={!editor.pillEnabled || saving}
+                      dispatch={dispatch}
+                      styles={styles}
+                    />
+                  ))}
+                  {(editor.pillMatchRules?.length ?? 0) === 0 ? (
+                    <Text style={styles.warning}>No rules: this pill stays hidden.</Text>
+                  ) : null}
+                  <View style={styles.wrapRow}>
+                    <ActionButton
+                      label="Add rule"
+                      onPress={addPillMatchRule}
+                      disabled={!editor.pillEnabled || saving}
+                      styles={styles}
+                      icon="Plus"
+                    />
+                    <ActionButton
+                      label="Use suggested rules"
+                      onPress={suggestPillMatchRules}
+                      disabled={!editor.pillEnabled || saving}
+                      styles={styles}
+                    />
+                  </View>
+                  <Text style={styles.muted}>
+                    Suggested rules use the selected preset, or the provider id for a custom
+                    provider. They replace the current rules.
+                  </Text>
+                </View>
+              ) : null}
               <Text style={styles.label}>Pill style</Text>
               <View style={styles.wrapRow}>
                 <Choice
@@ -2221,35 +2457,35 @@ function ProviderCard({
   const warning = status === "Unverified" || status === "Unknown preset";
   return (
     <View style={[styles.card, warning ? styles.warningCard : null]}>
-      <View style={styles.sectionHeader}>
-        <View style={styles.grow}>
-          <View style={styles.wrapRow}>
-            <Text style={styles.label}>{label}</Text>
-            <Pill label={status} warning={warning} styles={styles} />
-          </View>
-          <Text style={styles.muted}>{id}</Text>
-        </View>
-        <View style={styles.wrapRow}>
-          <ActionButton label="Edit" onPress={edit} styles={styles} icon="Pencil" />
-          <ActionButton
-            label={testing ? "Testing…" : "Test"}
-            onPress={test}
-            styles={styles}
-            disabled={testing}
-            icon="FlaskConical"
-          />
-          <ActionButton
-            label="Remove"
-            onPress={removeAction}
-            styles={styles}
-            tone="danger"
-            icon="Trash2"
-          />
-        </View>
+      <View style={styles.wrapRow}>
+        <Text style={styles.label} numberOfLines={1}>
+          {label}
+        </Text>
+        <Pill label={status} warning={warning} styles={styles} />
       </View>
+      <Text style={styles.muted} numberOfLines={1}>
+        {id}
+      </Text>
       {endpoint === undefined || endpoint === null ? null : (
         <Text style={styles.mono}>{endpoint}</Text>
       )}
+      <View style={styles.wrapRow}>
+        <ActionButton label="Edit" onPress={edit} styles={styles} icon="Pencil" />
+        <ActionButton
+          label={testing ? "Testing…" : "Test"}
+          onPress={test}
+          styles={styles}
+          disabled={testing}
+          icon="FlaskConical"
+        />
+        <ActionButton
+          label="Remove"
+          onPress={removeAction}
+          styles={styles}
+          tone="danger"
+          icon="Trash2"
+        />
+      </View>
       {confirming ? (
         <View style={styles.warningCard}>
           <Text style={styles.warning}>{`Remove ${label} and its stored secrets?`}</Text>
@@ -2476,7 +2712,8 @@ export function UsageSettingsBody({ theme, layout, showHeader }: UsageSettingsBo
         justifyContent: "center",
         gap: 6,
         paddingHorizontal: 10,
-        paddingVertical: 7,
+        paddingVertical: layout.compact ? 8 : 7,
+        minHeight: layout.compact ? 38 : 32,
         borderWidth: 1,
         borderColor: theme.colors.border,
         borderRadius: 8,
@@ -2490,7 +2727,8 @@ export function UsageSettingsBody({ theme, layout, showHeader }: UsageSettingsBo
         justifyContent: "center",
         gap: 6,
         paddingHorizontal: 12,
-        paddingVertical: 9,
+        paddingVertical: layout.compact ? 10 : 9,
+        minHeight: layout.compact ? 42 : 36,
         borderRadius: 8,
         backgroundColor: theme.colors.accent,
         maxWidth: "100%",
