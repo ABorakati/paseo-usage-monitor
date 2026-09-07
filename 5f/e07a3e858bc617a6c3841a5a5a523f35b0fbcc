@@ -1,0 +1,18 @@
+editor-request.client.ts
+  h_0ae9538d78aa59 1-38
+pills.client.tsx
+  h_0ae9538d78aa59 20,27,31-36,70-76,83,91,100-107,109-110,113-120,122,131,142,159-165,171,306,312,332-339,341,344,350-361,378-381,389-402,493,509-515
+settings.client.tsx
+  h_0ae9538d78aa59 3-10,44-48,2638-2654
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5fe07a3e858bc617a6c3841a5a5a523f35b0fbcc",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
