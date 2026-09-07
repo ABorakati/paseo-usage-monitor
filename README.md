@@ -91,6 +91,8 @@ Every endpoint, credential chain and caveat is in [Presets](docs/PRESETS.md), al
 
 The rail directly above the chat composer displays compact usage pills for quick checks while prompting.
 
+![Composer pills](docs/images/composer-pills.png)
+
 A provider stays off the rail until it opts in. Turn a provider on in **Usage providers** under **Composer pill** using the **Show as pill above the composer** switch, or set `"display": { "pill": { "enabled": true } }` in `usage-limits.json`. Visibility is independently switchable for both surfaces in the editor via two toggle switches: **Show on dashboard** (controls the dashboard card, on by default) and **Show as pill above the composer** (controls the rail pill).
 
 Each pill tracks one reading from that provider:
