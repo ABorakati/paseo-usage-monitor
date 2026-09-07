@@ -1,0 +1,78 @@
+client/chart.client.tsx
+  h_0ae9538d78aa59 20-21
+client/history.client.tsx
+  h_0ae9538d78aa59 28
+client/limits.client.tsx
+  h_0ae9538d78aa59 27-32,45,47
+client/pills.client.test.ts
+  h_0ae9538d78aa59 3-4
+client/pills.client.tsx
+  h_0ae9538d78aa59 26,43,55
+client/settings.client.tsx
+  h_0ae9538d78aa59 33,43,49-50
+docs/PRESETS.md
+  h_0ae9538d78aa59 19,167-173
+index.ts
+  h_0ae9538d78aa59 7,15-21
+server/antigravity-clients.server.ts
+  h_0ae9538d78aa59 179-183
+server/antigravity-clients.test.ts
+  h_0ae9538d78aa59 83-86
+server/antigravity-usage.server.ts
+  h_0ae9538d78aa59 266,268-269
+server/antigravity-usage.test.ts
+  h_0ae9538d78aa59 266
+server/config-store.server.ts
+  h_0ae9538d78aa59 14-18,26-27
+server/config.server.ts
+  h_0ae9538d78aa59 5
+server/credentials.server.ts
+  h_0ae9538d78aa59 6
+server/credentials.test.ts
+  h_0ae9538d78aa59 8
+server/handlers.server.ts
+  h_0ae9538d78aa59 10,13-14
+server/history.server.ts
+  h_0ae9538d78aa59 17
+server/history.test.ts
+  h_0ae9538d78aa59 15,906-919,928-933,945-951,953-959,974-980
+server/interpolate.server.ts
+  h_0ae9538d78aa59 1
+server/interpolate.test.ts
+  h_0ae9538d78aa59 3
+server/pricing.server.ts
+  h_0ae9538d78aa59 5
+server/pricing.test.ts
+  h_0ae9538d78aa59 2
+server/reading-store.server.ts
+  h_0ae9538d78aa59 5
+server/reading-store.test.ts
+  h_0ae9538d78aa59 5
+server/readings.server.ts
+  h_0ae9538d78aa59 20
+server/readings.test.ts
+  h_0ae9538d78aa59 7
+server/registry.server.ts
+  h_0ae9538d78aa59 6-7
+server/service.server.ts
+  h_0ae9538d78aa59 21
+server/service.test.ts
+  h_0ae9538d78aa59 1,8
+server/source.server.ts
+  h_0ae9538d78aa59 7
+server/source.test.ts
+  h_0ae9538d78aa59 6
+shared/presets.test.ts
+  h_0ae9538d78aa59 11-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e4f28635e6f1edc2ed147aa8c888b0ea9ba18078",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
