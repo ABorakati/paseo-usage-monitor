@@ -461,6 +461,7 @@ describe("mapQuotaSummary", () => {
           group: "Gemini Models",
           usedPercent: (1 - 0.9077114) * 100,
           resetsAt: "2026-08-28T22:11:13Z",
+          durationMs: 18_000_000,
         },
         {
           id: "gemini-weekly",
@@ -468,6 +469,7 @@ describe("mapQuotaSummary", () => {
           group: "Gemini Models",
           usedPercent: (1 - 0.7494267) * 100,
           resetsAt: "2026-09-01T20:00:00Z",
+          durationMs: 604_800_000,
         },
         {
           id: "3p-5h",
@@ -475,6 +477,7 @@ describe("mapQuotaSummary", () => {
           group: "Claude and GPT models",
           usedPercent: 0,
           resetsAt: "2026-08-28T22:51:48Z",
+          durationMs: 18_000_000,
         },
         {
           id: "3p-weekly",
@@ -482,6 +485,7 @@ describe("mapQuotaSummary", () => {
           group: "Claude and GPT models",
           usedPercent: 0,
           resetsAt: "2026-09-04T17:51:48Z",
+          durationMs: 604_800_000,
         },
       ],
     });
@@ -517,6 +521,7 @@ describe("mapQuotaSummary", () => {
       group: "Gemini Models",
       usedPercent: null,
       resetsAt: null,
+      durationMs: 604_800_000,
     });
   });
 
@@ -528,6 +533,7 @@ describe("mapQuotaSummary", () => {
       group: "Claude and GPT models",
       usedPercent: 50,
       resetsAt: null,
+      durationMs: 18_000_000,
     });
   });
 

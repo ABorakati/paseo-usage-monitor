@@ -1529,7 +1529,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         // The probe returns 5-hour and weekly buckets in one array, so there is
         // no single durationMs to give: a fixed length would be wrong for half
         // of them. These bars show a reset time and no pace marker.
-        window: { label: "Window", resetsAtPath: "resetsAt" },
+        window: { label: "Window", resetsAtPath: "resetsAt", durationMsPath: "durationMs" },
       },
     ],
   }),

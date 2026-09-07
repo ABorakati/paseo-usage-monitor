@@ -117,12 +117,15 @@ const SUBPROCESS_TIMEOUT_MS = 3_000;
  * window forever. Every one is always emitted, with null readings when the
  * response omits it, so an absent bucket never shifts the indexes.
  */
-const KNOWN_BUCKETS: readonly { id: string; label: string; group: string }[] = [
-  { id: "gemini-5h", label: "Session", group: "Gemini Models" },
-  { id: "gemini-weekly", label: "Weekly", group: "Gemini Models" },
-  { id: "3p-5h", label: "Session", group: "Claude and GPT models" },
-  { id: "3p-weekly", label: "Weekly", group: "Claude and GPT models" },
-];
+const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+const KNOWN_BUCKETS = [
+  { id: "gemini-5h", label: "Session", group: "Gemini Models", durationMs: FIVE_HOURS_MS },
+  { id: "gemini-weekly", label: "Weekly", group: "Gemini Models", durationMs: SEVEN_DAYS_MS },
+  { id: "3p-5h", label: "Session", group: "Claude and GPT models", durationMs: FIVE_HOURS_MS },
+  { id: "3p-weekly", label: "Weekly", group: "Claude and GPT models", durationMs: SEVEN_DAYS_MS },
+] as const;
 
 // ---------------------------------------------------------------------------
 // Budget
@@ -1211,7 +1214,7 @@ export function mapQuotaSummary(
     }
   }
 
-  const buckets = KNOWN_BUCKETS.map(({ id, label, group }) => {
+  const buckets = KNOWN_BUCKETS.map(({ id, label, group, durationMs }) => {
     const found = byId.get(id);
     const remaining = found === undefined ? null : found.bucket.remainingFraction;
     const resetTime = found === undefined ? null : found.bucket.resetTime;
@@ -1228,6 +1231,7 @@ export function mapQuotaSummary(
           : null,
       resetsAt:
         typeof resetTime === "string" && !Number.isNaN(Date.parse(resetTime)) ? resetTime : null,
+      durationMs,
     };
   });
 
