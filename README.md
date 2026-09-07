@@ -105,6 +105,8 @@ Each pill tracks one reading from that provider:
 
 Pressing a pill opens a per-provider detail panel showing every quota window, its progress bar, and its reset time.
 
+![Composer pill detail panel](docs/images/composer-pill-card.webp)
+
 ## Editing providers from the app
 
 The **Usage providers** sidebar surface adds, edits, tests and removes providers without opening an editor. It is a front end to the file documented in [Configuration](docs/CONFIGURATION.md), not a parallel system: it writes the same `${PASEO_HOME:-~/.paseo}/usage-limits.json`, in the same shape, and a config you wrote by hand shows up in it unchanged.
