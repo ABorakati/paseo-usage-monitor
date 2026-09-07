@@ -1,0 +1,46 @@
+README.md
+  h_0ae9538d78aa59 52,102,114-122
+config-store.server.ts
+  h_0ae9538d78aa59 13,428
+config-store.test.ts
+  h_0ae9538d78aa59 491-524
+docs/CONFIGURATION.md
+  h_0ae9538d78aa59 49-61,68-76,89,108-118,121,129-163,184
+index.ts
+  h_0ae9538d78aa59 30
+limits.shared.ts
+  h_0ae9538d78aa59 309-320,329-332,546
+pills.client.test.ts
+  h_0ae9538d78aa59 1-185
+pills.client.tsx
+  h_0ae9538d78aa59 48,683-700,703-708,716-717,720-724,730-732,739,748-749,751-754,756,758,764,774,787,791-823,825-828,833-835,849,854-855
+pills.shared.ts
+  h_0ae9538d78aa59 5,35-178,445,469
+pills.test.ts
+  h_0ae9538d78aa59 13,15,28-34,38-46,57-317
+presets.test.ts
+  h_0ae9538d78aa59 10,90-108
+redact.server.ts
+  h_0ae9538d78aa59 2-4,7-27,29-32,34-38,41-43,46-58,62,64-66,68-70,72-73,76-78,80-98,101
+redact.test.ts
+  h_0ae9538d78aa59 1-49
+settings.client.tsx
+  h_0ae9538d78aa59 50,65,148-155,185-186,224-228,283-290,451-462,491-492,608-609,660-661,737-775,1037-1041,1045-1046,1057-1058,1128-1194,1832-1844,2111-2177,2460-2464,2466-2468,2472-2488,2715-2716,2730-2731
+test-stubs/plugin-client.ts
+  h_0ae9538d78aa59 1-118
+test-stubs/react-native.ts
+  h_0ae9538d78aa59 1-26
+vitest.config.ts
+  h_0ae9538d78aa59 10-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b98825d9d74c621e27b2cde4505af9478b06a30f",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
