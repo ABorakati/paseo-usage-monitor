@@ -1,0 +1,14 @@
+README.md
+  h_0ae9538d78aa59 94-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "26e2a3eda56b8423c4157f881842a5cbbc00c1a5",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
