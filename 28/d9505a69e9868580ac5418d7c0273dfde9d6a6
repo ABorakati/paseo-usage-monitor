@@ -1,0 +1,18 @@
+antigravity-probe.server.ts
+  h_0ae9538d78aa59 120-128,1217,1234
+antigravity-probe.test.ts
+  h_0ae9538d78aa59 464,472,480,488,524,536
+presets.shared.ts
+  h_0ae9538d78aa59 1532
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "28d9505a69e9868580ac5418d7c0273dfde9d6a6",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
