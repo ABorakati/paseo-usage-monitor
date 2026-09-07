@@ -184,6 +184,62 @@ describe("selectPillReading", () => {
     expect(selectPillReading([windowless], null)).toBe(windowless);
   });
 
+  test("skips a reading whose vendor publishes no ceiling when another can be measured", () => {
+    const uncapped = quota({ id: "requests", window: null, percent: null, used: 106, limit: null });
+    const pool = quota({
+      id: "bucket-weekly",
+      window: { label: "Window", resetsAt: null, durationMs: null },
+      used: null,
+      limit: null,
+      remaining: null,
+      percent: 23.7,
+    });
+
+    expect(selectPillReading([uncapped, pool], null)).toBe(pool);
+  });
+
+  test("without published window durations it shows whichever pool is closest to running out", () => {
+    const idle = quota({
+      id: "bucket-gemini-5h",
+      window: { label: "Window", resetsAt: null, durationMs: null },
+      used: null,
+      limit: null,
+      remaining: null,
+      percent: 0,
+    });
+    const burning = quota({
+      id: "bucket-gemini-weekly",
+      window: { label: "Window", resetsAt: null, durationMs: null },
+      used: null,
+      limit: null,
+      remaining: null,
+      percent: 23.7,
+    });
+
+    expect(selectPillReading([idle, burning], null)).toBe(burning);
+  });
+
+  test("a published window still beats a higher percentage with no duration", () => {
+    const session = quota({
+      id: "session",
+      window: { label: "Session", resetsAt: null, durationMs: FIVE_HOURS_MS },
+      percent: 4,
+    });
+    const pool = quota({
+      id: "pool",
+      window: { label: "Window", resetsAt: null, durationMs: null },
+      percent: 60,
+    });
+
+    expect(selectPillReading([pool, session], null)).toBe(session);
+  });
+
+  test("an unmeasurable reading is still shown when it is all the provider has", () => {
+    const uncapped = quota({ id: "requests", window: null, percent: null, used: 106, limit: null });
+
+    expect(selectPillReading([uncapped], null)).toBe(uncapped);
+  });
+
   test("a provider with no quota falls back to its balance", () => {
     const credits = balance();
 
@@ -231,12 +287,18 @@ describe("pillMetrics quota", () => {
     expect(pillMetrics(reading, settings())).toMatchObject({ percentUsed: 80, readout: "80%" });
   });
 
-  test("a zero limit cannot make a percentage, and says so rather than dividing", () => {
+  test("no ceiling means no gauge, and the amount stands in for the percentage", () => {
     const metrics = pillMetrics(quota({ percent: null, limit: 0, remaining: null }), settings());
 
     expect(metrics.percentUsed).toBeNull();
     expect(metrics.percentFilled).toBeNull();
-    expect(metrics.readout).toBeNull();
+    expect(metrics.readout).toBe("2,500");
+  });
+
+  test("a reading with neither a ceiling nor an amount has nothing to say", () => {
+    const blank = quota({ percent: null, used: null, limit: null, remaining: null });
+
+    expect(pillMetrics(blank, settings()).readout).toBeNull();
   });
 
   test("an amount readout shows the side the pill counts", () => {

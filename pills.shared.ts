@@ -70,10 +70,33 @@ function windowDuration(reading: UsagePillReading): number | null {
 }
 
 /**
- * Without a pinned id the pill tracks the shortest quota window, because that
- * is the number a composer acts on: the five-hour session runs out mid-task
- * while the weekly allowance rarely does. A provider that publishes no quota
- * falls back to its balance, which is what an API-credit account has instead.
+ * Which of two readings a rail should show. Shorter windows win, because the
+ * five-hour session runs out mid-task while the weekly allowance rarely does.
+ * A vendor that publishes no window duration leaves nothing to compare — every
+ * Antigravity pool bar arrives that way — so those fall back to whichever is
+ * closest to running out, which is also what a collapsed card shows.
+ */
+function preferredReading(left: UsagePillReading, right: UsagePillReading): UsagePillReading {
+  const leftMs = windowDuration(left);
+  const rightMs = windowDuration(right);
+  if (leftMs !== rightMs) {
+    if (leftMs === null) return right;
+    if (rightMs === null) return left;
+    return leftMs <= rightMs ? left : right;
+  }
+  const leftPercent = readingPercentUsed(left) ?? -1;
+  const rightPercent = readingPercentUsed(right) ?? -1;
+  return rightPercent > leftPercent ? right : left;
+}
+
+/**
+ * Without a pinned id the pill tracks the reading that answers "how close am I
+ * to running out". A reading whose vendor publishes no ceiling can state an
+ * amount but never a percentage, so it cannot fill a gauge and is only ever a
+ * last resort: Antigravity reports request and token counts with no allowance
+ * beside them, and picking one of those left the rail with nothing to draw.
+ * A provider with no quota at all falls back to its balance, which is what an
+ * API-credit account has instead.
  */
 export function selectPillReading(
   readings: readonly UsageReading[],
@@ -89,19 +112,9 @@ export function selectPillReading(
       return pinned;
     }
   }
-  let shortest: UsagePillReading | null = null;
-  let shortestMs = Number.POSITIVE_INFINITY;
-  for (const reading of candidates) {
-    const duration = windowDuration(reading);
-    if (duration !== null && duration < shortestMs) {
-      shortest = reading;
-      shortestMs = duration;
-    }
-  }
-  if (shortest !== null) {
-    return shortest;
-  }
-  return candidates.find((reading) => reading.kind === "quota") ?? candidates[0] ?? null;
+  const measured = candidates.filter((reading) => readingPercentUsed(reading) !== null);
+  const pool = measured.length > 0 ? measured : candidates;
+  return pool.reduce(preferredReading);
 }
 
 export interface PillMetrics {
@@ -144,22 +157,12 @@ function balancePercentUsed(reading: UsageBalanceReading): number | null {
   return fromRemaining === null ? null : 100 - fromRemaining;
 }
 
-/**
- * The number beside the gauge, in the direction the pill is configured to
- * read. A quota states its own used and remaining sides; a balance publishes
- * only what is left, so spend is the difference against its starting total.
- */
-function readoutText(
-  reading: UsagePillReading,
-  settings: ResolvedPillSettings,
-  percentFilled: number | null,
-): string | null {
-  if (settings.readout === "none") {
-    return null;
-  }
-  if (settings.readout === "percent") {
-    return percentFilled === null ? null : `${Math.round(percentFilled)}%`;
-  }
+function readingPercentUsed(reading: UsagePillReading): number | null {
+  return reading.kind === "quota" ? quotaPercentUsed(reading) : balancePercentUsed(reading);
+}
+
+/** One side of a reading as text: what it consumed, or what is left. */
+function amountText(reading: UsagePillReading, settings: ResolvedPillSettings): string | null {
   if (reading.kind === "quota") {
     const amount = settings.value === "used" ? reading.used : reading.remaining;
     return amount === null ? null : formatUsageAmount(amount, reading.unit);
@@ -175,12 +178,34 @@ function readoutText(
   return formatUsageAmount(reading.total - reading.remaining, reading.unit, reading.currency);
 }
 
+/**
+ * The number beside the gauge, in the direction the pill is configured to
+ * read. A quota states its own used and remaining sides; a balance publishes
+ * only what is left, so spend is the difference against its starting total.
+ *
+ * A percentage needs a ceiling, and plenty of vendors publish none — an
+ * Antigravity request count arrives with no allowance beside it. Falling back
+ * to the amount keeps a real number on the rail instead of a dash.
+ */
+function readoutText(
+  reading: UsagePillReading,
+  settings: ResolvedPillSettings,
+  percentFilled: number | null,
+): string | null {
+  if (settings.readout === "none") {
+    return null;
+  }
+  if (settings.readout === "percent" && percentFilled !== null) {
+    return `${Math.round(percentFilled)}%`;
+  }
+  return amountText(reading, settings);
+}
+
 export function pillMetrics(
   reading: UsagePillReading,
   settings: ResolvedPillSettings,
 ): PillMetrics {
-  const percentUsed =
-    reading.kind === "quota" ? quotaPercentUsed(reading) : balancePercentUsed(reading);
+  const percentUsed = readingPercentUsed(reading);
   let percentFilled: number | null = null;
   if (percentUsed !== null) {
     percentFilled = settings.value === "used" ? percentUsed : 100 - percentUsed;
