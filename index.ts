@@ -18,7 +18,7 @@ import { UsageHistoryPanel, UsageHistorySurface } from "./history.client";
 import { readUsageHistory } from "./history.shared";
 import { UsageLimitsPanel, UsageLimitsSurface } from "./limits.client";
 import { readUsageLimits } from "./limits.shared";
-import { contributeComposerPills, UsagePillDetailPanel } from "./pills.client";
+import { contributeComposerPills } from "./pills.client";
 import { contributeExplorerSeed } from "./seed.client";
 import { claimExplorerSeed } from "./seed.shared";
 import { UsageSettingsSurface } from "./settings.client";
@@ -68,14 +68,6 @@ export default function contribute(plugin: PluginContext) {
     context: "workspace",
     locations: ["explorer", "workspace"],
     Component: UsageHistoryPanel,
-  });
-  plugin.addWorkspacePanel({
-    id: "pill",
-    title: "Usage detail",
-    icon: "Gauge",
-    context: "workspace",
-    locations: ["explorer", "workspace"],
-    Component: UsagePillDetailPanel,
   });
   plugin.addCommandCenterItem({
     id: "open-limits",

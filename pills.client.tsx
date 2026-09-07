@@ -2,17 +2,15 @@ import {
   Icon,
   type PluginClientContext,
   type PluginComposerPillProps,
-  type PluginWorkspacePanelProps,
   useRpc,
 } from "@getpaseo/plugin";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ComponentType, useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { type ComponentType, useCallback, useMemo, useSyncExternalStore } from "react";
 import {
   Image,
   type ImageStyle,
   Platform,
   Pressable,
-  ScrollView,
   Text,
   type TextStyle,
   View,
@@ -23,49 +21,45 @@ import {
   EM_DASH,
   formatUpdatedLabel,
   formatWhenHint,
-  groupReadings,
   isShowingStaleReadings,
   LIMITS_POLL_MS,
-  quotaPacePercent,
   USAGE_LIMITS_QUERY_KEY,
   useTickingClock,
 } from "./limits.client";
-import {
-  readUsageLimits,
-  type UsageIcon,
-  type UsageProviderSnapshot,
-  type UsageReading,
-} from "./limits.shared";
+import { readUsageLimits, type UsageIcon, type UsageProviderSnapshot } from "./limits.shared";
 import { UsageMeter, usageTone } from "./meter.client";
 import {
   composerPillId,
   type ComposerPillEntry,
+  type PillMetrics,
   pillMetrics,
+  type ResolvedPillSettings,
   resolvePillSettings,
   selectComposerPills,
   selectPillReading,
 } from "./pills.shared";
 
 /**
- * Usage on the composer rail, and the panel a pill opens. The host owns the
- * pressable, the pill chrome and the pending state, so the pill component here
- * draws the inside of one pill and nothing else. Every rule about which reading
- * a pill tracks lives in `pills.shared.ts`.
+ * Usage on the composer rail, and the card a pill opens above itself. The host
+ * owns the pressable, the pill chrome and the pending state, so a component
+ * here draws the inside of one pill and nothing else. Every rule about which
+ * reading a pill tracks lives in `pills.shared.ts`.
  *
- * The detail panel is a panel rather than a floating popover because a plugin
- * gets a plain `onPress` with no anchor to hang one from. It answers what a
- * single glance cannot: every window the provider publishes, what each one
- * resets at, and how stale the numbers are.
+ * The card is an absolutely-positioned child of the pill rather than a
+ * portalled popover: the host's anchored menu belongs to the app, and a plugin
+ * only gets to draw inside its own pill. The rail sets no `overflow`, so the
+ * card clears the pill and floats over the transcript.
  */
 
-const DETAIL_PANEL_ID = "pill";
-const DASHBOARD_SURFACE_ID = "limits";
 const SETTINGS_SURFACE_ID = "settings";
 /** Big enough to read as a gauge, small enough to leave the label room. */
 const RAIL_BAR_WIDTH = 34;
 const MARK_SIZE = 14;
-/** The detail rows are wide, so every gauge there reads left to right. */
-const DETAIL_METER_STYLE = "bar" as const;
+/**
+ * Clears the 32px pill and leaves the same 12px gap the host's own anchored
+ * panels leave above a rail pill.
+ */
+const CARD_LIFT = 44;
 
 interface PillStyles {
   label: TextStyle;
@@ -75,9 +69,18 @@ interface PillStyles {
   mark: ViewStyle;
   markText: TextStyle;
   markImage: ImageStyle;
+  card: ViewStyle;
+  cardTitle: TextStyle;
+  cardHeadline: TextStyle;
+  cardDetail: TextStyle;
+  cardRow: ViewStyle;
+  cardRule: ViewStyle;
+  cardAction: TextStyle;
 }
 
-function createPillStyles(muted: string, foreground: string, plate: string): PillStyles {
+function createPillStyles(theme: PluginComposerPillProps["theme"], plate: string): PillStyles {
+  const muted = theme.colors.foregroundMuted;
+  const foreground = theme.colors.foreground;
   return {
     label: { fontSize: 12, color: muted, flexShrink: 1 },
     readout: { fontSize: 12, color: foreground, fontVariant: ["tabular-nums"] },
@@ -95,6 +98,41 @@ function createPillStyles(muted: string, foreground: string, plate: string): Pil
     },
     markText: { fontSize: 8, fontWeight: "600", color: foreground },
     markImage: { width: MARK_SIZE, height: MARK_SIZE, borderRadius: 4 },
+    /**
+     * Anchored to the pill rather than portalled: the host's own anchored menu
+     * belongs to the app, and a plugin only gets to draw inside its pill. The
+     * rail sets no `overflow`, so an absolute child clears the pill and floats
+     * over the transcript.
+     */
+    card: {
+      position: "absolute",
+      bottom: CARD_LIFT,
+      left: 0,
+      minWidth: 196,
+      maxWidth: 300,
+      gap: 2,
+      padding: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.surface2,
+      zIndex: 40,
+      elevation: 8,
+      shadowColor: "#000000",
+      shadowOpacity: 0.35,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 4 },
+    },
+    cardTitle: { fontSize: 14, fontWeight: "600", color: foreground },
+    cardHeadline: { fontSize: 14, fontWeight: "600", color: foreground },
+    cardDetail: { fontSize: 12, color: muted },
+    cardRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
+    cardRule: {
+      height: 1,
+      marginVertical: 6,
+      backgroundColor: theme.colors.border,
+    },
+    cardAction: { fontSize: 12, color: theme.colors.accent },
   };
 }
 
@@ -153,6 +191,184 @@ function findProvider(
 }
 
 /**
+ * Which pill has its card open. One at a time and module-level, because every
+ * pill is its own React tree and opening one has to close the last.
+ */
+let openPillId: string | null = null;
+const openPillListeners = new Set<() => void>();
+
+function toggleOpenPill(providerId: string): void {
+  openPillId = openPillId === providerId ? null : providerId;
+  for (const listener of openPillListeners) listener();
+}
+
+function subscribeOpenPill(listener: () => void): () => void {
+  openPillListeners.add(listener);
+  return () => {
+    openPillListeners.delete(listener);
+  };
+}
+
+function readOpenPill(): string | null {
+  return openPillId;
+}
+
+/**
+ * Every other window the provider publishes, one line each. A quota reads as
+ * consumption because that is what runs out; a balance reads as what is left,
+ * because "75% used" of a credit account buries the number that matters.
+ */
+function summaryLines(provider: UsageProviderSnapshot, skipReadingId: string | null): string[] {
+  const lines: string[] = [];
+  for (const reading of provider.readings) {
+    if (reading.id === skipReadingId || reading.kind === "rate") {
+      continue;
+    }
+    const settings = reading.kind === "balance" ? BALANCE_LINE_SETTINGS : QUOTA_LINE_SETTINGS;
+    const metrics = pillMetrics(reading, settings);
+    if (metrics.readout === null) {
+      continue;
+    }
+    const name = metrics.windowLabel ?? reading.label;
+    if (reading.kind === "balance") {
+      lines.push(`${name} · ${metrics.readout} left`);
+      continue;
+    }
+    lines.push(
+      metrics.percentUsed === null
+        ? `${name} · ${metrics.readout}`
+        : `${name} · ${metrics.readout} used`,
+    );
+  }
+  return lines;
+}
+
+const QUOTA_LINE_SETTINGS: ResolvedPillSettings = {
+  order: null,
+  style: "bar",
+  value: "used",
+  reading: null,
+  label: "none",
+  readout: "percent",
+};
+
+const BALANCE_LINE_SETTINGS: ResolvedPillSettings = {
+  ...QUOTA_LINE_SETTINGS,
+  value: "remaining",
+  readout: "amount",
+};
+
+/**
+ * The card a pill opens: the tracked reading in full, then one line per other
+ * window so a weekly allowance is one glance away from a session figure.
+ */
+function PillCard({
+  provider,
+  metrics,
+  styles,
+  tone,
+}: {
+  provider: UsageProviderSnapshot;
+  metrics: PillMetrics | null;
+  styles: PillStyles;
+  tone: string;
+}) {
+  const now = useTickingClock();
+  const headline = useMemo(() => {
+    if (metrics === null || metrics.readout === null) {
+      return null;
+    }
+    return metrics.percentUsed === null ? metrics.readout : `${metrics.readout} used`;
+  }, [metrics]);
+  const amounts = useMemo(
+    () => (metrics === null ? null : trackedAmounts(provider, metrics)),
+    [metrics, provider],
+  );
+  const resets = formatWhenHint("Resets", metrics?.resetsAt ?? null, now);
+  const updated = formatUpdatedLabel(provider.fetchedAt, now, isShowingStaleReadings(provider));
+  const others = useMemo(
+    () => summaryLines(provider, trackedReadingId(provider, metrics)),
+    [metrics, provider],
+  );
+  const headlineStyle = useMemo(() => [styles.cardHeadline, { color: tone }], [styles, tone]);
+  // Closing the card is the host press firing alongside this one, which is the
+  // wanted order: the card gets out of the way and settings takes over.
+  const openSettingsSurface = useCallback(() => {
+    clientContext?.openSurface(SETTINGS_SURFACE_ID);
+  }, []);
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>
+        {metrics?.windowLabel === null || metrics === null
+          ? provider.label
+          : `${provider.label} · ${metrics.windowLabel}`}
+      </Text>
+      {headline === null ? null : <Text style={headlineStyle}>{headline}</Text>}
+      {amounts === null ? null : <Text style={styles.cardDetail}>{amounts}</Text>}
+      {resets === null ? null : <Text style={styles.cardDetail}>{resets}</Text>}
+      {provider.notice === null ? null : <Text style={styles.cardDetail}>{provider.notice}</Text>}
+      {provider.error === null ? null : <Text style={styles.cardDetail}>{provider.error}</Text>}
+      {others.length === 0 ? null : (
+        <>
+          <View style={styles.cardRule} />
+          {others.map((line) => (
+            <Text key={line} style={styles.cardDetail}>
+              {line}
+            </Text>
+          ))}
+        </>
+      )}
+      <View style={styles.cardRule} />
+      <View style={styles.cardRow}>
+        <Text style={styles.cardDetail}>{updated ?? provider.label}</Text>
+        <Pressable accessibilityRole="button" onPress={openSettingsSurface}>
+          <Text style={styles.cardAction}>Settings</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function trackedReadingId(
+  provider: UsageProviderSnapshot,
+  metrics: PillMetrics | null,
+): string | null {
+  if (metrics === null) {
+    return null;
+  }
+  return provider.readings.find((reading) => reading.label === metrics.readingLabel)?.id ?? null;
+}
+
+/** "498k / 1m tokens" for the tracked reading, when the vendor states both sides. */
+function trackedAmounts(provider: UsageProviderSnapshot, metrics: PillMetrics): string | null {
+  const reading = provider.readings.find((candidate) => candidate.label === metrics.readingLabel);
+  if (reading === undefined || reading.kind === "rate") {
+    return null;
+  }
+  if (reading.kind === "balance") {
+    if (reading.remaining === null) {
+      return null;
+    }
+    const total =
+      reading.total === null
+        ? null
+        : formatUsageAmount(reading.total, reading.unit, reading.currency);
+    const left = formatUsageAmount(reading.remaining, reading.unit, reading.currency);
+    return total === null ? `${left} left` : `${left} of ${total} left`;
+  }
+  if (reading.used === null) {
+    return reading.remaining === null
+      ? null
+      : `${formatUsageAmount(reading.remaining, reading.unit)} ${reading.unit} left`;
+  }
+  const used = formatUsageAmount(reading.used, reading.unit);
+  if (reading.limit === null) {
+    return `${used} ${reading.unit}`;
+  }
+  return `${used} / ${formatUsageAmount(reading.limit, reading.unit)} ${reading.unit}`;
+}
+
+/**
  * One component per provider, cached: the host remounts a pill when its
  * component identity changes, so building a new one on every poll would reset
  * the pill on a one-minute cycle.
@@ -184,11 +400,9 @@ export function pillComponentFor(providerId: string): ComponentType<PluginCompos
     const failed = provider?.status === "error";
     const stale = provider?.notice !== null && provider?.notice !== undefined;
     const tone = failed ? theme.colors.statusDanger : usageTone(metrics?.percentUsed ?? 0, theme);
-    const styles = useMemo(
-      () => createPillStyles(theme.colors.foregroundMuted, theme.colors.foreground, tone),
-      [theme.colors.foregroundMuted, theme.colors.foreground, tone],
-    );
-    const labelText = resolveLabel(settings?.label ?? "provider", provider, metrics?.readingLabel);
+    const styles = useMemo(() => createPillStyles(theme, tone), [theme, tone]);
+    const opened = useSyncExternalStore(subscribeOpenPill, readOpenPill, readOpenPill);
+    const labelText = resolveLabel(settings?.label ?? "none", provider, metrics?.readingLabel);
     const showGauge =
       settings !== null && settings.style !== "none" && metrics?.percentFilled !== null;
     return (
@@ -220,6 +434,9 @@ export function pillComponentFor(providerId: string): ComponentType<PluginCompos
         {settings?.readout === "none" ? null : (
           <Text style={stale ? styles.stale : styles.readout}>{metrics?.readout ?? EM_DASH}</Text>
         )}
+        {opened === providerId && provider !== null ? (
+          <PillCard provider={provider} metrics={metrics} styles={styles} tone={tone} />
+        ) : null}
       </>
     );
   }
@@ -314,10 +531,9 @@ export function contributeComposerPills(client: PluginClientContext): () => void
         agentId,
         Component: pillComponentFor(entry.providerId),
         onPress() {
-          // The panel reads the focused provider from the store, so the same
-          // panel serves every pill and an already-open one retargets.
-          focusProvider(entry.providerId);
-          client.openPanel(DETAIL_PANEL_ID, { workspaceId, agentId, location: "explorer" });
+          // The card opens in place, anchored to the pill. A second press closes
+          // it, and opening another pill's card closes this one.
+          toggleOpenPill(entry.providerId);
         },
       });
       registrations.set(key, { remove, signature: entry.providerLabel });
@@ -374,308 +590,7 @@ export function contributeComposerPills(client: PluginClientContext): () => void
 }
 
 /**
- * Which provider the detail panel is showing. Module state rather than panel
- * state: the pill that opens the panel is a different React tree, and pressing
- * a second pill has to retarget a panel that is already open.
+ * The client entrypoint is the only place holding navigation, so the card
+ * borrows it from here to reach the settings surface.
  */
-let focusedProviderId: string | null = null;
-const focusListeners = new Set<() => void>();
 let clientContext: PluginClientContext | null = null;
-
-function focusProvider(providerId: string): void {
-  if (focusedProviderId === providerId) {
-    return;
-  }
-  focusedProviderId = providerId;
-  for (const listener of focusListeners) listener();
-}
-
-function subscribeFocus(listener: () => void): () => void {
-  focusListeners.add(listener);
-  return () => {
-    focusListeners.delete(listener);
-  };
-}
-
-function readFocus(): string | null {
-  return focusedProviderId;
-}
-
-interface DetailStyles {
-  screen: ViewStyle;
-  body: ViewStyle;
-  header: ViewStyle;
-  identity: ViewStyle;
-  title: TextStyle;
-  subtitle: TextStyle;
-  notice: TextStyle;
-  error: TextStyle;
-  group: ViewStyle;
-  groupLabel: TextStyle;
-  row: ViewStyle;
-  rowHeader: ViewStyle;
-  rowLabel: TextStyle;
-  rowValue: TextStyle;
-  hint: TextStyle;
-  actions: ViewStyle;
-  action: ViewStyle;
-  actionText: TextStyle;
-  empty: TextStyle;
-}
-
-function createDetailStyles(theme: PluginComposerPillProps["theme"]): DetailStyles {
-  return {
-    screen: { flex: 1, backgroundColor: theme.colors.surface0 },
-    body: { padding: 12, gap: 12 },
-    header: { flexDirection: "row", alignItems: "center", gap: 8 },
-    identity: { flex: 1, gap: 2 },
-    title: { fontSize: 14, fontWeight: "600", color: theme.colors.foreground },
-    subtitle: { fontSize: 11, color: theme.colors.foregroundMuted },
-    notice: { fontSize: 11, color: theme.colors.statusWarning },
-    error: { fontSize: 11, color: theme.colors.statusDanger },
-    group: { gap: 8 },
-    groupLabel: {
-      fontSize: 10,
-      textTransform: "uppercase",
-      letterSpacing: 0.6,
-      color: theme.colors.foregroundMuted,
-    },
-    row: {
-      gap: 6,
-      padding: 10,
-      borderRadius: 10,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      backgroundColor: theme.colors.surface1,
-    },
-    rowHeader: {
-      flexDirection: "row",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      gap: 8,
-    },
-    rowLabel: { fontSize: 12, color: theme.colors.foreground, flexShrink: 1 },
-    rowValue: { fontSize: 12, color: theme.colors.foreground, fontVariant: ["tabular-nums"] },
-    hint: { fontSize: 11, color: theme.colors.foregroundMuted },
-    actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-    action: {
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      backgroundColor: theme.colors.surface1,
-    },
-    actionText: { fontSize: 12, color: theme.colors.foreground },
-    empty: { fontSize: 12, color: theme.colors.foregroundMuted },
-  };
-}
-
-/** A quota's two sides, as the panel states them: "2,500 of 10,000 · 7,500 left". */
-function quotaAmounts(reading: UsageReading): string | null {
-  if (reading.kind !== "quota") {
-    return null;
-  }
-  const parts: string[] = [];
-  if (reading.used !== null) {
-    const ceiling = reading.limit === null ? null : formatUsageAmount(reading.limit, reading.unit);
-    const used = formatUsageAmount(reading.used, reading.unit);
-    parts.push(ceiling === null ? `${used} used` : `${used} of ${ceiling}`);
-  }
-  if (reading.remaining !== null) {
-    parts.push(`${formatUsageAmount(reading.remaining, reading.unit)} left`);
-  }
-  return parts.length === 0 ? null : parts.join(" · ");
-}
-
-function DetailRow({
-  reading,
-  styles,
-  theme,
-  now,
-}: {
-  reading: UsageReading;
-  styles: DetailStyles;
-  theme: PluginComposerPillProps["theme"];
-  now: number;
-}) {
-  if (reading.kind === "rate") {
-    const changes = formatWhenHint("Changes", reading.changesAt, now);
-    return (
-      <View style={styles.row}>
-        <View style={styles.rowHeader}>
-          <Text style={styles.rowLabel}>{reading.label}</Text>
-          <Text style={styles.rowValue}>{reading.state}</Text>
-        </View>
-        {reading.detail === null ? null : <Text style={styles.hint}>{reading.detail}</Text>}
-        {changes === null ? null : <Text style={styles.hint}>{changes}</Text>}
-      </View>
-    );
-  }
-  const percentUsed =
-    reading.kind === "quota"
-      ? reading.percent
-      : reading.percentRemaining === null
-        ? null
-        : 100 - reading.percentRemaining;
-  const amounts =
-    reading.kind === "quota"
-      ? quotaAmounts(reading)
-      : reading.remaining === null
-        ? null
-        : `${formatUsageAmount(reading.remaining, reading.unit, reading.currency)} left`;
-  const window = reading.kind === "quota" ? reading.window : null;
-  const resets = formatWhenHint("Resets", window?.resetsAt ?? null, now);
-  // Many presets name the reading after its window, and "Session · Session"
-  // says nothing twice.
-  const rowLabel =
-    window === null || window.label === reading.label
-      ? reading.label
-      : `${reading.label} · ${window.label}`;
-  return (
-    <View style={styles.row}>
-      <View style={styles.rowHeader}>
-        <Text style={styles.rowLabel}>{rowLabel}</Text>
-        <Text style={styles.rowValue}>
-          {percentUsed === null ? (amounts ?? EM_DASH) : `${Math.round(percentUsed)}%`}
-        </Text>
-      </View>
-      {percentUsed === null ? null : (
-        <UsageMeter
-          percentUsed={percentUsed}
-          pacePercent={quotaPacePercent(window, now)}
-          style={DETAIL_METER_STYLE}
-          theme={theme}
-          compact
-        />
-      )}
-      {percentUsed === null || amounts === null ? null : <Text style={styles.hint}>{amounts}</Text>}
-      {resets === null ? null : <Text style={styles.hint}>{resets}</Text>}
-    </View>
-  );
-}
-
-/**
- * The panel a pill opens: one provider, every reading it publishes, and the
- * two things the rail cannot say — what each window resets at, and how old the
- * numbers are.
- */
-export function UsagePillDetailPanel({ theme, layout }: PluginWorkspacePanelProps) {
-  const readSnapshot = useRpc(readUsageLimits);
-  const queryClient = useQueryClient();
-  const now = useTickingClock();
-  const [refreshing, setRefreshing] = useState(false);
-  const focused = useSyncExternalStore(subscribeFocus, readFocus, readFocus);
-  const { data } = useQuery({
-    queryKey: USAGE_LIMITS_QUERY_KEY,
-    queryFn: () => readSnapshot({ refresh: false }),
-    refetchInterval: LIMITS_POLL_MS,
-    refetchOnWindowFocus: Platform.OS === "web",
-  });
-  const styles = useMemo(() => createDetailStyles(theme), [theme]);
-  const markStyles = useMemo(
-    () =>
-      createPillStyles(theme.colors.foregroundMuted, theme.colors.foreground, theme.colors.accent),
-    [theme],
-  );
-  const providers = data?.providers ?? [];
-  const provider =
-    providers.find((candidate) => candidate.providerId === focused) ??
-    providers.find((candidate) => resolvePillSettings(candidate.display) !== null) ??
-    null;
-  const refresh = useCallback(() => {
-    setRefreshing(true);
-    void (async () => {
-      try {
-        const snapshot = await readSnapshot({ refresh: true });
-        queryClient.setQueryData(USAGE_LIMITS_QUERY_KEY, snapshot);
-      } catch (error: unknown) {
-        // The stale numbers stay on screen; the provider's own notice explains
-        // why they did not move.
-        console.warn("[usage-monitor] detail refresh failed", error);
-      } finally {
-        setRefreshing(false);
-      }
-    })();
-  }, [queryClient, readSnapshot]);
-  const openSettings = useCallback(() => {
-    clientContext?.openSurface(SETTINGS_SURFACE_ID);
-  }, []);
-  const openDashboard = useCallback(() => {
-    clientContext?.openSurface(DASHBOARD_SURFACE_ID);
-  }, []);
-  if (provider === null) {
-    return (
-      <View style={styles.screen}>
-        <View style={styles.body}>
-          <Text style={styles.empty}>
-            No provider is on the composer rail yet. Turn one on under Composer pill in settings.
-          </Text>
-          <View style={styles.actions}>
-            <Pressable accessibilityRole="button" onPress={openSettings} style={styles.action}>
-              <Text style={styles.actionText}>Open settings</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    );
-  }
-  const updated = formatUpdatedLabel(provider.fetchedAt, now, isShowingStaleReadings(provider));
-  return (
-    <View style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.body}>
-        <View style={styles.header}>
-          <PillMark
-            icon={provider.icon}
-            label={provider.label}
-            styles={markStyles}
-            color={theme.colors.foregroundMuted}
-          />
-          <View style={styles.identity}>
-            <Text style={styles.title}>{provider.label}</Text>
-            {updated === null ? null : <Text style={styles.subtitle}>{updated}</Text>}
-          </View>
-        </View>
-        {provider.notice === null ? null : <Text style={styles.notice}>{provider.notice}</Text>}
-        {provider.error === null ? null : <Text style={styles.error}>{provider.error}</Text>}
-        {provider.readings.length === 0 ? (
-          <Text style={styles.empty}>This provider published no readings.</Text>
-        ) : null}
-        {groupReadings(provider.readings).map((group) => (
-          <View key={group.key} style={styles.group}>
-            {group.label === null ? null : <Text style={styles.groupLabel}>{group.label}</Text>}
-            {group.readings.map((reading) => (
-              <DetailRow
-                key={reading.id}
-                reading={reading}
-                styles={styles}
-                theme={theme}
-                now={now}
-              />
-            ))}
-          </View>
-        ))}
-        <View style={styles.actions}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={refreshing ? ACTION_BUSY : ACTION_IDLE}
-            disabled={refreshing}
-            onPress={refresh}
-            style={styles.action}
-          >
-            <Text style={styles.actionText}>{refreshing ? "Refreshing…" : "Refresh"}</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" onPress={openSettings} style={styles.action}>
-            <Text style={styles.actionText}>Settings</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" onPress={openDashboard} style={styles.action}>
-            <Text style={styles.actionText}>{layout.compact ? "Dashboard" : "Open dashboard"}</Text>
-          </Pressable>
-        </View>
-      </ScrollView>
-    </View>
-  );
-}
-
-const ACTION_BUSY = { busy: true, disabled: true };
-const ACTION_IDLE = { busy: false, disabled: false };
