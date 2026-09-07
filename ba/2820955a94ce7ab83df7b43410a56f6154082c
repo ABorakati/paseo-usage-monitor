@@ -1,0 +1,40 @@
+README.md
+  h_0ae9538d78aa59 53,90-103,110,112-118
+antigravity-probe.server.ts
+  h_0ae9538d78aa59 1281-1282,1291-1323,1343
+antigravity-probe.test.ts
+  h_0ae9538d78aa59 12-13,557-623
+docs/CONFIGURATION.md
+  h_0ae9538d78aa59 60,65,67-74,87-120
+index.ts
+  h_0ae9538d78aa59 21,33-42
+limits.client.tsx
+  h_0ae9538d78aa59 47,49,81,128-132,171,175-179,222,247,273,395,448,494,535,566,1139
+limits.shared.ts
+  h_0ae9538d78aa59 309-334,356-357,519
+meter.client.tsx
+  h_0ae9538d78aa59 28-32,48-53,121,128-135,138-139,143,179
+paseo-plugin.d.ts
+  h_0ae9538d78aa59 154-173,328-329
+pills.client.tsx
+  h_0ae9538d78aa59 1-344
+pills.shared.ts
+  h_0ae9538d78aa59 1-244
+pills.test.ts
+  h_0ae9538d78aa59 1-354
+settings.client.tsx
+  h_0ae9538d78aa59 158-164,192-199,227,298-305,432-438,545-551,593-599,666-672,895-928,967,970,976,989-1014,1596-1655,1820-1957
+usage-limits.example.json
+  h_0ae9538d78aa59 3-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ba2820955a94ce7ab83df7b43410a56f6154082c",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
