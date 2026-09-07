@@ -9,7 +9,9 @@ import {
   type ComponentType,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -87,6 +89,50 @@ const CARD_METER_STYLE = "bar" as const;
  * composer sits in, so a press outside the card always lands on it.
  */
 const CATCHER_REACH = 4000;
+/** Chat pane width below which the pill collapses to just its mark icon. */
+const NARROW_PANE_WIDTH = 540;
+
+function findPaneElement(node: HTMLElement | null): HTMLElement | null {
+  if (!node) {
+    return null;
+  }
+  return (
+    node.closest?.('[data-testid^="workspace-pane-"], [data-testid="workspace-side-panel"]') ??
+    node.parentElement?.parentElement?.parentElement ??
+    null
+  );
+}
+
+export function pillInstanceKey(agentId: string | undefined | null, providerId: string): string {
+  return agentId ? `${agentId}\u0000${providerId}` : providerId;
+}
+export interface CardPlacement {
+  left: number;
+  maxWidth: number;
+}
+
+export function computeCardPlacement(input: {
+  pillLeft: number;
+  paneLeft: number;
+  paneRight: number;
+  cardWidth?: number;
+  paneMargin?: number;
+}): CardPlacement {
+  const cardWidth = input.cardWidth ?? CARD_WIDTH;
+  const margin = input.paneMargin ?? 8;
+  const paneWidth = Math.max(0, input.paneRight - input.paneLeft);
+  const maxWidth = Math.min(cardWidth, Math.max(160, paneWidth - margin * 2));
+  const maxAllowedRight = input.paneRight - margin;
+  const overflowRight = input.pillLeft + maxWidth - maxAllowedRight;
+  let left = 0;
+  if (overflowRight > 0) {
+    left = -overflowRight;
+  }
+  const minAllowedLeft = input.paneLeft + margin;
+  const minLeft = minAllowedLeft - input.pillLeft;
+  left = Math.max(minLeft, left);
+  return { left, maxWidth };
+}
 
 interface PillStyles {
   label: TextStyle;
@@ -109,6 +155,7 @@ interface PillStyles {
   cardRow: ViewStyle;
   cardRule: ViewStyle;
   cardAction: TextStyle;
+  pillContent: ViewStyle;
 }
 
 function createPillStyles(theme: PluginComposerPillProps["theme"], plate: string): PillStyles {
@@ -132,6 +179,13 @@ function createPillStyles(theme: PluginComposerPillProps["theme"], plate: string
       color: muted,
       fontVariant: ["tabular-nums"],
       ...shrinkable,
+    },
+    pillContent: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      flexShrink: 1,
+      minWidth: 0,
     },
     bar: { ...fixed, width: RAIL_BAR_WIDTH },
     gauge: fixed,
@@ -290,21 +344,27 @@ const openPillListeners = new Set<() => void>();
 /** Covers the host's press landing, short enough to never strand a pill. */
 const TOGGLE_CLAIM_MS = 350;
 
-function claimNextToggle(): void {
+export function claimNextToggle(): void {
   toggleClaimedUntil = Date.now() + TOGGLE_CLAIM_MS;
 }
 
-function toggleOpenPill(providerId: string): void {
+export function resetToggleClaim(): void {
+  toggleClaimedUntil = 0;
+}
+
+export function toggleOpenPill(instanceKey: string): void {
   if (Date.now() < toggleClaimedUntil) {
     toggleClaimedUntil = 0;
     return;
   }
-  openPillId = openPillId === providerId ? null : providerId;
+  openPillId = openPillId === instanceKey ? null : instanceKey;
   for (const listener of openPillListeners) listener();
 }
 
-function closeOpenPill(): void {
-  claimNextToggle();
+export function closeOpenPill(claimToggle = true): void {
+  if (claimToggle) {
+    claimNextToggle();
+  }
   if (openPillId === null) {
     return;
   }
@@ -319,7 +379,7 @@ function subscribeOpenPill(listener: () => void): () => void {
   };
 }
 
-function readOpenPill(): string | null {
+export function readOpenPill(): string | null {
   return openPillId;
 }
 /**
@@ -332,12 +392,14 @@ function PillCard({
   styles,
   tone,
   theme,
+  anchorRef,
 }: {
   provider: UsageProviderSnapshot;
   metrics: PillMetrics | null;
   styles: PillStyles;
   tone: string;
   theme: PluginComposerPillProps["theme"];
+  anchorRef?: { current: View | null };
 }) {
   const now = useTickingClock();
   const { refreshing, refresh } = useProviderRefresh(provider.fetchedAt);
@@ -371,6 +433,71 @@ function PillCard({
   const closeCard = useCallback(() => {
     closeOpenPill();
   }, []);
+  const cardRef = useRef<View | null>(null);
+  const [cardOffset, setCardOffset] = useState<{ left: number; maxWidth: number }>({
+    left: 0,
+    maxWidth: CARD_WIDTH,
+  });
+
+  const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+  useIsomorphicLayoutEffect(() => {
+    const el = anchorRef?.current as unknown as HTMLElement | null;
+    if (!el || typeof document === "undefined") {
+      return;
+    }
+    const pane = findPaneElement(el);
+    const updateOffset = () => {
+      const paneRect = pane?.getBoundingClientRect?.();
+      const pillRect = el.getBoundingClientRect?.();
+      if (!paneRect || !pillRect) {
+        return;
+      }
+      setCardOffset(
+        computeCardPlacement({
+          pillLeft: pillRect.left,
+          paneLeft: paneRect.left,
+          paneRight: paneRect.right,
+        }),
+      );
+    };
+    updateOffset();
+    if (typeof ResizeObserver !== "undefined" && pane) {
+      const observer = new ResizeObserver(updateOffset);
+      observer.observe(pane);
+      return () => {
+        observer.disconnect();
+      };
+    }
+  }, [anchorRef]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
+      const cardEl = cardRef.current as unknown as HTMLElement | null;
+      if (cardEl && !cardEl.contains(e.target as Node)) {
+        closeCard();
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [closeCard]);
+
+  const cardStyle = useMemo<ViewStyle[]>(
+    () => [
+      styles.card,
+      {
+        left: cardOffset.left,
+        width: Math.min(CARD_WIDTH, cardOffset.maxWidth),
+      },
+    ],
+    [styles.card, cardOffset],
+  );
+
   return (
     <>
       {/*
@@ -385,7 +512,7 @@ function PillCard({
         onPress={closeCard}
         style={styles.cardCatcher}
       />
-      <View style={styles.card}>
+      <View ref={cardRef} style={cardStyle}>
         <View style={styles.cardRow}>
           <Text numberOfLines={1} style={styles.cardTitle}>
             {metrics?.windowLabel === null || metrics === null
@@ -591,7 +718,7 @@ export function pillComponentFor(providerId: string): ComponentType<PluginCompos
   if (existing !== undefined) {
     return existing;
   }
-  function UsagePillContent({ theme }: PluginComposerPillProps) {
+  function UsagePillContent({ theme, agentId, layout }: PluginComposerPillProps) {
     const readSnapshot = useRpc(readUsageLimits);
     // Shares the panel's key, so the rail costs no extra request and both
     // surfaces always agree on the numbers.
@@ -613,22 +740,65 @@ export function pillComponentFor(providerId: string): ComponentType<PluginCompos
     const tone = failed ? theme.colors.statusDanger : usageTone(metrics?.percentUsed ?? 0, theme);
     const styles = useMemo(() => createPillStyles(theme, tone), [theme, tone]);
     const opened = useSyncExternalStore(subscribeOpenPill, readOpenPill, readOpenPill);
+    const pillKey = pillInstanceKey(agentId, providerId);
+    const containerRef = useRef<View | null>(null);
+    const [paneWidth, setPaneWidth] = useState<number | null>(null);
+
+    const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+    useIsomorphicLayoutEffect(() => {
+      const el = containerRef.current as unknown as HTMLElement | null;
+      if (!el || typeof document === "undefined") {
+        return;
+      }
+      const pane = findPaneElement(el);
+      if (!pane) {
+        return;
+      }
+      const updateWidth = () => {
+        const rect = pane.getBoundingClientRect?.();
+        if (rect && Number.isFinite(rect.width) && rect.width > 0) {
+          setPaneWidth(rect.width);
+        }
+      };
+      updateWidth();
+      if (typeof ResizeObserver !== "undefined") {
+        const observer = new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            if (entry.contentRect.width > 0) {
+              setPaneWidth(entry.contentRect.width);
+            }
+          }
+        });
+        observer.observe(pane);
+        return () => {
+          observer.disconnect();
+        };
+      }
+    }, []);
+
+    const isNarrow = Boolean(
+      layout?.compact || (paneWidth !== null && paneWidth < NARROW_PANE_WIDTH),
+    );
     const labelText = resolveLabel(settings?.label ?? "none", provider, metrics?.readingLabel);
     const showGauge =
-      settings !== null && settings.style !== "none" && metrics?.percentFilled !== null;
+      !isNarrow &&
+      settings !== null &&
+      settings.style !== "none" &&
+      metrics?.percentFilled !== null;
     return (
-      <>
+      <View ref={containerRef} style={styles.pillContent}>
         <PillMark
           icon={provider?.icon ?? null}
           label={provider?.label ?? providerId}
           styles={styles}
           color={tone}
         />
-        {labelText === null ? null : (
+        {!isNarrow && labelText !== null ? (
           <Text numberOfLines={1} style={styles.label}>
             {labelText}
           </Text>
-        )}
+        ) : null}
         {showGauge && metrics !== null && settings !== null ? (
           <View style={settings.style === "bar" ? styles.bar : styles.gauge}>
             <UsageMeter
@@ -646,19 +816,20 @@ export function pillComponentFor(providerId: string): ComponentType<PluginCompos
             />
           </View>
         ) : null}
-        {settings?.readout === "none" ? null : (
+        {!isNarrow && settings?.readout !== "none" ? (
           <Text style={stale ? styles.stale : styles.readout}>{metrics?.readout ?? EM_DASH}</Text>
-        )}
-        {opened === providerId && provider !== null ? (
+        ) : null}
+        {opened === pillKey && provider !== null ? (
           <PillCard
             provider={provider}
             metrics={metrics}
             styles={styles}
             tone={tone}
             theme={theme}
+            anchorRef={containerRef}
           />
         ) : null}
-      </>
+      </View>
     );
   }
   UsagePillContent.displayName = `UsagePillContent(${providerId})`;
@@ -781,7 +952,7 @@ export function contributeComposerPills(client: PluginClientContext): () => void
         onPress() {
           // The card opens in place, anchored to the pill. A second press closes
           // it, and opening another pill's card closes this one.
-          toggleOpenPill(entry.providerId);
+          toggleOpenPill(pillInstanceKey(agentId, entry.providerId));
         },
       });
       registrations.set(key, { remove, signature: target.signature });
