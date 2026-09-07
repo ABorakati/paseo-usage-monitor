@@ -44,9 +44,9 @@ import { UsageHistorySurface } from "./history.client";
 import { setTooltipTitle, TooltipPressable as Pressable } from "./tooltip.client";
 import { UsageSettingsBody } from "./settings.client";
 
-const USAGE_LIMITS_QUERY_KEY = ["usage-limits", "snapshot"];
+export const USAGE_LIMITS_QUERY_KEY = ["usage-limits", "snapshot"];
 const USAGE_CONFIG_QUERY_KEY = ["usage-config"];
-const EM_DASH = "—";
+export const EM_DASH = "—";
 const DAY_MS = 86_400_000;
 const MIN_CARD_WIDTH = 300;
 /**
@@ -78,7 +78,7 @@ const TAB_HIT_SLOP = { top: 6, bottom: 6, left: 4, right: 4 };
 const DRAG_HANDLE_HIT_SLOP = { top: 11, bottom: 11, left: 11, right: 11 };
 const EMPTY_PAN_HANDLERS = {};
 /** The server holds a per-provider TTL, so a poll inside it is served from cache. */
-const LIMITS_POLL_MS = 60_000;
+export const LIMITS_POLL_MS = 60_000;
 
 /**
  * A backoff is the provider refusing politely, not the button breaking, so the
@@ -125,7 +125,11 @@ function formatDurationShort(ms: number): string {
  * Near-term deadlines read better as a countdown, distant ones as a date: a
  * weekly window that resets "in 143h 12m" tells nobody anything.
  */
-function formatWhenHint(prefix: string, timestamp: string | null, now: number): string | null {
+export function formatWhenHint(
+  prefix: string,
+  timestamp: string | null,
+  now: number,
+): string | null {
   if (timestamp === null) {
     return null;
   }
@@ -164,11 +168,15 @@ function formatUpdatedAgo(timestamp: string | null, now: number): string | null 
  * no longer current. Only an `ok` provider is in that position: an `error` one
  * has nothing cached to go stale.
  */
-function isShowingStaleReadings(provider: UsageProviderSnapshot): boolean {
+export function isShowingStaleReadings(provider: UsageProviderSnapshot): boolean {
   return provider.notice !== null && provider.status === "ok";
 }
 
-function formatUpdatedLabel(timestamp: string | null, now: number, stale: boolean): string | null {
+export function formatUpdatedLabel(
+  timestamp: string | null,
+  now: number,
+  stale: boolean,
+): string | null {
   const updated = formatUpdatedAgo(timestamp, now);
   if (updated === null) {
     return null;
@@ -211,7 +219,7 @@ function formatBalanceAmount(reading: UsageBalanceReading): string {
  * window that has already ended gets no marker: pinning it at the far right
  * would claim the run finished exactly on pace.
  */
-function quotaPacePercent(window: UsageWindow | null, now: number): number | null {
+export function quotaPacePercent(window: UsageWindow | null, now: number): number | null {
   if (window === null || window.resetsAt === null || window.durationMs === null) {
     return null;
   }
@@ -236,7 +244,7 @@ interface ReadingGroup {
  * Ungrouped readings lead, then each `group` in first-appearance order. The
  * server emits readings in config order; nothing else re-sorts them.
  */
-function groupReadings(readings: readonly UsageReading[]): ReadingGroup[] {
+export function groupReadings(readings: readonly UsageReading[]): ReadingGroup[] {
   const ungrouped: UsageReading[] = [];
   const labelled: ReadingGroup[] = [];
   const byLabel = new Map<string, ReadingGroup>();
@@ -262,7 +270,7 @@ function groupReadings(readings: readonly UsageReading[]): ReadingGroup[] {
   return [{ key: "ungrouped", label: null, readings: ungrouped }, ...labelled];
 }
 
-interface UsageStyles {
+export interface UsageStyles {
   screen: ViewStyle;
   header: ViewStyle;
   headerActions: ViewStyle;
@@ -384,7 +392,7 @@ function Pill({ label, styles }: { label: string; styles: UsageStyles }) {
   );
 }
 
-function fallbackMonogram(label: string): string {
+export function fallbackMonogram(label: string): string {
   const words = label.trim().split(/\s+/).filter(Boolean);
   const first = words[0]?.charAt(0) ?? "?";
   const second = words.length > 1 ? (words[1]?.charAt(0) ?? "") : "";
@@ -437,7 +445,7 @@ function monogramForeground(plate: string, theme: PluginTheme): string {
     : theme.colors.accentForeground;
 }
 
-function ProviderMark({ icon, fallbackText, theme, compact, styles }: ProviderMarkProps) {
+export function ProviderMark({ icon, fallbackText, theme, compact, styles }: ProviderMarkProps) {
   const [failedUri, setFailedUri] = useState<string | null>(null);
   const size = compact ? 24 : 28;
   const imageFailed = icon?.kind === "image" && failedUri === icon.uri;
@@ -483,7 +491,7 @@ function ProviderMark({ icon, fallbackText, theme, compact, styles }: ProviderMa
   );
 }
 
-function QuotaRow({
+export function QuotaRow({
   reading,
   styles,
   theme,
@@ -524,7 +532,7 @@ function QuotaRow({
   );
 }
 
-function BalanceRow({
+export function BalanceRow({
   reading,
   styles,
   theme,
@@ -555,7 +563,7 @@ function BalanceRow({
   );
 }
 
-function RateRow({
+export function RateRow({
   reading,
   styles,
   now,
@@ -1128,7 +1136,7 @@ function UsageProviderGrid({
  * rather than ride whatever else happens to re-render. A minute is finer than
  * anything these helpers print.
  */
-function useTickingClock(): number {
+export function useTickingClock(): number {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => {

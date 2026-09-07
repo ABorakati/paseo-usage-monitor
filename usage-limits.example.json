@@ -1,6 +1,15 @@
 {
   "claude": {
-    "preset": "claude"
+    "preset": "claude",
+    "display": {
+      "pill": {
+        "enabled": true,
+        "style": "ring",
+        "value": "remaining",
+        "label": "provider",
+        "readout": "percent"
+      }
+    }
   },
   "codex": {
     "preset": "codex"

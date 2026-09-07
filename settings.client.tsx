@@ -155,6 +155,13 @@ interface EditorState {
   iconImageUri: string;
   displayStyle: "bar" | "ring";
   displayValue: "used" | "remaining";
+  pillEnabled: boolean;
+  pillOrder: string;
+  pillStyle: "ring" | "bar" | "none";
+  pillValue: "used" | "remaining";
+  pillReading: string;
+  pillLabel: "provider" | "reading" | "none";
+  pillReadout: "percent" | "amount" | "none";
   display: UsageDisplay | undefined;
 }
 
@@ -182,7 +189,14 @@ type EditorAction =
   | { type: "icon-monogram-color"; value: string }
   | { type: "icon-image-uri"; value: string }
   | { type: "display-style"; value: "bar" | "ring" }
-  | { type: "display-value"; value: "used" | "remaining" };
+  | { type: "display-value"; value: "used" | "remaining" }
+  | { type: "pill-enabled"; value: boolean }
+  | { type: "pill-order"; value: string }
+  | { type: "pill-style"; value: "ring" | "bar" | "none" }
+  | { type: "pill-value"; value: "used" | "remaining" }
+  | { type: "pill-reading"; value: string }
+  | { type: "pill-label"; value: "provider" | "reading" | "none" }
+  | { type: "pill-readout"; value: "percent" | "amount" | "none" };
 interface ProviderTestResult {
   ok: boolean;
   message: string;
@@ -210,6 +224,7 @@ interface FieldProps {
   placeholder?: string;
   secure?: boolean;
   multiline?: boolean;
+  disabled?: boolean;
 }
 
 interface ChoiceProps {
@@ -276,6 +291,14 @@ interface ReadingKindChoiceProps {
 interface UnitChoiceProps {
   unit: string;
   reading: ReadingDraft;
+  dispatch: Dispatch<EditorAction>;
+  styles: SettingsStyles;
+}
+
+interface PillReadingChoiceProps {
+  reading: ReadingDraft;
+  selected: boolean;
+  disabled: boolean;
   dispatch: Dispatch<EditorAction>;
   styles: SettingsStyles;
 }
@@ -406,6 +429,13 @@ const CLOSED_EDITOR: EditorState = {
   iconImageUri: "",
   displayStyle: "bar",
   displayValue: "used",
+  pillEnabled: false,
+  pillOrder: "",
+  pillStyle: "bar",
+  pillValue: "used",
+  pillReading: "",
+  pillLabel: "provider",
+  pillReadout: "percent",
   display: undefined,
 };
 
@@ -512,6 +542,13 @@ function customEditorWithEntry(
     iconImageUri: icon?.kind === "image" ? icon.uri : "",
     displayStyle: entry.display?.style ?? "bar",
     displayValue: entry.display?.value ?? "used",
+    pillEnabled: entry.display?.pill?.enabled ?? false,
+    pillOrder: entry.display?.pill?.order !== undefined ? String(entry.display.pill.order) : "",
+    pillStyle: entry.display?.pill?.style ?? (entry.display?.style === "ring" ? "ring" : "bar"),
+    pillValue: entry.display?.pill?.value ?? entry.display?.value ?? "used",
+    pillReading: entry.display?.pill?.reading ?? "",
+    pillLabel: entry.display?.pill?.label ?? "provider",
+    pillReadout: entry.display?.pill?.readout ?? "percent",
     display: entry.display,
   };
 }
@@ -553,6 +590,13 @@ function presetEditor(
     iconImageUri: icon?.kind === "image" ? icon.uri : "",
     displayStyle: entry?.display?.style ?? "bar",
     displayValue: entry?.display?.value ?? "used",
+    pillEnabled: entry?.display?.pill?.enabled ?? false,
+    pillOrder: entry?.display?.pill?.order !== undefined ? String(entry.display.pill.order) : "",
+    pillStyle: entry?.display?.pill?.style ?? (entry?.display?.style === "ring" ? "ring" : "bar"),
+    pillValue: entry?.display?.pill?.value ?? entry?.display?.value ?? "used",
+    pillReading: entry?.display?.pill?.reading ?? "",
+    pillLabel: entry?.display?.pill?.label ?? "provider",
+    pillReadout: entry?.display?.pill?.readout ?? "percent",
     display: entry?.display,
   };
 }
@@ -619,6 +663,13 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
   if (action.type === "icon-image-uri") return { ...state, iconImageUri: action.value };
   if (action.type === "display-style") return { ...state, displayStyle: action.value };
   if (action.type === "display-value") return { ...state, displayValue: action.value };
+  if (action.type === "pill-enabled") return { ...state, pillEnabled: action.value };
+  if (action.type === "pill-order") return { ...state, pillOrder: action.value };
+  if (action.type === "pill-style") return { ...state, pillStyle: action.value };
+  if (action.type === "pill-value") return { ...state, pillValue: action.value };
+  if (action.type === "pill-reading") return { ...state, pillReading: action.value };
+  if (action.type === "pill-label") return { ...state, pillLabel: action.value };
+  if (action.type === "pill-readout") return { ...state, pillReadout: action.value };
   return {
     ...state,
     secretValues: { ...state.secretValues, [action.name]: "" },
@@ -841,6 +892,40 @@ function buildProviderWrite(editor: EditorState): UsageProviderWrite {
   else display.style = editor.displayStyle;
   if (editor.displayValue === "used") delete display.value;
   else display.value = editor.displayValue;
+  let pillOrder: number | undefined;
+  if (editor.pillOrder.trim() !== "") {
+    pillOrder = Number(editor.pillOrder.trim());
+    if (!Number.isInteger(pillOrder)) {
+      throw new UsageFormError("Composer pill order must be an integer");
+    }
+  }
+
+  const pillReading = editor.pillReading.trim() !== "" ? editor.pillReading.trim() : undefined;
+  const pillStyle = editor.pillStyle !== editor.displayStyle ? editor.pillStyle : undefined;
+  const pillValue = editor.pillValue !== editor.displayValue ? editor.pillValue : undefined;
+
+  const hasPillSettings =
+    editor.pillEnabled ||
+    pillOrder !== undefined ||
+    pillReading !== undefined ||
+    pillStyle !== undefined ||
+    pillValue !== undefined ||
+    editor.pillLabel !== "provider" ||
+    editor.pillReadout !== "percent";
+
+  if (hasPillSettings) {
+    display.pill = {
+      enabled: editor.pillEnabled,
+      ...(pillOrder === undefined ? {} : { order: pillOrder }),
+      ...(pillStyle === undefined ? {} : { style: pillStyle }),
+      ...(pillValue === undefined ? {} : { value: pillValue }),
+      ...(pillReading === undefined ? {} : { reading: pillReading }),
+      label: editor.pillLabel,
+      readout: editor.pillReadout,
+    };
+  } else {
+    delete display.pill;
+  }
   const displayProp = Object.keys(display).length > 0 ? { display } : {};
 
   let candidate: unknown;
@@ -879,14 +964,16 @@ function Field({
   placeholder,
   secure = false,
   multiline = false,
+  disabled = false,
 }: FieldProps) {
   return (
-    <View style={styles.paths}>
+    <View style={[styles.paths, disabled ? styles.disabledButton : null]}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
         accessibilityLabel={label}
         autoCapitalize="none"
         autoCorrect={false}
+        editable={!disabled}
         multiline={multiline}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -896,6 +983,32 @@ function Field({
         value={value}
       />
     </View>
+  );
+}
+
+function PillReadingChoice({
+  reading,
+  selected,
+  disabled,
+  dispatch,
+  styles,
+}: PillReadingChoiceProps) {
+  const readingId = reading.id.trim();
+  const select = useCallback(
+    () => dispatch({ type: "pill-reading", value: readingId }),
+    [dispatch, readingId],
+  );
+  const baseLabel = reading.label.trim() || readingId || "Reading";
+  const windowLabel = reading.windowLabel.trim();
+  const label = windowLabel !== "" ? `${baseLabel} (${windowLabel})` : baseLabel;
+  return (
+    <Choice
+      label={label}
+      selected={selected}
+      disabled={disabled || readingId === ""}
+      onPress={select}
+      styles={styles}
+    />
   );
 }
 
@@ -1480,6 +1593,66 @@ function ProviderEditor({
     () => dispatch({ type: "display-value", value: "remaining" }),
     [dispatch],
   );
+  const choosePillEnabled = useCallback(
+    () => dispatch({ type: "pill-enabled", value: true }),
+    [dispatch],
+  );
+  const choosePillDisabled = useCallback(
+    () => dispatch({ type: "pill-enabled", value: false }),
+    [dispatch],
+  );
+  const choosePillStyleRing = useCallback(
+    () => dispatch({ type: "pill-style", value: "ring" }),
+    [dispatch],
+  );
+  const choosePillStyleBar = useCallback(
+    () => dispatch({ type: "pill-style", value: "bar" }),
+    [dispatch],
+  );
+  const choosePillStyleNone = useCallback(
+    () => dispatch({ type: "pill-style", value: "none" }),
+    [dispatch],
+  );
+  const choosePillValueUsed = useCallback(
+    () => dispatch({ type: "pill-value", value: "used" }),
+    [dispatch],
+  );
+  const choosePillValueRemaining = useCallback(
+    () => dispatch({ type: "pill-value", value: "remaining" }),
+    [dispatch],
+  );
+  const choosePillReadingAutomatic = useCallback(
+    () => dispatch({ type: "pill-reading", value: "" }),
+    [dispatch],
+  );
+  const choosePillLabelProvider = useCallback(
+    () => dispatch({ type: "pill-label", value: "provider" }),
+    [dispatch],
+  );
+  const choosePillLabelReading = useCallback(
+    () => dispatch({ type: "pill-label", value: "reading" }),
+    [dispatch],
+  );
+  const choosePillLabelNone = useCallback(
+    () => dispatch({ type: "pill-label", value: "none" }),
+    [dispatch],
+  );
+  const choosePillReadoutPercent = useCallback(
+    () => dispatch({ type: "pill-readout", value: "percent" }),
+    [dispatch],
+  );
+  const choosePillReadoutAmount = useCallback(
+    () => dispatch({ type: "pill-readout", value: "amount" }),
+    [dispatch],
+  );
+  const choosePillReadoutNone = useCallback(
+    () => dispatch({ type: "pill-readout", value: "none" }),
+    [dispatch],
+  );
+  const changePillOrder = useCallback(
+    (value: string) => dispatch({ type: "pill-order", value }),
+    [dispatch],
+  );
   const enableTemplate = useCallback(
     () => dispatch({ type: "template", value: !editor.templateEnabled }),
     [dispatch, editor.templateEnabled],
@@ -1643,6 +1816,144 @@ function ProviderEditor({
                 Readings per row follow the card: a wider card shows more columns and a resize
                 reflows it, so there is nothing to set here.
               </Text>
+            </View>
+            <View style={styles.paths}>
+              <Text style={styles.label}>Composer pill</Text>
+              <View style={styles.wrapRow}>
+                <Choice
+                  label="Show above composer"
+                  selected={editor.pillEnabled}
+                  onPress={choosePillEnabled}
+                  styles={styles}
+                />
+                <Choice
+                  label="Hide"
+                  selected={!editor.pillEnabled}
+                  onPress={choosePillDisabled}
+                  styles={styles}
+                />
+              </View>
+              <Text style={styles.label}>Pill style</Text>
+              <View style={styles.wrapRow}>
+                <Choice
+                  label="Ring"
+                  selected={editor.pillStyle === "ring"}
+                  disabled={!editor.pillEnabled}
+                  onPress={choosePillStyleRing}
+                  styles={styles}
+                />
+                <Choice
+                  label="Bar"
+                  selected={editor.pillStyle === "bar"}
+                  disabled={!editor.pillEnabled}
+                  onPress={choosePillStyleBar}
+                  styles={styles}
+                />
+                <Choice
+                  label="Number only"
+                  selected={editor.pillStyle === "none"}
+                  disabled={!editor.pillEnabled}
+                  onPress={choosePillStyleNone}
+                  styles={styles}
+                />
+              </View>
+              <Text style={styles.label}>Pill quota reads</Text>
+              <View style={styles.wrapRow}>
+                <Choice
+                  label="Used"
+                  selected={editor.pillValue === "used"}
+                  disabled={!editor.pillEnabled}
+                  onPress={choosePillValueUsed}
+                  styles={styles}
+                />
+                <Choice
+                  label="Remaining"
+                  selected={editor.pillValue === "remaining"}
+                  disabled={!editor.pillEnabled}
+                  onPress={choosePillValueRemaining}
+                  styles={styles}
+                />
+              </View>
+              <Text style={styles.label}>Tracked reading</Text>
+              <View style={styles.wrapRow}>
+                <Choice
+                  label="Automatic"
+                  selected={editor.pillReading === ""}
+                  disabled={!editor.pillEnabled}
+                  onPress={choosePillReadingAutomatic}
+                  styles={styles}
+                />
+                {editor.readings.map((reading) => (
+                  <PillReadingChoice
+                    key={reading.key}
+                    reading={reading}
+                    selected={editor.pillReading !== "" && editor.pillReading === reading.id.trim()}
+                    disabled={!editor.pillEnabled}
+                    dispatch={dispatch}
+                    styles={styles}
+                  />
+                ))}
+              </View>
+              <Text style={styles.muted}>
+                Automatic tracks the shortest quota window (the session figure), falling back to a
+                balance.
+              </Text>
+              <Text style={styles.label}>Pill label</Text>
+              <View style={styles.wrapRow}>
+                <Choice
+                  label="Provider"
+                  selected={editor.pillLabel === "provider"}
+                  disabled={!editor.pillEnabled}
+                  onPress={choosePillLabelProvider}
+                  styles={styles}
+                />
+                <Choice
+                  label="Reading"
+                  selected={editor.pillLabel === "reading"}
+                  disabled={!editor.pillEnabled}
+                  onPress={choosePillLabelReading}
+                  styles={styles}
+                />
+                <Choice
+                  label="None"
+                  selected={editor.pillLabel === "none"}
+                  disabled={!editor.pillEnabled}
+                  onPress={choosePillLabelNone}
+                  styles={styles}
+                />
+              </View>
+              <Text style={styles.label}>Pill readout</Text>
+              <View style={styles.wrapRow}>
+                <Choice
+                  label="Percentage"
+                  selected={editor.pillReadout === "percent"}
+                  disabled={!editor.pillEnabled}
+                  onPress={choosePillReadoutPercent}
+                  styles={styles}
+                />
+                <Choice
+                  label="Amount"
+                  selected={editor.pillReadout === "amount"}
+                  disabled={!editor.pillEnabled}
+                  onPress={choosePillReadoutAmount}
+                  styles={styles}
+                />
+                <Choice
+                  label="None"
+                  selected={editor.pillReadout === "none"}
+                  disabled={!editor.pillEnabled}
+                  onPress={choosePillReadoutNone}
+                  styles={styles}
+                />
+              </View>
+              <Field
+                label="Rail order (optional number)"
+                value={editor.pillOrder}
+                onChangeText={changePillOrder}
+                placeholder="1"
+                disabled={!editor.pillEnabled}
+                styles={styles}
+              />
             </View>
             {preset === undefined ? null : (
               <CredentialsEditor

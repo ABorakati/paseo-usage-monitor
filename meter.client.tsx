@@ -25,6 +25,11 @@ export interface UsageMeterProps {
   /** 0-100 where even consumption would sit now, expressed in the same direction as the fill. */
   pacePercent: number | null;
   style?: "bar" | "ring";
+  /**
+   * "card" keeps the 42/50px rings and 4/6px bars. "rail" shrinks the ring to
+   * 14px and lets a 4px bar fill whatever width its parent gives it.
+   */
+  scale?: "card" | "rail";
   theme: PluginTheme;
   compact: boolean;
 }
@@ -40,10 +45,12 @@ interface MeterStyles {
   paceTick: ViewStyle;
 }
 
-function createStyles(theme: PluginTheme, compact: boolean, tone: string): MeterStyles {
-  const barHeight = compact ? 4 : 6;
-  const ringSize = compact ? 42 : 50;
-  const ringStroke = compact ? 5 : 6;
+function createStyles(
+  theme: PluginTheme,
+  tone: string,
+  sizes: { barHeight: number; ringSize: number; ringStroke: number },
+): MeterStyles {
+  const { barHeight, ringSize, ringStroke } = sizes;
   const arc: ViewStyle = {
     position: "absolute",
     top: 0,
@@ -111,21 +118,29 @@ export function UsageMeter({
   percentFilled = percentUsed,
   pacePercent,
   style = "bar",
+  scale = "card",
   theme,
   compact,
 }: UsageMeterProps) {
   const fillPercent = clampPercent(percentFilled);
   const pace = pacePercent === null ? null : clampPercent(pacePercent);
   const tone = usageTone(percentUsed, theme);
-  const styles = useMemo(() => createStyles(theme, compact, tone), [theme, compact, tone]);
+  const rail = scale === "rail";
+  const barHeight = rail ? 4 : compact ? 4 : 6;
+  const ringSize = rail ? 14 : compact ? 42 : 50;
+  const ringStroke = rail ? 3 : compact ? 5 : 6;
+  const styles = useMemo(
+    () => createStyles(theme, tone, { barHeight, ringSize, ringStroke }),
+    [theme, tone, barHeight, ringSize, ringStroke],
+  );
   const barFill = useMemo<ViewStyle>(
     () => ({
-      height: compact ? 4 : 6,
-      borderRadius: compact ? 2 : 3,
+      height: barHeight,
+      borderRadius: barHeight / 2,
       backgroundColor: tone,
       width: `${fillPercent}%`,
     }),
-    [compact, fillPercent, tone],
+    [barHeight, fillPercent, tone],
   );
   const barPace = useMemo<ViewStyle | null>(() => {
     if (pace === null) {
@@ -155,14 +170,13 @@ export function UsageMeter({
     if (pace === null) {
       return null;
     }
-    const ringSize = compact ? 42 : 50;
     return {
       position: "absolute",
       width: ringSize,
       height: ringSize,
       transform: [{ rotate: `${pace * 3.6}deg` }],
     };
-  }, [compact, pace]);
+  }, [pace, ringSize]);
 
   if (style === "ring") {
     return (

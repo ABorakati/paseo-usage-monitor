@@ -18,6 +18,7 @@ import { UsageHistoryPanel, UsageHistorySurface } from "./history.client";
 import { readUsageHistory } from "./history.shared";
 import { UsageLimitsPanel, UsageLimitsSurface } from "./limits.client";
 import { readUsageLimits } from "./limits.shared";
+import { contributeComposerPills } from "./pills.client";
 import { contributeExplorerSeed } from "./seed.client";
 import { claimExplorerSeed } from "./seed.shared";
 
@@ -29,7 +30,16 @@ export default function contribute(plugin: PluginContext) {
   plugin.handle(removeUsageProvider, removeProvider);
   plugin.handle(testUsageProvider, testProvider);
   plugin.handle(claimExplorerSeed, claimSeed);
-  plugin.addClientSide(contributeExplorerSeed);
+  // One client entrypoint per plugin is all the host allows, so the seed and
+  // the composer rail share it and tear down in reverse.
+  plugin.addClientSide((client) => {
+    const stopSeed = contributeExplorerSeed(client);
+    const stopPills = contributeComposerPills(client);
+    return () => {
+      stopPills();
+      stopSeed();
+    };
+  });
   plugin.addSurface("limits", UsageLimitsSurface);
   plugin.addSurface("history", UsageHistorySurface);
   plugin.addSidebarItem({ id: "limits", title: "Usage Monitor", icon: "Gauge", surface: "limits" });

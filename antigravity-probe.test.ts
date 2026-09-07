@@ -9,6 +9,8 @@ import {
   isOAuthCacheFresh,
   mapQuotaSummary,
   parseStoredCredential,
+  readTierId,
+  readTierLabel,
   runPhase,
   startDeadline,
 } from "./antigravity-probe.server";
@@ -550,5 +552,72 @@ describe("mapQuotaSummary", () => {
     const result = mapQuotaSummary({ error: { code: 401 } }, SOURCE, FETCHED_AT);
     expect(result.buckets.every((bucket) => bucket.usedPercent === null)).toBe(true);
     expect(result.buckets).toHaveLength(4);
+  });
+});
+
+/**
+ * A verbatim `v1internal:loadCodeAssist` 200 body from a Google AI Pro
+ * subscriber, with the account's email stripped out of the upgrade link and
+ * the privacy notices dropped. The point of the fixture is the two tiers it
+ * carries at once: `currentTier` is the Gemini Code Assist tier, which is
+ * `free-tier` for every consumer login however much it pays, and `paidTier`
+ * is the Antigravity subscription the pool bars are actually metered against.
+ */
+const AI_PRO_CODE_ASSIST = {
+  currentTier: {
+    id: "free-tier",
+    name: "Antigravity",
+    description: "Gemini-powered code suggestions and chat in multiple IDEs",
+    upgradeSubscriptionUri: "https://accounts.google.com/AccountChooser",
+    upgradeSubscriptionText:
+      "Upgrade to get 1,500 model requests per day with Gemini CLI and Gemini Code Assist's agent mode with Google AI Pro.",
+    upgradeSubscriptionType: "GOOGLE_ONE_HELIUM",
+  },
+  allowedTiers: [
+    { id: "free-tier", name: "Antigravity", isDefault: true },
+    { id: "standard-tier", name: "Antigravity", usesGcpTos: true },
+  ],
+  cloudaicompanionProject: "aicode-consumers",
+  gcpManaged: false,
+  upgradeSubscriptionUri: "https://codeassist.google.com/upgrade",
+  paidTier: {
+    id: "g1-pro-tier",
+    name: "Google AI Pro",
+    description: "Google AI Pro",
+    upgradeSubscriptionUri: "https://antigravity.google/g1-upgrade",
+    upgradeSubscriptionText:
+      "You can upgrade to a Google AI Ultra plan to receive higher rate limits.",
+  },
+};
+
+describe("readTierId", () => {
+  test("names the paid Antigravity plan, not the Code Assist tier beside it", () => {
+    // Reading `currentTier` labelled this subscriber "Free tier" and told them
+    // their pool bars could never move.
+    expect(readTierId(AI_PRO_CODE_ASSIST)).toBe("g1-pro-tier");
+    expect(readTierLabel(AI_PRO_CODE_ASSIST)).toBe("Google AI Pro");
+  });
+
+  test("prefers the bare `g1Tier` id the response may carry instead of a tier object", () => {
+    expect(readTierId({ ...AI_PRO_CODE_ASSIST, g1Tier: "g1-ultra-tier" })).toBe("g1-ultra-tier");
+    expect(readTierLabel({ ...AI_PRO_CODE_ASSIST, g1Tier: "g1-ultra-tier" })).toBe(
+      "Google AI Ultra",
+    );
+  });
+
+  test("falls back to the Code Assist tier for a login that subscribes to nothing", () => {
+    const { paidTier: _paidTier, ...unsubscribed } = AI_PRO_CODE_ASSIST;
+    expect(readTierId(unsubscribed)).toBe("free-tier");
+    expect(readTierLabel(unsubscribed)).toBe("Free tier");
+  });
+
+  test("passes an unpublished plan id through rather than reading as unknown", () => {
+    expect(readTierLabel({ paidTier: { id: "g1-mega-tier" } })).toBe("g1-mega-tier");
+  });
+
+  test("reads as absent when no tier is named, so the card drops the label only", () => {
+    expect(readTierId({ error: { code: 401 } })).toBeNull();
+    expect(readTierId({ paidTier: { id: "" }, currentTier: {} })).toBeNull();
+    expect(readTierLabel(null)).toBeNull();
   });
 });

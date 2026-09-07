@@ -50,6 +50,7 @@ Once running, the plugin shows up in three places:
 
 - **Left sidebar** — two entries, **Usage Monitor** (gauge icon) and **Usage history** (chart icon). These open full-width surfaces.
 - **Explorer side panel** — inside any workspace, the Explorer sidebar hosts **Usage Monitor** and **Usage history**. Both panels default to the Explorer sidebar (`locations: ["explorer", "workspace"]`) and auto-seed into new workspaces once on creation.
+- **Composer rail** — per-provider usage pills pinned above the chat prompt input.
 - **Workspace tabs** — both panels can still be opened as full workspace tabs whenever you want via the command palette.
 - **Command palette** — `Open Usage Monitor` and `Open usage history` (open in Explorer), plus `Open Usage Monitor as workspace tab` and `Open usage history as workspace tab`.
 
@@ -86,20 +87,35 @@ paseo plugin install .
 
 Every endpoint, credential chain and caveat is in [Presets](docs/PRESETS.md), along with the list of vendors that cannot be read and why. Anything with a JSON endpoint, a CLI that prints JSON, or a file on disk can be added as a hand-written provider without a code change; see [Configuration](docs/CONFIGURATION.md) and [Recipes](docs/RECIPES.md).
 
+## Composer pills
+
+The rail directly above the chat composer displays compact usage pills for quick checks while prompting.
+
+A provider stays off the rail until it opts in. Turn a provider on in **Usage providers** under **Composer pill** by selecting **Show above composer**, or set `"display": { "pill": { "enabled": true } }` in `usage-limits.json`.
+
+Each pill tracks one reading from that provider:
+
+- **Three styles** — dial gauge (`ring`), left-to-right bar (`bar`), or numeric readout alone (`none`). An omitted style inherits the card meter shape.
+- **Used vs remaining** — counts consumed quota (`used`) or headroom left (`remaining`). An omitted direction inherits the card direction.
+- **Tracked reading** — automatic selection tracks the shortest resetting quota window (the five-hour session quota), falling back to a balance reading when no quota exists. A specific reading mapping can also be pinned.
+
+Pressing a pill opens a per-provider detail panel showing every quota window, its progress bar, and its reset time.
+
 ## Editing providers from the app
 
 The **Usage providers** sidebar surface adds, edits, tests and removes providers without opening an editor. It is a front end to the file documented in [Configuration](docs/CONFIGURATION.md), not a parallel system: it writes the same `${PASEO_HOME:-~/.paseo}/usage-limits.json`, in the same shape, and a config you wrote by hand shows up in it unchanged.
 
 ### Card appearance
 
-Four things about how a provider draws live in the same editor as the provider itself, because they are properties of that provider rather than of the session you happen to be in. They persist to `display` in `usage-limits.json` and survive a reload.
+Five things about how a provider draws live in the same editor as the provider itself, because they are properties of that provider rather than of the session you happen to be in. They persist to `display` in `usage-limits.json` and survive a reload.
 
-| Setting           | Choices                          | Stored as                                    |
-| ----------------- | -------------------------------- | -------------------------------------------- |
-| Icon & brand mark | Default, Lucide, Monogram, Image | `display.icon`, absent for the built-in mark |
-| Meter             | Bar, Ring                        | `display.style`, absent for Bar              |
-| Quota reads       | Used, Left                       | `display.value`, absent for Used             |
-| Readings per row  | not settable - measured          | nothing                                      |
+| Setting           | Choices                                                  | Stored as                                              |
+| ----------------- | -------------------------------------------------------- | ------------------------------------------------------ |
+| Icon & brand mark | Default, Lucide, Monogram, Image                         | `display.icon`, absent for the built-in mark           |
+| Meter             | Bar, Ring                                                | `display.style`, absent for Bar                        |
+| Quota reads       | Used, Left                                               | `display.value`, absent for Used                       |
+| Composer pill     | Show, Hide, style, value, reading, label, readout, order | `display.pill`, absent when disabled with all defaults |
+| Readings per row  | not settable - measured                                  | nothing                                                |
 
 A default is stored as **absence**, not as a value: choosing Bar removes `display.style` rather than writing `"bar"`, because both renderers already read a missing key as the default. A config that stores every default would be longer without saying anything more.
 

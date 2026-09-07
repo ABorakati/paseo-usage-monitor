@@ -57,21 +57,21 @@ Malformed JSON, or JSON that fails the schema, makes the plugin throw a `UsageCo
 | `source`            | source object             | no                        | —        | Omit only when every reading is schedule-driven and needs no request.                   |
 | `readings`          | array of readings, min 1  | required without `preset` | —        | See [Readings](#readings).                                                              |
 | `limits`            | map of reading id to number | no                      | `{}`     | Ceilings for readings whose vendor publishes none, so a bare count becomes a bar. See [Ceilings](#ceilings). |
-
+| `display`           | display object            | no                        | `{}`     | Card layout and composer rail pill settings. See [Display and composer pills](#display-and-composer-pills). |
 `unverified` is not settable from config. It is a property of a preset, marking one whose endpoint no vendor has published.
 
 ## Preset merge rules
 
-An entry with `preset` starts from that preset, then each field present on the entry replaces the preset's field. The replacement is wholesale, with one exception:
+An entry with `preset` starts from that preset, then each field present on the entry replaces the preset's field. The replacement is wholesale, with two exceptions:
 
-| Field                                                  | Merge                                                                   |
-| ------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `label`, `description`, `enabled`, `refreshIntervalMs` | Replaced.                                                               |
-| `source`                                               | Replaced as a whole object. You cannot override just the `url`.         |
-| `readings`                                             | Replaced as a whole array. There is no per-reading merge.               |
-| `limits`                                               | Replaced as a whole map.                                                |
-| `credentials`                                          | Merged **by credential name**; the entry wins per name, others survive. |
-
+| Field                                                  | Merge                                                                                                            |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `label`, `description`, `enabled`, `refreshIntervalMs` | Replaced.                                                                                                        |
+| `source`                                               | Replaced as a whole object. You cannot override just the `url`.                                                  |
+| `readings`                                             | Replaced as a whole array. There is no per-reading merge.                                                        |
+| `limits`                                               | Replaced as a whole map.                                                                                         |
+| `credentials`                                          | Merged **by credential name**; the entry wins per name, others survive.                                          |
+| `display`                                              | Merged **field by field** against the preset, and `display.pill` merges field by field the same way.             |
 Every shipped preset declares exactly one credential name, so repointing a preset's key means re-declaring that one name:
 
 ```json
@@ -84,6 +84,40 @@ Every shipped preset declares exactly one credential name, so repointing a prese
 ```
 
 An entry naming a preset that does not exist becomes an error row reading `Unknown preset "<id>"`, labelled with the config key. An entry that fails validation becomes an error row carrying the joined Zod issues. Neither vanishes from the snapshot.
+## Display and composer pills
+
+`display` controls how a provider renders on its card and whether it appears on the rail above the composer. Unlike `source`, `readings`, and `limits`, which replace presets wholesale, `display` merges field by field against a preset, and `display.pill` merges field by field the same way.
+
+| Field       | Type                    | Required | Default  | Notes                                                                                           |
+| ----------- | ----------------------- | -------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `order`     | integer                 | no       | —        | Ascending position on the dashboard; providers without an order sort after ordered ones, by id. |
+| `style`     | `"bar" \| "ring"`       | no       | `"bar"`  | Card meter shape: horizontal bar or dial gauge.                                                 |
+| `value`     | `"used" \| "remaining"` | no       | `"used"` | Whether the meter counts consumption or headroom.                                               |
+| `collapsed` | boolean                 | no       | `false`  | Collapsed cards render only their header and worst reading.                                     |
+| `icon`      | icon object             | no       | —        | Overrides the provider mark.                                                                    |
+| `pill`      | pill display object     | no       | —        | Shows this provider on the composer rail. Omitted when disabled with all other fields default.  |
+
+### `display.pill`
+
+A composer pill is a glance above the chat prompt: one gauge, one number, and one reading per opted-in provider. A provider stays off the rail until it opts in (`enabled: true`), so installing the plugin does not crowd every composer by default.
+
+| Field     | Type                                | Required | Default      | Notes                                                                                                           |
+| --------- | ----------------------------------- | -------- | ------------ | --------------------------------------------------------------------------------------------------------------- |
+| `enabled` | boolean                             | no       | `false`      | Whether this provider appears on the composer rail.                                                             |
+| `order`   | integer                             | no       | —            | Ascending position along the rail; pills without an order sort after ordered ones, by id.                       |
+| `style`   | `"ring" \| "bar" \| "none"`         | no       | card `style` | Dial, left-to-right bar, or number alone (`none`). Inherits the card's own `display.style` (default `"bar"`).   |
+| `value`   | `"used" \| "remaining"`             | no       | card `value` | Counts consumption (`used`) or headroom (`remaining`). Inherits the card's own `display.value` (default `"used"`). |
+| `reading` | string                              | no       | automatic    | Mapping id to track. Omitted picks the shortest quota window (the session figure), falling back to a balance.  |
+| `label`   | `"provider" \| "reading" \| "none"` | no       | `"provider"` | Text beside the gauge: vendor name, reading label, or neither.                                                  |
+| `readout` | `"percent" \| "amount" \| "none"`   | no       | `"percent"`  | Value beside the gauge: percentage, currency or unit amount, or neither.                                        |
+
+Two fields inherit from the card when omitted:
+- `style` falls back to `display.style` on the card (defaulting to `"bar"`).
+- `value` falls back to `display.value` on the card (defaulting to `"used"`).
+
+Without a pinned `reading`, the pill tracks the shortest quota window because that is the number a composer acts on: the five-hour session quota runs out mid-task while a weekly quota rarely does. A provider with no quota readings falls back to its balance reading.
+
+When `enabled` is `false` and no other pill field is configured, the `pill` object is omitted from the saved config file to avoid empty no-op blocks.
 
 ## Readings
 

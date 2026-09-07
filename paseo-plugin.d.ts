@@ -151,6 +151,26 @@ declare module "@getpaseo/plugin" {
     agentId: string;
   }
 
+  export interface PluginComposerPillProps extends PluginHostProps {
+    workspaceId: string;
+    agentId: string;
+  }
+
+  /**
+   * Paseo owns the pressable, the pill chrome, the pending state, and the rail
+   * placement above the composer. The plugin owns when the pill exists, what it
+   * draws inside, and what the press does.
+   */
+  export interface PluginComposerPillContribution {
+    id: string;
+    /** Accessible button label. */
+    title: string;
+    workspaceId: string;
+    agentId: string;
+    Component: ComponentType<PluginComposerPillProps>;
+    onPress(): void | Promise<void>;
+  }
+
   export type PluginPanelLocation = "workspace" | "explorer";
   export interface PluginOpenPanelOptions {
     location?: PluginPanelLocation;
@@ -305,6 +325,8 @@ declare module "@getpaseo/plugin" {
   }
 
   export interface PluginClientContext extends PluginCommandCapabilities {
+    /** Returns an idempotent remover. Paseo also drops the pill on teardown. */
+    addComposerPill(contribution: PluginComposerPillContribution): PluginCleanup;
     openPanel(id: string, options: PluginClientOpenPanelOptions): void;
   }
 

@@ -307,6 +307,32 @@ export const UsageReadingMappingSchema = z.discriminatedUnion("kind", [
 ]);
 
 /**
+ * How a provider reads as a pill on the composer rail. Separate from the card's
+ * own layout because the rail is a glance, not a screen: one reading, one
+ * gauge, one number. A provider stays off the rail until it opts in, so
+ * installing the plugin does not crowd every composer by default.
+ */
+export const UsagePillDisplaySchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Ascending along the rail; pills without one sort after those with one, then by id. */
+  order: z.number().int().optional(),
+  /** A ring reads as a dial, a bar left to right, `none` shows the number alone. */
+  style: z.enum(["ring", "bar", "none"]).optional(),
+  /** Whether the pill counts what is consumed or what is left. */
+  value: z.enum(["used", "remaining"]).optional(),
+  /**
+   * Which reading the pill tracks, by the reading mapping's own id. Absent
+   * picks the shortest quota window — the session figure a composer wants —
+   * and falls back to a balance when the provider publishes no quota.
+   */
+  reading: z.string().min(1).optional(),
+  /** Text beside the gauge: the provider's name, the reading's name, or neither. */
+  label: z.enum(["provider", "reading", "none"]).default("provider"),
+  /** The number beside the gauge: a percentage, the amount itself, or neither. */
+  readout: z.enum(["percent", "amount", "none"]).default("percent"),
+});
+
+/**
  * How a provider's card is laid out. This lives in the same config file as the
  * provider itself so the surface has one place to read and write, and so a
  * layout survives a reload without a second store.
@@ -327,6 +353,8 @@ export const UsageDisplaySchema = z.object({
   collapsed: z.boolean().optional(),
   /** Overrides the provider's own mark. */
   icon: UsageIconSchema.optional(),
+  /** The provider's slot on the composer rail. */
+  pill: UsagePillDisplaySchema.optional(),
 });
 
 export const UsageProviderSchema = z.object({
@@ -488,6 +516,7 @@ export const readUsageLimits = defineRpc({
 
 export type UsageUnit = z.infer<typeof UsageUnitSchema>;
 export type UsageDisplay = z.infer<typeof UsageDisplaySchema>;
+export type UsagePillDisplay = z.infer<typeof UsagePillDisplaySchema>;
 export type UsageIcon = z.infer<typeof UsageIconSchema>;
 export type UsageCredentialSource = z.infer<typeof UsageCredentialSourceSchema>;
 export type UsageCredentials = z.infer<typeof UsageCredentialsSchema>;

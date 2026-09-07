@@ -1278,8 +1278,8 @@ async function fetchQuotaSummary(
 
 /**
  * Google names the tier by id, which is not what a card should print, so the
- * three published ones get a label. An unknown id is passed through: a new
- * plan name is still better than "unknown".
+ * published ones get a label. An unknown id is passed through: a new plan name
+ * is still better than "unknown".
  */
 const TIER_LABELS: Record<string, string> = {
   "free-tier": "Free tier",
@@ -1287,6 +1287,39 @@ const TIER_LABELS: Record<string, string> = {
   "g1-pro-tier": "Google AI Pro",
   "g1-ultra-tier": "Google AI Ultra",
 };
+
+/**
+ * `loadCodeAssist` answers with two unrelated plans, and only one of them is
+ * the Antigravity subscription:
+ *
+ * - `currentTier` is the Gemini Code Assist tier. A consumer login sits on
+ *   `free-tier` there however much it pays, because an Antigravity plan is not
+ *   a Code Assist plan. Reading it labelled every paid account "Free tier".
+ * - `g1Tier` (a bare id) and `paidTier` (a tier object) carry the Google One
+ *   plan the login actually subscribes to, which is the one the pool bars are
+ *   metered against. The vendor's own CLI reads the same pair: its
+ *   `GetG1Credits` fails with "paidTier is nil".
+ *
+ * So the paid fields answer first and the Code Assist tier only backs them up.
+ */
+export function readTierId(document: unknown): string | null {
+  const root = asRecord(document);
+  if (root === null) return null;
+  const bare = firstString(root, ["g1Tier"]);
+  if (bare !== null) return bare;
+  for (const key of ["paidTier", "currentTier"]) {
+    const tier = asRecord(root[key]);
+    const id = tier === null ? null : firstString(tier, ["id"]);
+    if (id !== null) return id;
+  }
+  return null;
+}
+
+export function readTierLabel(document: unknown): string | null {
+  const id = readTierId(document);
+  if (id === null) return null;
+  return TIER_LABELS[id] ?? id;
+}
 
 /**
  * Which plan the login is on. Best-effort by design: the quota numbers are the
@@ -1307,10 +1340,7 @@ async function fetchTierLabel(accessToken: string, signal: AbortSignal): Promise
       signal,
     });
     if (!response.ok) return null;
-    const tier = asRecord(asRecord(await response.json())?.currentTier);
-    const id = tier?.id;
-    if (typeof id !== "string" || id.length === 0) return null;
-    return TIER_LABELS[id] ?? id;
+    return readTierLabel(await response.json());
   } catch {
     return null;
   }
