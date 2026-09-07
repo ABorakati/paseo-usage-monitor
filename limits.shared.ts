@@ -306,7 +306,11 @@ export const UsageReadingMappingSchema = z.discriminatedUnion("kind", [
   UsageRateMappingSchema,
 ]);
 
-/** Fields within a rule all match; any matching rule makes the pill visible. */
+/**
+ * Fields within a rule all match; any matching rule makes the pill visible.
+ * Every field accepts `*` as a wildcard and `|` to try several alternatives,
+ * e.g. `"anthropic|claude"` or `"gpt-*"`.
+ */
 export const UsagePillMatchRuleSchema = z
   .object({
     harness: z.string().trim().min(1).optional(),
@@ -328,7 +332,7 @@ export const UsagePillDisplaySchema = z.object({
   enabled: z.boolean().default(false),
   /** Existing enabled pills stay visible until matching is explicitly selected. */
   visibility: z.enum(["always", "matching"]).default("always"),
-  /** Empty or absent rules match nothing. Model patterns support only `*` wildcards. */
+  /** Empty or absent rules match nothing. */
   matchRules: z.array(UsagePillMatchRuleSchema).optional(),
   /** Ascending along the rail; pills without one sort after those with one, then by id. */
   order: z.number().int().optional(),

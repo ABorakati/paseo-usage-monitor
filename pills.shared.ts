@@ -131,6 +131,26 @@ export function getDefaultPillMatchRules(presetOrProviderId: string): UsagePillM
   });
 }
 
+/**
+ * `|` splits a pattern into alternatives, tried in order; any one matching is
+ * enough. Within an alternative `*` matches any run of characters and every
+ * other regex-special character is literal, so a vendor id with a `.` or `+`
+ * in it never needs escaping by the person typing the rule.
+ */
+function matchesGlobPattern(pattern: string, value: string): boolean {
+  return pattern
+    .split("|")
+    .map((alternative) => alternative.trim())
+    .filter((alternative) => alternative.length > 0)
+    .some((alternative) => {
+      if (!alternative.includes("*")) {
+        return alternative === value;
+      }
+      const escaped = alternative.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+      return new RegExp(`^${escaped}$`).test(value);
+    });
+}
+
 /** The host calls the harness `provider`; the model's first segment names its vendor. */
 export function matchesPillSelection(
   pill: UsageDisplay["pill"],
@@ -155,22 +175,20 @@ export function matchesPillSelection(
     if (rule.harness === undefined && rule.provider === undefined && rule.model === undefined) {
       return false;
     }
-    if (rule.harness !== undefined && rule.harness.toLowerCase() !== harness) {
-      return false;
-    }
-    if (rule.provider !== undefined && rule.provider.toLowerCase() !== provider) {
-      return false;
-    }
-    if (rule.model !== undefined) {
-      if (model === null) {
+    if (rule.harness !== undefined) {
+      if (harness === null || !matchesGlobPattern(rule.harness.toLowerCase(), harness)) {
         return false;
       }
-      const pattern = rule.model.toLowerCase();
-      if (!pattern.includes("*")) {
-        return pattern === model;
+    }
+    if (rule.provider !== undefined) {
+      if (provider === null || !matchesGlobPattern(rule.provider.toLowerCase(), provider)) {
+        return false;
       }
-      const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
-      return new RegExp(`^${escaped}$`).test(model);
+    }
+    if (rule.model !== undefined) {
+      if (model === null || !matchesGlobPattern(rule.model.toLowerCase(), model)) {
+        return false;
+      }
     }
     return true;
   });

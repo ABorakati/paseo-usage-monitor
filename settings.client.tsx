@@ -1169,7 +1169,7 @@ function PillMatchRuleEditor({
         label="Harness"
         value={rule.harness}
         onChangeText={changeHarness}
-        placeholder="e.g. omp"
+        placeholder="e.g. omp or claude|codex"
         disabled={disabled}
         styles={styles}
       />
@@ -1177,15 +1177,15 @@ function PillMatchRuleEditor({
         label="Provider"
         value={rule.provider}
         onChangeText={changeProvider}
-        placeholder="e.g. openai"
+        placeholder="e.g. openai or anthropic|claude"
         disabled={disabled}
         styles={styles}
       />
       <Field
-        label="Model pattern (* wildcard)"
+        label="Model pattern"
         value={rule.model}
         onChangeText={changeModel}
-        placeholder="e.g. gpt-*"
+        placeholder="e.g. gpt-* or gpt-6|gpt-6-mini"
         disabled={disabled}
         styles={styles}
       />
@@ -2134,8 +2134,9 @@ function ProviderEditor({
                   <Text style={styles.muted}>
                     Harness is the agent harness, such as claude, codex, or omp. Provider matches
                     the vendor before the first slash in the agent model. Model patterns match the
-                    part after that slash, or the whole unqualified model. Matching ignores case.
-                    Only * acts as a wildcard.
+                    part after that slash, or the whole unqualified model. Matching ignores case. *
+                    matches any run of characters, and | tries several alternatives, e.g.
+                    &quot;anthropic|claude&quot; or &quot;gpt-*&quot;.
                   </Text>
                   <Text style={styles.muted}>
                     Rules read each agent's current harness and model. A model you pick in the

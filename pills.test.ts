@@ -124,6 +124,32 @@ describe("pill selection rules", () => {
     ).toBe(false);
   });
 
+  test("harness and provider accept the same wildcard the model field always had", () => {
+    const matching = pill({
+      visibility: "matching",
+      matchRules: [{ harness: "op*", provider: "*router" }],
+    });
+    expect(
+      matchesPillSelection(matching, { provider: "opencode", model: "openrouter/gpt-6" }),
+    ).toBe(true);
+    expect(matchesPillSelection(matching, { provider: "omp", model: "openrouter/gpt-6" })).toBe(
+      false,
+    );
+  });
+
+  test("a pipe tries each alternative across every field", () => {
+    const matching = pill({
+      visibility: "matching",
+      matchRules: [{ provider: "anthropic | claude", model: "gpt-6|gpt-6-mini" }],
+    });
+    expect(matchesPillSelection(matching, { provider: "omp", model: "claude/gpt-6" })).toBe(true);
+    expect(matchesPillSelection(matching, { provider: "omp", model: "anthropic/gpt-6-mini" })).toBe(
+      true,
+    );
+    expect(matchesPillSelection(matching, { provider: "omp", model: "claude/gpt-7" })).toBe(false);
+    expect(matchesPillSelection(matching, { provider: "omp", model: "openai/gpt-6" })).toBe(false);
+  });
+
   test("matches the entire model part, including segments after the first slash", () => {
     const matching = pill({
       visibility: "matching",

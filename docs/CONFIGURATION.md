@@ -134,11 +134,11 @@ A pill under `visibility: "matching"` appears only on the composers whose agent 
 | ---------- | ------ | -------- | ------------------------------------------------------------------------------------------------- |
 | `harness`  | string | no       | Agent harness id, such as `claude`, `codex`, or `omp`. Compared case-insensitively.               |
 | `provider` | string | no       | Model vendor: the segment before `/` in a qualified model id, such as `openai` in `openai/gpt-6`. |
-| `model`    | string | no       | Model id after that segment, or the whole id when unqualified. `*` matches any run of characters. |
+| `model`    | string | no       | Model id after that segment, or the whole id when unqualified.                                    |
 
 Each rule needs at least one field. Fields inside one rule are ANDed, and the rules themselves are ORed, so `[{ "harness": "codex" }, { "harness": "omp", "provider": "openai" }]` reads as "Codex, or OpenAI models under omp". A blank field means any value. An empty `matchRules` array matches nothing and keeps the pill hidden.
 
-Vendor matching is exact, not a name search: `provider: "openai"` matches `openai/gpt-6` under any harness, and never matches an OpenAI-looking model served by another vendor id. A rule naming `provider` or `model` cannot match an agent whose model is unset.
+Every field accepts two pattern forms, combinable in one value: `*` matches any run of characters (`gpt-*` matches `gpt-6` and `gpt-6-mini`), and `|` separates alternatives tried in order (`anthropic|claude` matches either vendor id exactly; `gpt-6|gpt-6-mini` matches either model). A field with neither is an exact, case-insensitive match. A rule naming `provider` or `model` cannot match an agent whose model is unset.
 
 The settings surface offers suggested rules for the selected preset and writes them as ordinary `matchRules` you can then edit. Every preset in this catalogue has a suggestion, covering the CLI harnesses (`claude`, `codex`, `copilot`, `cursor`) and the vendor namespaces of the three multi-vendor harnesses (`omp`, `pi`, `opencode`).
 
