@@ -81,6 +81,11 @@ const CARD_LIFT = 44;
 const CARD_WIDTH = 232;
 /** The card is wide enough for a bar, and a bar states progress plainly. */
 const CARD_METER_STYLE = "bar" as const;
+/**
+ * How far the dismiss catcher reaches beyond the pill. Larger than any pane the
+ * composer sits in, so a press outside the card always lands on it.
+ */
+const CATCHER_REACH = 4000;
 
 interface PillStyles {
   label: TextStyle;
@@ -98,6 +103,8 @@ interface PillStyles {
   cardMeter: ViewStyle;
   cardRefresh: ViewStyle;
   cardWindow: ViewStyle;
+  cardCatcher: ViewStyle;
+  cardIconAction: ViewStyle;
   cardRow: ViewStyle;
   cardRule: ViewStyle;
   cardAction: TextStyle;
@@ -177,6 +184,26 @@ function createPillStyles(theme: PluginComposerPillProps["theme"], plate: string
       flexShrink: 0,
     },
     cardWindow: { gap: 4, marginTop: 6 },
+    /**
+     * Reaches far past the rail in every direction so a press anywhere outside
+     * the card lands on it. Transparent, and below the card's own z-index.
+     */
+    cardCatcher: {
+      position: "absolute",
+      left: -CATCHER_REACH,
+      right: -CATCHER_REACH,
+      top: -CATCHER_REACH,
+      bottom: -CATCHER_REACH,
+      zIndex: 39,
+    },
+    cardIconAction: {
+      width: 24,
+      height: 24,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 6,
+      flexShrink: 0,
+    },
     cardRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -249,12 +276,38 @@ function findProvider(
 /**
  * Which pill has its card open. One at a time and module-level, because every
  * pill is its own React tree and opening one has to close the last.
+ *
+ * A control inside the card is a child of the host's own pressable, and a
+ * plugin cannot stop that press from reaching it, so a press on the dismiss
+ * catcher or on Refresh would otherwise be undone by the host toggling right
+ * after. Those presses claim the next toggle instead, which makes the outcome
+ * the same whichever handler runs first.
  */
 let openPillId: string | null = null;
+let toggleClaimedUntil = 0;
 const openPillListeners = new Set<() => void>();
+/** Covers the host's press landing, short enough to never strand a pill. */
+const TOGGLE_CLAIM_MS = 350;
+
+function claimNextToggle(): void {
+  toggleClaimedUntil = Date.now() + TOGGLE_CLAIM_MS;
+}
 
 function toggleOpenPill(providerId: string): void {
+  if (Date.now() < toggleClaimedUntil) {
+    toggleClaimedUntil = 0;
+    return;
+  }
   openPillId = openPillId === providerId ? null : providerId;
+  for (const listener of openPillListeners) listener();
+}
+
+function closeOpenPill(): void {
+  claimNextToggle();
+  if (openPillId === null) {
+    return;
+  }
+  openPillId = null;
   for (const listener of openPillListeners) listener();
 }
 
@@ -314,83 +367,105 @@ function PillCard({
     requestProviderEditor(provider.providerId);
     clientContext?.openSurface(SETTINGS_SURFACE_ID);
   }, [provider.providerId]);
+  const closeCard = useCallback(() => {
+    closeOpenPill();
+  }, []);
   return (
-    <View style={styles.card}>
-      <View style={styles.cardRow}>
-        <Text numberOfLines={1} style={styles.cardTitle}>
-          {metrics?.windowLabel === null || metrics === null
-            ? provider.label
-            : `${provider.label} · ${metrics.windowLabel}`}
-        </Text>
-        <Pressable
-          accessibilityLabel={`Refresh ${provider.label} usage`}
-          accessibilityRole="button"
-          accessibilityState={refreshing ? CARD_BUSY : CARD_IDLE}
-          disabled={refreshing}
-          onPress={refresh}
-          style={styles.cardRefresh}
-        >
-          <Icon
-            name="RefreshCw"
-            size={13}
-            color={refreshing ? theme.colors.foregroundMuted : theme.colors.foreground}
-          />
-        </Pressable>
-      </View>
-      {headline === null ? null : <Text style={headlineStyle}>{headline}</Text>}
-      {metrics === null || metrics.percentFilled === null ? null : (
-        <View style={styles.cardMeter}>
-          <UsageMeter
-            percentUsed={metrics.percentUsed ?? 0}
-            percentFilled={metrics.percentFilled}
-            pacePercent={quotaPacePercent(trackedWindow, now)}
-            style={CARD_METER_STYLE}
-            trackColor={theme.colors.surface0}
-            theme={theme}
-            compact
-          />
+    <>
+      {/*
+       * Dismisses on a press anywhere else. A plugin cannot reach the host's
+       * overlay host, so the catcher is a child of the pill stretched well past
+       * the composer. It sits under the card and above everything else, which
+       * is what makes the first click outside close rather than act.
+       */}
+      <Pressable
+        accessibilityLabel={`Close ${provider.label} usage`}
+        accessibilityRole="button"
+        onPress={closeCard}
+        style={styles.cardCatcher}
+      />
+      <View style={styles.card}>
+        <View style={styles.cardRow}>
+          <Text numberOfLines={1} style={styles.cardTitle}>
+            {metrics?.windowLabel === null || metrics === null
+              ? provider.label
+              : `${provider.label} · ${metrics.windowLabel}`}
+          </Text>
+          <Pressable
+            accessibilityLabel={`Refresh ${provider.label} usage`}
+            accessibilityRole="button"
+            accessibilityState={refreshing ? CARD_BUSY : CARD_IDLE}
+            disabled={refreshing}
+            onPress={refresh}
+            style={styles.cardRefresh}
+          >
+            <Icon
+              name="RefreshCw"
+              size={13}
+              color={refreshing ? theme.colors.foregroundMuted : theme.colors.foreground}
+            />
+          </Pressable>
         </View>
-      )}
-      {amounts === null ? null : <Text style={styles.cardDetail}>{amounts}</Text>}
-      {resets === null ? null : <Text style={styles.cardDetail}>{resets}</Text>}
-      {provider.notice === null ? null : <Text style={styles.cardDetail}>{provider.notice}</Text>}
-      {provider.error === null ? null : <Text style={styles.cardDetail}>{provider.error}</Text>}
-      {others.length === 0 ? null : (
-        <>
-          <View style={styles.cardRule} />
-          {others.map((row) => (
-            <View key={row.id} style={styles.cardWindow}>
-              <View style={styles.cardRow}>
-                <Text numberOfLines={1} style={styles.cardDetail}>
-                  {row.name}
-                </Text>
-                <Text style={styles.cardDetail}>{row.readout}</Text>
+        {headline === null ? null : <Text style={headlineStyle}>{headline}</Text>}
+        {metrics === null || metrics.percentFilled === null ? null : (
+          <View style={styles.cardMeter}>
+            <UsageMeter
+              percentUsed={metrics.percentUsed ?? 0}
+              percentFilled={metrics.percentFilled}
+              pacePercent={quotaPacePercent(trackedWindow, now)}
+              style={CARD_METER_STYLE}
+              trackColor={theme.colors.surface0}
+              theme={theme}
+              compact
+            />
+          </View>
+        )}
+        {amounts === null ? null : <Text style={styles.cardDetail}>{amounts}</Text>}
+        {resets === null ? null : <Text style={styles.cardDetail}>{resets}</Text>}
+        {provider.notice === null ? null : <Text style={styles.cardDetail}>{provider.notice}</Text>}
+        {provider.error === null ? null : <Text style={styles.cardDetail}>{provider.error}</Text>}
+        {others.length === 0 ? null : (
+          <>
+            <View style={styles.cardRule} />
+            {others.map((row) => (
+              <View key={row.id} style={styles.cardWindow}>
+                <View style={styles.cardRow}>
+                  <Text numberOfLines={1} style={styles.cardDetail}>
+                    {row.name}
+                  </Text>
+                  <Text style={styles.cardDetail}>{row.readout}</Text>
+                </View>
+                {row.percentFilled === null ? null : (
+                  <UsageMeter
+                    percentUsed={row.percentUsed ?? 0}
+                    percentFilled={row.percentFilled}
+                    pacePercent={quotaPacePercent(row.window, now)}
+                    style={CARD_METER_STYLE}
+                    trackColor={theme.colors.surface0}
+                    theme={theme}
+                    compact
+                  />
+                )}
               </View>
-              {row.percentFilled === null ? null : (
-                <UsageMeter
-                  percentUsed={row.percentUsed ?? 0}
-                  percentFilled={row.percentFilled}
-                  pacePercent={quotaPacePercent(row.window, now)}
-                  style={CARD_METER_STYLE}
-                  trackColor={theme.colors.surface0}
-                  theme={theme}
-                  compact
-                />
-              )}
-            </View>
-          ))}
-        </>
-      )}
-      <View style={styles.cardRule} />
-      <View style={styles.cardRow}>
-        <Text numberOfLines={1} style={styles.cardDetail}>
-          {refreshing ? "Refreshing…" : (updated ?? provider.label)}
-        </Text>
-        <Pressable accessibilityRole="button" onPress={openProviderSettings}>
-          <Text style={styles.cardAction}>Settings</Text>
-        </Pressable>
+            ))}
+          </>
+        )}
+        <View style={styles.cardRule} />
+        <View style={styles.cardRow}>
+          <Text numberOfLines={1} style={styles.cardDetail}>
+            {refreshing ? "Refreshing…" : (updated ?? provider.label)}
+          </Text>
+          <Pressable
+            accessibilityLabel={`${provider.label} settings`}
+            accessibilityRole="button"
+            onPress={openProviderSettings}
+            style={styles.cardIconAction}
+          >
+            <Icon name="Settings2" size={13} color={theme.colors.accent} />
+          </Pressable>
+        </View>
       </View>
-    </View>
+    </>
   );
 }
 
@@ -415,7 +490,7 @@ function useProviderRefresh(fetchedAt: string | null): {
   const readSnapshot = useRpc(readUsageLimits);
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
-  const refresh = useCallback(() => {
+  const runRefresh = useCallback(() => {
     setRefreshing(true);
     void (async () => {
       try {
@@ -430,11 +505,19 @@ function useProviderRefresh(fetchedAt: string | null): {
       }
     })();
   }, [queryClient, readSnapshot]);
+  const refresh = useCallback(() => {
+    // Only a pressed refresh claims the toggle: the press reaches the host's
+    // pressable too and would close the card the reader is watching. The
+    // automatic one runs from an effect, where no press is in flight, and
+    // claiming there would swallow the reader's next press instead.
+    claimNextToggle();
+    runRefresh();
+  }, [runRefresh]);
   const aged =
     fetchedAt === null || Date.now() - new Date(fetchedAt).getTime() > REFRESH_ON_OPEN_AFTER_MS;
   useEffect(() => {
     if (aged) {
-      refresh();
+      runRefresh();
     }
     // Runs once per open: the card mounts on press and unmounts on close.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -553,6 +636,10 @@ export function pillComponentFor(providerId: string): ComponentType<PluginCompos
               pacePercent={null}
               style={settings.style === "ring" ? "ring" : "bar"}
               scale="rail"
+              // The host paints the pill `surface2` while hovered, which is the
+              // meter's own default track, so the empty part of the gauge
+              // vanished under the cursor.
+              trackColor={theme.colors.surface0}
               theme={theme}
               compact
             />
