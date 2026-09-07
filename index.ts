@@ -4,7 +4,7 @@ import {
   removeUsageProvider,
   testUsageProvider,
   writeUsageProvider,
-} from "./config.shared";
+} from "./shared/config.shared";
 import {
   readConfig,
   readHistory,
@@ -12,13 +12,13 @@ import {
   removeProvider,
   testProvider,
   writeProvider,
-} from "./handlers.server";
-import { UsageHistoryPanel, UsageHistorySurface } from "./history.client";
-import { readUsageHistory } from "./history.shared";
-import { UsageLimitsPanel, UsageLimitsSurface } from "./limits.client";
-import { readUsageLimits } from "./limits.shared";
-import { contributeComposerPills } from "./pills.client";
-import { UsageSettingsSurface } from "./settings.client";
+} from "./server/handlers.server";
+import { UsageHistoryPanel, UsageHistorySurface } from "./client/history.client";
+import { readUsageHistory } from "./shared/history.shared";
+import { UsageLimitsPanel, UsageLimitsSurface } from "./client/limits.client";
+import { readUsageLimits } from "./shared/limits.shared";
+import { contributeComposerPills } from "./client/pills.client";
+import { UsageSettingsSurface } from "./client/settings.client";
 
 export default function contribute(plugin: PluginContext) {
   plugin.handle(readUsageLimits, readLimits);

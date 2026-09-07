@@ -16,7 +16,7 @@ If your provider is not in the table below, read [What is not supported, and why
 
 | Preset                          | Kind         | Reads                                                         | Endpoint                                                                         | Credential         | Sources, tried in order                                                                                                     |
 | ------------------------------- | ------------ | ------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `claude`                        | Subscription | Session, weekly and per-model limits, plus paid extra usage    | `GET https://api.anthropic.com/api/oauth/usage`                                  | `token`            | `claudeAiOauth.accessToken` in `${CLAUDE_CONFIG_DIR}/.credentials.json`, then `~/.claude/.credentials.json`                 |
+| `claude`                        | Subscription | Session, weekly and per-model limits, plus paid extra usage   | `GET https://api.anthropic.com/api/oauth/usage`                                  | `token`            | `claudeAiOauth.accessToken` in `${CLAUDE_CONFIG_DIR}/.credentials.json`, then `~/.claude/.credentials.json`                 |
 | `claude-statusline`             | Subscription | Session and weekly limits                                     | None — reads `~/.claude/paseo-rate-limits.json`                                  | —                  | Its own statusline hook writes the file; nothing is authenticated                                                           |
 | `codex`                         | Subscription | Session, weekly, code-review, reserve, banked resets, credits | `GET https://chatgpt.com/backend-api/wham/usage`                                 | `token`            | `tokens.access_token` in `${CODEX_HOME}/auth.json`, then `~/.codex/auth.json`, then `~/.config/codex/auth.json`             |
 | `cursor`                        | Subscription | Plan spend, limit and remaining balance                       | `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage` | `token`            | `CURSOR_ACCESS_TOKEN`, `CURSOR_TOKEN`, then `${CURSOR_HOME}/auth.json`, `~/.config/cursor/auth.json`, `~/.cursor/auth.json` |
@@ -164,13 +164,13 @@ Measured here, with both credentials on the same Google account: `gemini-weekly`
 
 So the card leads with the rolling five hours every Antigravity client on this machine spent, from the logs each one writes, and the vendor pool follows it as **Plan pool · Session** and **Plan pool · Weekly**:
 
-| Group             | Source                                                              | Rows                                       |
-| ----------------- | ------------------------------------------------------------------- | ------------------------------------------ |
-| `Every client`    | every group below, added up                                         | Session (last 5h), today, spend (7d)       |
-| `Antigravity app` | `~/.gemini/antigravity/conversations/*.db`                          | Session (last 5h), today                   |
-| `Antigravity CLI` | `~/.gemini/antigravity-cli/conversations/*.db`                      | Session (last 5h), today                   |
-| `Antigravity ACP` | `~/.gemini/antigravity-acp/conversations/*.db`                      | Session (last 5h), today                   |
-| `Paseo (omp)`     | the omp transcripts the [history](HISTORY.md) surface already reads | Session (last 5h), today, spend (7d)       |
+| Group             | Source                                                              | Rows                                 |
+| ----------------- | ------------------------------------------------------------------- | ------------------------------------ |
+| `Every client`    | every group below, added up                                         | Session (last 5h), today, spend (7d) |
+| `Antigravity app` | `~/.gemini/antigravity/conversations/*.db`                          | Session (last 5h), today             |
+| `Antigravity CLI` | `~/.gemini/antigravity-cli/conversations/*.db`                      | Session (last 5h), today             |
+| `Antigravity ACP` | `~/.gemini/antigravity-acp/conversations/*.db`                      | Session (last 5h), today             |
+| `Paseo (omp)`     | the omp transcripts the [history](HISTORY.md) surface already reads | Session (last 5h), today, spend (7d) |
 
 `Every client` leads with the five-hour figure because that is the window the vendor meters and the pool is shared: at a glance what matters is the total inside the window, not which tool spent it. Requests come before tokens, since a request is the unit the plans are counted in. That headline row is stated even at zero — "nothing in the last five hours" is an answer, while a missing row reads as a broken reader.
 
