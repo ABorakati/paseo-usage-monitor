@@ -237,6 +237,7 @@ describe("usage service", () => {
           status: "ok",
           error: null,
           notice: null,
+          authRefreshCommand: null,
           fetchedAt: "2026-03-01T12:00:00.000Z",
           display: {},
           icon: null,
@@ -507,6 +508,7 @@ describe("usage service", () => {
         readings: [],
         error: 'Unknown preset "does-not-exist"',
         notice: null,
+        authRefreshCommand: null,
         fetchedAt: null,
         display: {},
         icon: null,
@@ -1125,7 +1127,48 @@ describe("usage service credential rejection", () => {
       fetchedAt: "2026-03-01T12:00:00.000Z",
       readings: [{ used: 13 }],
       notice: `The stored credential was rejected (HTTP 401). ${FILE_REMEDY} Showing the reading from ${clockLabel(FIXED_NOW)}.`,
+      authRefreshCommand: null,
     });
+  });
+
+  const REFRESHABLE_FILE_CREDENTIAL_OVERRIDES = {
+    claude: {
+      ...FILE_CREDENTIAL_OVERRIDES.claude,
+      credentials: {
+        TOKEN: [
+          {
+            kind: "jsonFile",
+            file: "~/.claude/.credentials.json",
+            path: "claudeAiOauth.accessToken",
+            refreshedBy: "claude",
+          },
+        ],
+      },
+    },
+  };
+
+  test("a 401 rejection surfaces the declared refresh command structurally", async () => {
+    let calls = 0;
+    const source = createFakeSource({
+      http: async () => {
+        calls += 1;
+        if (calls === 1) return { used: 13 };
+        throw transportError(401);
+      },
+    });
+    const clock = createClock();
+    const service = createService({
+      source,
+      now: clock.now,
+      files: CREDENTIAL_FILES,
+      overrides: REFRESHABLE_FILE_CREDENTIAL_OVERRIDES,
+    });
+
+    await service.read({ refresh: false });
+    clock.advance(300_000);
+    const rejected = only((await service.read({ refresh: false })).providers, "provider");
+
+    expect(rejected.authRefreshCommand).toBe("claude");
   });
 
   test("seeds a first-ever rejected read from the persisted file", async () => {
@@ -1263,6 +1306,7 @@ describe("usage service credential rejection", () => {
     expect(stale).toMatchObject({ status: "ok", error: null, readings: [{ used: 42 }] });
     expect(stale.notice).toContain("Run `claude` so it refreshes ~/.claude/.credentials.json.");
     expect(stale.notice).toContain(`Showing the reading from ${stored.label}.`);
+    expect(stale.authRefreshCommand).toBe("claude");
   });
 
   test("the remedy skips a source whose variable is unset rather than naming its path", async () => {
@@ -1374,6 +1418,7 @@ describe("usage service credential rejection", () => {
     expect(rejected.error).toBe(
       "The stored credential was rejected (HTTP 401), and no earlier reading is stored yet. Set a current token in OPENROUTER_KEY.",
     );
+    expect(rejected.authRefreshCommand).toBeNull();
   });
 
   test("leaves a 500 as a plain transport failure", async () => {

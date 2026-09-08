@@ -112,7 +112,19 @@ function isUnexpanded(file: string): boolean {
   return file.includes("${");
 }
 
-function credentialRemedy(credentials: UsageCredentials): string {
+/**
+ * The sentence for the human, and — when the remedy is "run this CLI" — the
+ * exact binary to run, structured rather than left for a caller to parse back
+ * out of the sentence. A caller that offers to run the remedy for the user
+ * (a terminal launch) needs the binary name exactly, not a guess scraped from
+ * prose the wording of which is free to change.
+ */
+interface CredentialRemedy {
+  text: string;
+  command: string | null;
+}
+
+function credentialRemedy(credentials: UsageCredentials): CredentialRemedy {
   let variable: string | null = null;
   for (const source of Object.values(credentials).flat()) {
     if (source.kind !== "jsonFile") {
@@ -120,16 +132,22 @@ function credentialRemedy(credentials: UsageCredentials): string {
       continue;
     }
     if (source.file.endsWith(SECRETS_FILE_NAME)) {
-      return "Replace the stored key from the Usage providers screen.";
+      return { text: "Replace the stored key from the Usage providers screen.", command: null };
     }
     if (isUnexpanded(source.file)) continue;
     if (source.refreshedBy !== undefined) {
-      return `Run \`${source.refreshedBy}\` so it refreshes ${source.file}.`;
+      return {
+        text: `Run \`${source.refreshedBy}\` so it refreshes ${source.file}.`,
+        command: source.refreshedBy,
+      };
     }
-    return `Run the CLI that owns ${source.file} so it refreshes the stored token.`;
+    return {
+      text: `Run the CLI that owns ${source.file} so it refreshes the stored token.`,
+      command: null,
+    };
   }
-  if (variable !== null) return `Set a current token in ${variable}.`;
-  return "Re-authenticate this provider.";
+  if (variable !== null) return { text: `Set a current token in ${variable}.`, command: null };
+  return { text: "Re-authenticate this provider.", command: null };
 }
 
 const MONTH_LABELS = [
@@ -201,6 +219,7 @@ function baseSnapshot(id: string, provider: UsageProvider): UsageProviderSnapsho
     readings: [],
     error: null,
     notice: null,
+    authRefreshCommand: null,
     fetchedAt: null,
     display: provider.display,
     icon: provider.display.icon ?? provider.icon ?? null,
@@ -292,12 +311,14 @@ export function createUsageService(input: UsageServiceInput): UsageService {
     provider: UsageProvider,
     stored: StoredReading,
     notice: string,
+    authRefreshCommand: string | null = null,
   ): UsageProviderSnapshot {
     return {
       ...baseSnapshot(id, provider),
       readings: stored.readings,
       fetchedAt: stored.fetchedAt,
       notice,
+      authRefreshCommand,
     };
   }
 
@@ -355,8 +376,9 @@ export function createUsageService(input: UsageServiceInput): UsageService {
       return {
         ...baseSnapshot(id, provider),
         status: "error",
-        error: `The stored credential was rejected (HTTP ${status}), and no earlier reading is stored yet. ${remedy}`,
+        error: `The stored credential was rejected (HTTP ${status}), and no earlier reading is stored yet. ${remedy.text}`,
         fetchedAt: now.toISOString(),
+        authRefreshCommand: remedy.command,
       };
     }
     const reading = formatReadingTime(stored.fetchedAt, now);
@@ -364,7 +386,8 @@ export function createUsageService(input: UsageServiceInput): UsageService {
       id,
       provider,
       stored,
-      `The stored credential was rejected (HTTP ${status}). ${remedy} Showing the reading from ${reading}.`,
+      `The stored credential was rejected (HTTP ${status}). ${remedy.text} Showing the reading from ${reading}.`,
+      remedy.command,
     );
   }
 
@@ -392,23 +415,29 @@ export function createUsageService(input: UsageServiceInput): UsageService {
       if (authStatus !== null) return authRejectedSnapshot(id, provider, authStatus, timestamp);
       const detail = resolver.redact(error instanceof Error ? error.message : String(error));
       const credentialFailure = error instanceof UsageCredentialMissingError;
-      const message = credentialFailure
-        ? `${detail}. ${credentialRemedy(provider.credentials)}`
-        : detail;
+      const remedy = credentialFailure ? credentialRemedy(provider.credentials) : null;
+      const message = remedy !== null ? `${detail}. ${remedy.text}` : detail;
       const stored = storedFallback(id);
       if (stored) {
         const reading = formatReadingTime(stored.fetchedAt, timestamp);
         // A credential that did not resolve is not an unreachable host: leading
         // with "could not reach" names a cause that did not happen. The remedy
         // ends its own sentence, so no second full stop is added after it.
-        const lead = credentialFailure ? message : `Could not reach the provider: ${detail}.`;
-        return storedSnapshot(id, provider, stored, `${lead} Showing the reading from ${reading}.`);
+        const lead = remedy !== null ? message : `Could not reach the provider: ${detail}.`;
+        return storedSnapshot(
+          id,
+          provider,
+          stored,
+          `${lead} Showing the reading from ${reading}.`,
+          remedy?.command ?? null,
+        );
       }
       return {
         ...baseSnapshot(id, provider),
         status: "error",
         error: message,
         fetchedAt: timestamp.toISOString(),
+        authRefreshCommand: remedy?.command ?? null,
       };
     }
   }
@@ -463,6 +492,7 @@ export function createUsageService(input: UsageServiceInput): UsageService {
         readings: [],
         error: entry.error,
         notice: null,
+        authRefreshCommand: null,
         fetchedAt: null,
         display: {},
         icon: null,

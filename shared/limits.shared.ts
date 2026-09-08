@@ -527,6 +527,14 @@ export const UsageProviderSnapshotSchema = z.object({
    * beats replacing real numbers with an error row.
    */
   notice: z.string().nullable(),
+  /**
+   * The CLI binary that owns this credential's refresh, when the auth
+   * failure or missing-credential remedy names one (a `jsonFile` source's
+   * `refreshedBy`). Null whenever the remedy is not "run a CLI" — a plain
+   * API key, an unset environment variable, a plugin-stored secret, or a
+   * healthy reading with nothing to remedy.
+   */
+  authRefreshCommand: z.string().nullable(),
   /** Resolved layout for this card, so the surface needs no second fetch. */
   display: UsageDisplaySchema,
   /** The mark to draw: `display.icon`, else the provider's own, else null. */

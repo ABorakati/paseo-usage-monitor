@@ -107,6 +107,7 @@ Each pill tracks one reading from that provider:
 - **Split-pane containment** — clicking a pill opens its detail card anchored and clamped within the active pane's boundaries, so the card never extends under the split divider or adjacent pane. Clicking in an adjacent pane dismisses the card.
 - **Side-by-side isolation** — when two split panes show the same provider's pill side by side, clicking a pill opens only the card for that specific agent.
 - **Turn-ended auto-refresh** — on Paseo v0.8, the daemon lifecycle hook automatically triggers a background quota refresh when an agent turn ends, keeping readings current without waiting for the poll interval.
+- **Refresh via terminal** — when a card names the CLI that owns its stale credential, a **Refresh via terminal** action runs that CLI for you, live, right there in the card. See [Refresh via terminal](docs/CREDENTIALS.md#refresh-via-terminal) for what it does and does not do.
 
 Pressing a pill opens a per-provider detail panel showing every quota window, its progress bar, and its reset time.
 

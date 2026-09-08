@@ -2,6 +2,7 @@ import {
   type PluginClientContext,
   type PluginComposerPillProps,
   useRpc,
+  usePaseo,
 } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,6 +12,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
@@ -155,6 +157,9 @@ interface PillStyles {
   cardRow: ViewStyle;
   cardRule: ViewStyle;
   cardAction: TextStyle;
+  terminalOutput: ViewStyle;
+  terminalLine: TextStyle;
+  terminalActions: ViewStyle;
   pillContent: ViewStyle;
 }
 
@@ -271,6 +276,31 @@ function createPillStyles(theme: PluginComposerPillProps["theme"], plate: string
       backgroundColor: theme.colors.border,
     },
     cardAction: { fontSize: 12, color: theme.colors.accent, flexShrink: 0 },
+    /**
+     * The live capture of the CLI the reader launched. Fixed height rather than
+     * flowing with output length, so a chatty CLI never grows the card past the
+     * rail it hangs off; the tail is what matters, and it stays pinned in view.
+     */
+    terminalOutput: {
+      marginTop: 4,
+      marginBottom: 2,
+      padding: 8,
+      borderRadius: 8,
+      backgroundColor: theme.colors.surface0,
+      gap: 2,
+    },
+    terminalLine: {
+      fontSize: 10,
+      lineHeight: 13,
+      fontFamily: Platform.OS === "web" ? "monospace" : undefined,
+      color: theme.colors.foregroundMuted,
+    },
+    terminalActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: 2,
+    },
   };
 }
 
@@ -393,6 +423,7 @@ function PillCard({
   tone,
   theme,
   anchorRef,
+  workspaceId,
 }: {
   provider: UsageProviderSnapshot;
   metrics: PillMetrics | null;
@@ -400,9 +431,15 @@ function PillCard({
   tone: string;
   theme: PluginComposerPillProps["theme"];
   anchorRef?: { current: View | null };
+  workspaceId: string;
 }) {
   const now = useTickingClock();
   const { refreshing, refresh } = useProviderRefresh(provider.fetchedAt);
+  const terminalRefresh = useTerminalRefresh(
+    workspaceId,
+    provider.authRefreshCommand ?? "",
+    provider.label,
+  );
   const headline = useMemo(() => {
     if (metrics === null || metrics.readout === null) {
       return null;
@@ -552,6 +589,39 @@ function PillCard({
         {resets === null ? null : <Text style={styles.cardDetail}>{resets}</Text>}
         {provider.notice === null ? null : <Text style={styles.cardDetail}>{provider.notice}</Text>}
         {provider.error === null ? null : <Text style={styles.cardDetail}>{provider.error}</Text>}
+        {provider.authRefreshCommand === null ? null : terminalRefresh.status === "idle" ? (
+          <Pressable
+            accessibilityLabel={`Refresh ${provider.label} credentials by running ${provider.authRefreshCommand}`}
+            accessibilityRole="button"
+            onPress={terminalRefresh.start}
+          >
+            <Text style={styles.cardAction}>Refresh via terminal</Text>
+          </Pressable>
+        ) : (
+          <>
+            <View style={styles.terminalOutput}>
+              <Text style={styles.terminalLine}>
+                {terminalRefresh.lines.length === 0
+                  ? `Starting \`${provider.authRefreshCommand}\`…`
+                  : terminalRefresh.lines.join("\n")}
+              </Text>
+            </View>
+            <View style={styles.terminalActions}>
+              <Text style={styles.cardDetail}>
+                {terminalRefresh.status === "running" ? "Running…" : "Done."}
+              </Text>
+              {terminalRefresh.status === "running" ? (
+                <Pressable
+                  accessibilityLabel={`Stop refreshing ${provider.label} credentials`}
+                  accessibilityRole="button"
+                  onPress={terminalRefresh.stop}
+                >
+                  <Text style={styles.cardAction}>Stop</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </>
+        )}
         {others.length === 0 ? null : (
           <>
             <View style={styles.cardRule} />
@@ -653,6 +723,167 @@ function useProviderRefresh(fetchedAt: string | null): {
   return { refreshing, refresh };
 }
 
+/**
+ * Derived rather than imported: `PaseoApi`/`PaseoTerminalHandle` live in
+ * `@getpaseo/client`, and the compiler rejects a client bundle that imports
+ * that specifier directly — only `usePaseo()`'s own return type is reachable
+ * from here.
+ */
+type TerminalRefreshApi = ReturnType<typeof usePaseo>;
+type TerminalHandle = Awaited<ReturnType<TerminalRefreshApi["terminals"]["create"]>>;
+
+/** How often the CLI's own output is re-read while a refresh terminal runs. */
+const TERMINAL_REFRESH_POLL_MS = 1_000;
+/**
+ * Starting the CLI is enough to refresh its token (see docs/CREDENTIALS.md);
+ * nothing here waits for it to exit. A fixed ceiling always ends the run, so a
+ * CLI that hangs at an interactive prompt this plugin never drives cannot
+ * leave a process running unattended.
+ */
+const TERMINAL_REFRESH_TIMEOUT_MS = 20_000;
+/** Compact card, compact tail: the reader watches the CLI start, not its history. */
+const TERMINAL_OUTPUT_MAX_LINES = 6;
+
+export type TerminalRefreshStatus = "idle" | "running" | "done";
+
+export interface TerminalRefreshState {
+  status: TerminalRefreshStatus;
+  lines: string[];
+}
+
+export const TERMINAL_REFRESH_IDLE: TerminalRefreshState = { status: "idle", lines: [] };
+
+export type TerminalRefreshEvent =
+  | { type: "start" }
+  | { type: "output"; lines: string[] }
+  | { type: "finish" }
+  | { type: "failed"; message: string };
+
+/**
+ * The pure state transition, kept apart from the hook so it is testable
+ * without rendering: `start` always resets, `output`/`finish` are no-ops once
+ * the run has already ended, and `failed` moves straight to `done` carrying
+ * the one line that explains why.
+ */
+export function terminalRefreshReducer(
+  state: TerminalRefreshState,
+  event: TerminalRefreshEvent,
+): TerminalRefreshState {
+  switch (event.type) {
+    case "start":
+      return { status: "running", lines: [] };
+    case "output":
+      return state.status === "running"
+        ? { status: "running", lines: event.lines.slice(-TERMINAL_OUTPUT_MAX_LINES) }
+        : state;
+    case "finish":
+      return state.status === "running" ? { status: "done", lines: state.lines } : state;
+    case "failed":
+      return { status: "done", lines: [event.message] };
+    default:
+      return state;
+  }
+}
+
+/**
+ * Runs the CLI that owns a stale credential, visibly, so the reader watches
+ * their own tool refresh its own token rather than this plugin guessing at an
+ * OAuth flow it does not own — the same trap CodexBar's direct-refresh path
+ * fell into by minting a token from a CLI's own refresh token and desyncing
+ * it. Only ever runs from an explicit press: never on a poll, never retried
+ * automatically, and never sent a keystroke, because starting the CLI is the
+ * whole remedy.
+ */
+function useTerminalRefresh(
+  workspaceId: string,
+  command: string,
+  providerLabel: string,
+): {
+  status: TerminalRefreshStatus;
+  lines: string[];
+  start: () => void;
+  stop: () => void;
+} {
+  const paseo = usePaseo();
+  const readSnapshot = useRpc(readUsageLimits);
+  const queryClient = useQueryClient();
+  const [state, dispatch] = useReducer(terminalRefreshReducer, TERMINAL_REFRESH_IDLE);
+  const statusRef = useRef<TerminalRefreshStatus>(state.status);
+  statusRef.current = state.status;
+  const handleRef = useRef<TerminalHandle | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const teardown = useCallback(async () => {
+    if (pollRef.current !== null) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    if (timeoutRef.current !== null) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    const handle = handleRef.current;
+    handleRef.current = null;
+    if (handle === null) return;
+    try {
+      await handle.kill();
+    } catch {
+      // Already gone; nothing left to clean up.
+    }
+  }, []);
+
+  const finish = useCallback(() => {
+    void teardown();
+    dispatch({ type: "finish" });
+    void (async () => {
+      try {
+        const snapshot = await readSnapshot({ refresh: true });
+        queryClient.setQueryData(USAGE_LIMITS_QUERY_KEY, snapshot);
+      } catch (error: unknown) {
+        console.warn("[usage-monitor] post-terminal-refresh read failed", error);
+      }
+    })();
+  }, [queryClient, readSnapshot, teardown]);
+
+  const start = useCallback(() => {
+    if (statusRef.current === "running") {
+      return;
+    }
+    dispatch({ type: "start" });
+    void (async () => {
+      try {
+        const handle = await paseo.terminals.create({
+          workspaceId,
+          command,
+          name: `Refresh ${providerLabel} credentials`,
+        });
+        handleRef.current = handle;
+        pollRef.current = setInterval(() => {
+          void (async () => {
+            try {
+              const result = await handle.capture({ stripAnsi: true });
+              dispatch({ type: "output", lines: result.lines });
+            } catch {
+              // The terminal may have already exited; the timeout settles state.
+            }
+          })();
+        }, TERMINAL_REFRESH_POLL_MS);
+        timeoutRef.current = setTimeout(finish, TERMINAL_REFRESH_TIMEOUT_MS);
+      } catch (error: unknown) {
+        dispatch({
+          type: "failed",
+          message: `Could not start \`${command}\`: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    })();
+  }, [command, finish, paseo, providerLabel, workspaceId]);
+
+  useEffect(() => () => void teardown(), [teardown]);
+
+  return { status: state.status, lines: state.lines, start, stop: finish };
+}
+
 /** The tracked reading's window, so the card's bar can carry a pace marker. */
 function trackedReadingWindow(
   provider: UsageProviderSnapshot,
@@ -718,7 +949,7 @@ export function pillComponentFor(providerId: string): ComponentType<PluginCompos
   if (existing !== undefined) {
     return existing;
   }
-  function UsagePillContent({ theme, agentId, layout }: PluginComposerPillProps) {
+  function UsagePillContent({ theme, agentId, layout, workspaceId }: PluginComposerPillProps) {
     const readSnapshot = useRpc(readUsageLimits);
     // Shares the panel's key, so the rail costs no extra request and both
     // surfaces always agree on the numbers.
@@ -827,6 +1058,7 @@ export function pillComponentFor(providerId: string): ComponentType<PluginCompos
             tone={tone}
             theme={theme}
             anchorRef={containerRef}
+            workspaceId={workspaceId}
           />
         ) : null}
       </View>

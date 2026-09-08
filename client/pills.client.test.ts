@@ -5,6 +5,8 @@ import {
   contributeComposerPills,
   pillInstanceKey,
   readOpenPill,
+  TERMINAL_REFRESH_IDLE,
+  terminalRefreshReducer,
   toggleOpenPill,
 } from "./pills.client";
 import { createMockClientContext } from "../test-stubs/plugin-client";
@@ -29,6 +31,7 @@ function mockSnapshot(providers: Partial<UsageProviderSnapshot>[]): unknown[] {
     readings: [],
     error: null,
     notice: null,
+    authRefreshCommand: null,
     fetchedAt: null,
     display: { pill: pill() },
     icon: null,
@@ -298,5 +301,55 @@ describe("split-pane card placement and containment", () => {
     // 20 + 184 = 204. Max allowed right is 200 - 8 = 192. Overflow is 12px.
     expect(placement.left).toBe(-12);
     expect(20 + placement.left).toBe(8); // Aligns with left margin
+  });
+});
+
+describe("terminal refresh state machine", () => {
+  test("start always resets to running with no lines, from idle or done", () => {
+    expect(terminalRefreshReducer(TERMINAL_REFRESH_IDLE, { type: "start" })).toEqual({
+      status: "running",
+      lines: [],
+    });
+    const done = { status: "done" as const, lines: ["stale output"] };
+    expect(terminalRefreshReducer(done, { type: "start" })).toEqual({
+      status: "running",
+      lines: [],
+    });
+  });
+
+  test("output while running replaces lines, capped to the last six", () => {
+    const running = { status: "running" as const, lines: [] };
+    const many = Array.from({ length: 10 }, (_, i) => `line ${i}`);
+    const next = terminalRefreshReducer(running, { type: "output", lines: many });
+    expect(next.status).toBe("running");
+    expect(next.lines).toEqual(many.slice(-6));
+  });
+
+  test("output is a no-op once the run has already ended", () => {
+    const idle = TERMINAL_REFRESH_IDLE;
+    expect(terminalRefreshReducer(idle, { type: "output", lines: ["late"] })).toBe(idle);
+    const done = { status: "done" as const, lines: ["final"] };
+    expect(terminalRefreshReducer(done, { type: "output", lines: ["late"] })).toBe(done);
+  });
+
+  test("finish moves a running refresh to done, keeping its last lines", () => {
+    const running = { status: "running" as const, lines: ["started claude"] };
+    expect(terminalRefreshReducer(running, { type: "finish" })).toEqual({
+      status: "done",
+      lines: ["started claude"],
+    });
+  });
+
+  test("finish is a no-op when nothing is running", () => {
+    expect(terminalRefreshReducer(TERMINAL_REFRESH_IDLE, { type: "finish" })).toBe(
+      TERMINAL_REFRESH_IDLE,
+    );
+  });
+
+  test("failed always lands on done with the one explanatory line, from any state", () => {
+    const running = { status: "running" as const, lines: ["partial output"] };
+    expect(
+      terminalRefreshReducer(running, { type: "failed", message: "Could not start `claude`" }),
+    ).toEqual({ status: "done", lines: ["Could not start `claude`"] });
   });
 });

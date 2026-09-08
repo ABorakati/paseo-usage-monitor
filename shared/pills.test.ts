@@ -409,6 +409,7 @@ function snapshot(overrides: Partial<UsageProviderSnapshot> = {}): UsageProvider
     error: null,
     fetchedAt: "2026-09-07T13:00:00.000Z",
     notice: null,
+    authRefreshCommand: null,
     display: {},
     icon: null,
     ...overrides,

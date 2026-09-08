@@ -147,3 +147,17 @@ The obvious shortcut — mint a new access token from the refresh token already 
 - A refresh rejected with `invalid_grant` — the canonical answer for a refresh token that has already been consumed — hits a dedicated path that clears `accessToken`, `refreshToken` and `expiresAt` on disk and forces a re-login.
 
 So a third-party refresh consumes the token Claude Code still has cached, and the _next_ `claude` run, minutes or days later, gets `invalid_grant` and signs the user out. The blast radius lands on the user's own CLI session, not on this plugin. The plugin stays strictly read-only, and the statusline route above is why it does not need to be anything else.
+
+## Refresh via terminal
+
+A composer pill's card adds a **Refresh via terminal** action whenever the failing source names its owning CLI (see [`refreshedBy`](#what-you-see) above). Pressing it runs that CLI — `claude`, `codex`, or whichever preset declared it — as a real process in the pill's own workspace, using Paseo's terminal SDK, and shows its live output inside the card.
+
+This is the same manual fix `docs/TROUBLESHOOTING.md` already asks for — run the CLI, let it refresh its own token — done for you instead of in a terminal window you open yourself. Three rules keep it that and nothing more:
+
+- **Starts the CLI, never a prompt.** Starting the binary is the whole remedy (see [Reading Claude quota without a token](#reading-claude-quota-without-a-token) above), so nothing here sends it a message or a keystroke. There is no interactive state to get wrong.
+- **User-pressed, always.** The action never runs on a poll, a timer, or a retry. It runs once, when you press it, and stops — kills the process — after 20 seconds or when you press Stop, whichever comes first.
+- **Never calls the vendor's OAuth endpoint.** The plugin still never touches `refreshToken` or mints anything; it only launches the CLI that owns that job.
+
+These rules exist because of a real failure mode in a sibling project: CodexBar's own "delegated CLI refresh" does the same thing — run the real CLI rather than call the OAuth endpoint directly — and still spent months fighting background retries that opened the user's browser unannounced, macOS keychain prompts that would not stick, and credential-storage formats that changed under it between CLI versions. The fixes that closed those bugs are exactly the three rules above: fail closed, never run unattended, and gate everything behind an explicit press.
+
+Requires Paseo 0.8 or newer with workspace terminal support. On an older or unsupported host the action does not appear; the card's notice still names the CLI to run yourself.

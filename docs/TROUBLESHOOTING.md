@@ -40,7 +40,7 @@ If it happens constantly, you have two callers on one budget: this plugin and Pa
 
 **The Claude card says the credential expired or was rejected.** Both mean the same thing in practice: the token in `~/.claude/.credentials.json` is no longer good, and this plugin cannot mint a new one — Claude Code owns that file's refresh (see [Expiry](CREDENTIALS.md#expiry)).
 
-Run `claude`. Starting it refreshes `claudeAiOauth.accessToken` and `claudeAiOauth.expiresAt` in place, which is all the plugin needs. There is nothing to restart: no `paseo reload`, no `paseo plugin reload usage-limits`, no daemon bounce. Credentials are read per fetch, so the card populates on the next successful refresh — hit the surface's refresh action if you do not want to wait out `refreshIntervalMs`.
+Press **Refresh via terminal** on the pill card, or run `claude` yourself. Either way, starting it refreshes `claudeAiOauth.accessToken` and `claudeAiOauth.expiresAt` in place, which is all the plugin needs. There is nothing to restart: no `paseo reload`, no `paseo plugin reload usage-limits`, no daemon bounce. Credentials are read per fetch, so the card populates on the next successful refresh — hit the surface's refresh action if you do not want to wait out `refreshIntervalMs`. See [Refresh via terminal](CREDENTIALS.md#refresh-via-terminal) for what the button does and does not do.
 
 That reading is then persisted, so it survives a reload and the card comes back with numbers rather than an empty state. It is also why a rejected credential keeps showing real figures with a notice instead of blanking: the last reading on screen is a stored one.
 
