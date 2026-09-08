@@ -1,0 +1,46 @@
+README.md
+  h_0ae9538d78aa59 25-26
+client/codex-reset.client.test.ts
+  h_0ae9538d78aa59 1-89
+client/codex-reset.client.tsx
+  h_0ae9538d78aa59 1-304
+client/limits.client.tsx
+  h_0ae9538d78aa59 35,47,1003
+client/pills.client.tsx
+  h_0ae9538d78aa59 43,48,593-598
+docs/PRESETS.md
+  h_0ae9538d78aa59 76,92
+index.server.ts
+  h_0ae9538d78aa59 3,6,12,29-30
+server/codex-reset.server.ts
+  h_0ae9538d78aa59 1-134
+server/codex-reset.test.ts
+  h_0ae9538d78aa59 1-141
+server/config-store.server.ts
+  h_0ae9538d78aa59 127-131
+server/handlers.server.ts
+  h_0ae9538d78aa59 1,12,43,90-111
+server/index.server.test.ts
+  h_0ae9538d78aa59 32-33
+server/service.server.ts
+  h_0ae9538d78aa59 218
+shared/codex-reset.shared.ts
+  h_0ae9538d78aa59 1-46
+shared/limits.shared.ts
+  h_0ae9538d78aa59 395-396,521-522,553-554
+shared/presets.shared.ts
+  h_0ae9538d78aa59 272,298-314
+shared/presets.test.ts
+  h_0ae9538d78aa59 322,324,326
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "df016bb126ae3c91e59e3eef59d8471554fdaaf6",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
