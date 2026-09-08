@@ -550,7 +550,8 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         kind: "balance",
         id: "credits",
         label: "Key credits",
-        unit: "credits",
+        // openrouter prices credits at one dollar each and reports them as such
+        unit: "usd",
         remainingPath: "data.limit_remaining",
         totalPath: "data.limit",
       },
@@ -573,12 +574,14 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     },
     readings: [
       {
-        kind: "quota",
+        // a prepaid pool drains, so it is a balance: the card leads with the
+        // dollars left rather than a percentage of everything ever bought
+        kind: "balance",
         id: "credits",
         label: "Account credits",
-        unit: "credits",
+        unit: "usd",
         usedPath: "data.total_usage",
-        limitPath: "data.total_credits",
+        totalPath: "data.total_credits",
       },
     ],
   }),

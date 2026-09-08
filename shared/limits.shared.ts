@@ -254,6 +254,12 @@ export const UsageBalanceMappingSchema = UsageReadingCommonSchema.extend({
   each: UsageEachMappingSchema.optional(),
   scale: UsageAmountScaleSchema.optional(),
   remainingPath: z.string().min(1).optional(),
+  /**
+   * What has been drawn from the pool, for a vendor that reports bought and
+   * used but never the difference. With `totalPath` it yields `remaining`
+   * (floored at zero) when `remainingPath` is absent or resolves to nothing.
+   */
+  usedPath: z.string().min(1).optional(),
   /** Starting balance, so a percentage remaining can be shown. */
   totalPath: z.string().min(1).optional(),
   percentRemainingPath: z.string().min(1).optional(),
