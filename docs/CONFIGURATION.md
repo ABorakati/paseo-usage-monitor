@@ -220,15 +220,16 @@ Supply a duration only when you actually know it. Several presets deliberately o
 
 ### `kind: "balance"`
 
-| Field                  | Type      | Required | Notes                                                                 |
-| ---------------------- | --------- | -------- | --------------------------------------------------------------------- |
-| `unit`                 | unit      | yes      | Usually `usd` or `credits`.                                           |
-| `each`                 | each      | no       | Project one reading per array element.                                |
-| `scale`                | number    | no       | Multiplies every amount. See [Scaling an amount](#scaling-an-amount). |
-| `remainingPath`        | JSON path | no       | What is left.                                                         |
-| `totalPath`            | JSON path | no       | Starting balance, so a percentage is meaningful.                      |
-| `percentRemainingPath` | JSON path | no       | 0–100 of the starting balance still available.                        |
-| `currencyPath`         | JSON path | no       | Currency code for display.                                            |
+| Field                  | Type      | Required | Notes                                                                                                    |
+| ---------------------- | --------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `unit`                 | unit      | yes      | Usually `usd` or `credits`.                                                                              |
+| `each`                 | each      | no       | Project one reading per array element.                                                                   |
+| `scale`                | number    | no       | Multiplies every amount. See [Scaling an amount](#scaling-an-amount).                                    |
+| `remainingPath`        | JSON path | no       | What is left.                                                                                            |
+| `usedPath`             | JSON path | no       | What was drawn; with `totalPath` it derives `remaining` when `remainingPath` is absent, floored at zero. |
+| `totalPath`            | JSON path | no       | Starting balance, so a percentage is meaningful.                                                         |
+| `percentRemainingPath` | JSON path | no       | 0–100 of the starting balance still available.                                                           |
+| `currencyPath`         | JSON path | no       | Currency code for display.                                                                               |
 
 A bare `remainingPath` — a prepaid balance with no ceiling — renders as a number with no bar, because there is nothing to be a fraction of.
 

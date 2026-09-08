@@ -913,7 +913,7 @@ describe("verified presets resolve their recorded responses", () => {
   test("openrouter derives percent remaining for a key with a credit limit", () => {
     expect(readingById("openrouter", "credits")).toMatchObject({
       kind: "balance",
-      unit: "credits",
+      unit: "usd",
       remaining: 50,
       total: 200,
       percentRemaining: 25,
@@ -958,14 +958,15 @@ describe("verified presets resolve their recorded responses", () => {
     });
   });
 
-  test("openrouter-credits derives remaining and percent from the account pair", () => {
+  test("openrouter-credits is a dollar balance derived from the account pair", () => {
+    // credits are dollars on OpenRouter, and a prepaid pool is a balance that
+    // drains, not a window that fills, so the card leads with the money left
     expect(readingById("openrouter-credits", "credits")).toMatchObject({
-      kind: "quota",
-      unit: "credits",
-      used: 42.5,
-      limit: 100,
+      kind: "balance",
+      unit: "usd",
       remaining: 57.5,
-      percent: 42.5,
+      total: 100,
+      percentRemaining: 57.5,
     });
   });
 
