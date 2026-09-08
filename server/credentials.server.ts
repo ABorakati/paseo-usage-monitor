@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { UsageCredentialMissingError, UsageInterpolationError } from "./errors.server";
@@ -26,10 +27,21 @@ import type { UsageCredentials, UsageCredentialSource } from "../shared/limits.s
 
 type UsageJsonFileCredential = Extract<UsageCredentialSource, { kind: "jsonFile" }>;
 
+type UsageKeychainCredential = Extract<UsageCredentialSource, { kind: "keychain" }>;
+
+/** The fields a json-bearing source shares, whether the json came from a file or a Keychain item. */
+type UsageJsonCredential = Pick<UsageJsonFileCredential, "path" | "expiresAtPath">;
+
 export interface CredentialAdapters {
   env: NodeJS.ProcessEnv;
   homeDir: string;
   readTextFile(path: string): string | null;
+  /**
+   * The macOS Keychain, absent on every other host. A `keychain` source on a
+   * host without one is skipped like a file that is not there, and the
+   * failure says so rather than hinting at an item that could never exist.
+   */
+  readKeychainItem?: (service: string) => string | null;
   now(): Date;
 }
 
@@ -49,7 +61,22 @@ export function createNodeCredentialAdapters(): CredentialAdapters {
         return null;
       }
     },
+    readKeychainItem: process.platform === "darwin" ? readMacKeychainItem : undefined,
   };
+}
+
+function readMacKeychainItem(service: string): string | null {
+  try {
+    return execFileSync("security", ["find-generic-password", "-s", service, "-w"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5_000,
+    });
+  } catch {
+    // `security` exits non-zero when no item matches or the Keychain is
+    // locked, and either way this source does not apply.
+    return null;
+  }
 }
 
 export function expandPath(raw: string, adapters: CredentialAdapters): string {
@@ -73,6 +100,8 @@ export function expandPath(raw: string, adapters: CredentialAdapters): string {
 type SourceRead =
   | { kind: "resolved"; token: string }
   | { kind: "unavailable" }
+  /** A Keychain source on a host that has no Keychain. */
+  | { kind: "unsupported" }
   /** The path could not be built because its variable is not set. */
   | { kind: "unset"; variable: string }
   /** The place exists and holds nothing: signed out, not misconfigured. */
@@ -95,10 +124,21 @@ function formatAge(ageMs: number): string {
   return `${Math.floor(ageMs / DAY_MS)}d`;
 }
 
+function describePlace(source: UsageCredentialSource): string {
+  switch (source.kind) {
+    case "env":
+      return `env ${source.variable}`;
+    case "jsonFile":
+      return `file ${source.file}#${source.path}`;
+    case "keychain":
+      return `keychain "${source.service}"#${source.path}`;
+  }
+}
+
 function describeSource(source: UsageCredentialSource, read: SourceRead): string {
-  const place =
-    source.kind === "env" ? `env ${source.variable}` : `file ${source.file}#${source.path}`;
+  const place = describePlace(source);
   if (read.kind === "expired") return `${place} (expired ${formatAge(read.ageMs)} ago)`;
+  if (read.kind === "unsupported") return `${place} (no Keychain on this host)`;
   // A path built from an unset variable never existed, so saying only that the
   // file did not resolve would send the user looking for a file.
   if (read.kind === "unset") return `${place} (${read.variable} is not set)`;
@@ -123,7 +163,7 @@ function parseJsonDocument(text: string): unknown {
  * not be locked out of a token that still works.
  */
 function readExpiredAge(
-  source: UsageJsonFileCredential,
+  source: UsageJsonCredential,
   document: unknown,
   adapters: CredentialAdapters,
 ): number | null {
@@ -136,14 +176,11 @@ function readExpiredAge(
   return ageMs >= 0 ? ageMs : null;
 }
 
-function readJsonFileCredential(
-  source: UsageJsonFileCredential,
+function readJsonCredential(
+  source: UsageJsonCredential,
+  text: string,
   adapters: CredentialAdapters,
 ): SourceRead {
-  const expanded = expandCredentialPath(source.file, adapters);
-  if (expanded.kind === "unset") return expanded;
-  const text = adapters.readTextFile(expanded.path);
-  if (text === null) return UNAVAILABLE;
   const document = parseJsonDocument(text);
   const value = readStringAtPath(document, source.path);
   if (value === null) return UNAVAILABLE;
@@ -152,6 +189,27 @@ function readJsonFileCredential(
   const ageMs = readExpiredAge(source, document, adapters);
   if (ageMs !== null) return { kind: "expired", ageMs };
   return { kind: "resolved", token };
+}
+
+function readJsonFileCredential(
+  source: UsageJsonFileCredential,
+  adapters: CredentialAdapters,
+): SourceRead {
+  const expanded = expandCredentialPath(source.file, adapters);
+  if (expanded.kind === "unset") return expanded;
+  const text = adapters.readTextFile(expanded.path);
+  if (text === null) return UNAVAILABLE;
+  return readJsonCredential(source, text, adapters);
+}
+
+function readKeychainCredential(
+  source: UsageKeychainCredential,
+  adapters: CredentialAdapters,
+): SourceRead {
+  if (adapters.readKeychainItem === undefined) return { kind: "unsupported" };
+  const text = adapters.readKeychainItem(source.service);
+  if (text === null) return UNAVAILABLE;
+  return readJsonCredential(source, text, adapters);
 }
 
 function expandCredentialPath(
@@ -172,6 +230,7 @@ function expandCredentialPath(
 
 function readSource(source: UsageCredentialSource, adapters: CredentialAdapters): SourceRead {
   if (source.kind === "jsonFile") return readJsonFileCredential(source, adapters);
+  if (source.kind === "keychain") return readKeychainCredential(source, adapters);
   const value = adapters.env[source.variable];
   if (value === undefined) return UNAVAILABLE;
   const token = value.trim();

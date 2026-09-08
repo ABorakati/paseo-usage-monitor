@@ -388,9 +388,18 @@ describe("credential files an agent CLI owns declare where they record expiry", 
     const sources = getUsagePreset("claude")?.credentials["token"] ?? [];
     expect(sources.length).toBeGreaterThan(0);
     for (const source of sources) {
-      const declared = source.kind === "jsonFile" ? source.expiresAtPath : null;
-      expect([source.kind, declared]).toEqual(["jsonFile", "claudeAiOauth.expiresAt"]);
+      const declared = source.kind === "env" ? null : source.expiresAtPath;
+      expect(declared).toBe("claudeAiOauth.expiresAt");
     }
+  });
+
+  test("claude looks in the macOS Keychain before the credential file it stops writing", () => {
+    const [first] = getUsagePreset("claude")?.credentials["token"] ?? [];
+    expect(first).toMatchObject({
+      kind: "keychain",
+      service: "Claude Code-credentials",
+      refreshedBy: "claude",
+    });
   });
 
   test("an expiry path never points at the secret it guards", () => {
