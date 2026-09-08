@@ -34,9 +34,9 @@ It plots **Work** (input + output tokens) by default, with Cached, Total and Cos
 
 ## Install
 
-Plugin code is trusted and unsandboxed. The server half runs in a subprocess with full access to the daemon machine — its files, processes, credentials, and network. Read a plugin before you install it.
+> **Requires Paseo v0.8.0 or newer.**
 
-Make sure plugins are enabled first: **Settings > Plugins > Enable plugins** in the app, or `pluginsEnabled: true` in the daemon config. Then install straight from Git:
+Plugin code is trusted and unsandboxed. The server half runs in a subprocess with full access to the daemon machine — its files, processes, credentials, and network. Read a plugin before you install it.
 
 ```bash
 paseo plugin add ABorakati/paseo-usage-monitor
@@ -46,15 +46,16 @@ That clones the repository, compiles it on the daemon, and reaches **running** i
 
 ### Find it
 
-Once running, the plugin shows up in three places:
+Once running, the plugin shows up in:
 
 - **Left sidebar** — two entries, **Usage Monitor** (gauge icon) and **Usage history** (chart icon). These open full-width surfaces.
-- **Explorer side panel** — inside any workspace, the Explorer sidebar can host **Usage Monitor** and **Usage history**. Both panels default to the Explorer sidebar (`locations: ["explorer", "workspace"]`); add one with `Open Usage Monitor` from the command palette and the workspace remembers it. Nothing is placed for you: the host's only way for a plugin to add an Explorer panel also navigates the app to that workspace, which would yank you off whatever you were doing.
+- **Settings → Plugins → Usage Monitor** — configure providers and limits directly from Paseo's settings.
+- **Composer slash command** — type `/usage` or `/usage history` in the composer to open the monitors without leaving your chat.
+- **Explorer side panel** — inside any workspace, the Explorer sidebar can host **Usage Monitor** and **Usage history**. Both panels default to the Explorer sidebar (`locations: ["explorer", "workspace"]`); add one with `Open Usage Monitor` from the command palette and the workspace remembers it.
 - **Composer rail** — per-provider usage pills pinned above the chat prompt input.
 - **Workspace tabs** — both panels can still be opened as full workspace tabs whenever you want via the command palette.
 - **Command palette** — `Open Usage Monitor` and `Open usage history` (open in Explorer), plus `Open Usage Monitor as workspace tab` and `Open usage history as workspace tab`.
-
-The dashboard reads Claude Code and Codex out of the box with no configuration, using the credentials those CLIs already store. Adding anything else is done from the settings icon in the top right of the Usage Monitor surface; see [Editing providers from the app](#editing-providers-from-the-app).
+  The dashboard reads Claude Code and Codex out of the box with no configuration, using the credentials those CLIs already store. Adding anything else is done from the settings icon in the top right of the Usage Monitor surface; see [Editing providers from the app](#editing-providers-from-the-app).
 
 ### Install from source (development)
 
@@ -102,6 +103,10 @@ Each pill tracks one reading from that provider:
 - **Tracked reading** — automatic selection tracks the shortest resetting quota window (the five-hour session quota), falling back to a balance reading when no quota exists. A specific reading mapping can also be pinned.
 - **Text label** — off by default (the brand mark already identifies the pill), with choices for provider name or reading label when turned on.
 - **When it shows** — **Always show**, or **Match the agent**. Matching keeps the pill on the composers whose agent it belongs to: a Claude pill above Claude Code chats, a Codex pill above Codex ones, chosen by harness, model vendor, or model pattern. See [Matching the agent's harness and model](docs/CONFIGURATION.md#matching-the-agents-harness-and-model).
+- **Responsive narrow collapse** — when the chat pane is narrow (e.g. in split pane view or compact layout), pills collapse to just the provider icon so the rail never overflows.
+- **Split-pane containment** — clicking a pill opens its detail card anchored and clamped within the active pane's boundaries, so the card never extends under the split divider or adjacent pane. Clicking in an adjacent pane dismisses the card.
+- **Side-by-side isolation** — when two split panes show the same provider's pill side by side, clicking a pill opens only the card for that specific agent.
+- **Turn-ended auto-refresh** — on Paseo v0.8, the daemon lifecycle hook automatically triggers a background quota refresh when an agent turn ends, keeping readings current without waiting for the poll interval.
 
 Pressing a pill opens a per-provider detail panel showing every quota window, its progress bar, and its reset time.
 

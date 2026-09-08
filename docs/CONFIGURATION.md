@@ -125,6 +125,7 @@ Two fields inherit from the card when omitted:
 Without a pinned `reading`, the pill tracks the shortest quota window because that is the number a composer acts on: the five-hour session quota runs out mid-task while a weekly quota rarely does. A provider with no quota readings falls back to its balance reading.
 
 When `enabled` is `false` and no other pill field is configured, the `pill` object is omitted from the saved config file to avoid empty no-op blocks.
+On narrow chat panes (including split views), pills automatically collapse to just their provider icon so the rail never overflows. Opening a pill's card dynamically clamps the card within the pane's horizontal boundaries, preventing clipping across split dividers.
 
 ### Matching the agent's harness and model
 
