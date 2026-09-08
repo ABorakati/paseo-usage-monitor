@@ -1,4 +1,4 @@
-import { defineRpc } from "@getpaseo/plugin/server";
+import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 import { UsageProviderOverrideSchema, UsageProviderOverridesSchema } from "./limits.shared";
 

@@ -1,9 +1,9 @@
 import {
-  Icon,
   type PluginClientContext,
   type PluginComposerPillProps,
   useRpc,
-} from "@getpaseo/plugin";
+} from "@getpaseo/plugin/client";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type ComponentType,

@@ -1,4 +1,6 @@
-import { Icon, useRpc, type PluginSurfaceProps, type PluginTheme } from "@getpaseo/plugin";
+import type { PluginTheme } from "@getpaseo/plugin";
+import { useRpc, type PluginSurfaceProps } from "@getpaseo/plugin/client";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,

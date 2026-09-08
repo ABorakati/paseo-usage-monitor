@@ -1,7 +1,6 @@
 /**
- * Paseo supplies `@getpaseo/plugin/server` at runtime and `paseo-plugin.d.ts`
- * supplies its types, so nothing installs it. Tests import the shared contracts,
- * which call `defineRpc`, so vitest aliases the specifier here.
+ * Paseo supplies runtime entries at runtime and paseo-plugin.d.ts
+ * supplies their types. Vitest aliases specifiers here.
  */
 
 export function defineRpc<Definition>(definition: Definition): Definition {
@@ -9,5 +8,9 @@ export function defineRpc<Definition>(definition: Definition): Definition {
 }
 
 export function defineAttachmentSource<Definition>(definition: Definition): Definition {
+  return definition;
+}
+
+export function defineSettings<Definition>(definition: Definition): Definition {
   return definition;
 }

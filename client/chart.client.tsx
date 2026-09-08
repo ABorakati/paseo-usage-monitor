@@ -1,4 +1,5 @@
-import { Icon, type PluginTheme } from "@getpaseo/plugin";
+import type { PluginTheme } from "@getpaseo/plugin";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {

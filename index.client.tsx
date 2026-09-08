@@ -1,46 +1,35 @@
-import type { PluginContext } from "@getpaseo/plugin";
-import {
-  readUsageConfig,
-  removeUsageProvider,
-  testUsageProvider,
-  writeUsageProvider,
-} from "./shared/config.shared";
-import {
-  readConfig,
-  readHistory,
-  readLimits,
-  removeProvider,
-  testProvider,
-  writeProvider,
-} from "./server/handlers.server";
+import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { UsageHistoryPanel, UsageHistorySurface } from "./client/history.client";
-import { readUsageHistory } from "./shared/history.shared";
 import { UsageLimitsPanel, UsageLimitsSurface } from "./client/limits.client";
-import { readUsageLimits } from "./shared/limits.shared";
 import { contributeComposerPills } from "./client/pills.client";
 import { UsageSettingsSurface } from "./client/settings.client";
 
-export default function contribute(plugin: PluginContext) {
-  plugin.handle(readUsageLimits, readLimits);
-  plugin.handle(readUsageHistory, readHistory);
-  plugin.handle(readUsageConfig, readConfig);
-  plugin.handle(writeUsageProvider, writeProvider);
-  plugin.handle(removeUsageProvider, removeProvider);
-  plugin.handle(testUsageProvider, testProvider);
-  plugin.addClientSide(contributeComposerPills);
-  plugin.addSurface("limits", UsageLimitsSurface);
-  plugin.addSurface("history", UsageHistorySurface);
-  // Reachable on its own so a composer pill can send the reader straight to the
-  // settings that govern it, without routing through the dashboard's tab bar.
-  plugin.addSurface("settings", UsageSettingsSurface);
-  plugin.addSidebarItem({ id: "limits", title: "Usage Monitor", icon: "Gauge", surface: "limits" });
-  plugin.addSidebarItem({
+export default function contribute(client: PluginClientContext) {
+  client.addSurface("limits", UsageLimitsSurface);
+  client.addSurface("history", UsageHistorySurface);
+  client.addSurface("settings", UsageSettingsSurface);
+
+  client.addSettingsScreen({
+    id: "settings",
+    title: "Usage Monitor",
+    icon: "Settings2",
+    Component: UsageSettingsSurface,
+  });
+
+  client.addSidebarItem({
+    id: "limits",
+    title: "Usage Monitor",
+    icon: "Gauge",
+    surface: "limits",
+  });
+  client.addSidebarItem({
     id: "history",
     title: "Usage history",
     icon: "ChartColumn",
     surface: "history",
   });
-  plugin.addWorkspacePanel({
+
+  client.addWorkspacePanel({
     id: "limits",
     title: "Usage Monitor",
     icon: "Gauge",
@@ -48,7 +37,7 @@ export default function contribute(plugin: PluginContext) {
     locations: ["explorer", "workspace"],
     Component: UsageLimitsPanel,
   });
-  plugin.addWorkspacePanel({
+  client.addWorkspacePanel({
     id: "history",
     title: "Usage history",
     icon: "ChartColumn",
@@ -56,7 +45,8 @@ export default function contribute(plugin: PluginContext) {
     locations: ["explorer", "workspace"],
     Component: UsageHistoryPanel,
   });
-  plugin.addCommandCenterItem({
+
+  client.addCommandCenterItem({
     id: "open-limits",
     title: "Open Usage Monitor",
     icon: "Gauge",
@@ -75,7 +65,7 @@ export default function contribute(plugin: PluginContext) {
       openPanel("limits", { location: "explorer" });
     },
   });
-  plugin.addCommandCenterItem({
+  client.addCommandCenterItem({
     id: "open-history",
     title: "Open usage history",
     icon: "ChartColumn",
@@ -85,7 +75,7 @@ export default function contribute(plugin: PluginContext) {
       openPanel("history", { location: "explorer" });
     },
   });
-  plugin.addCommandCenterItem({
+  client.addCommandCenterItem({
     id: "open-limits-workspace",
     title: "Open Usage Monitor as workspace tab",
     icon: "Gauge",
@@ -95,7 +85,7 @@ export default function contribute(plugin: PluginContext) {
       openPanel("limits", { location: "workspace" });
     },
   });
-  plugin.addCommandCenterItem({
+  client.addCommandCenterItem({
     id: "open-history-workspace",
     title: "Open usage history as workspace tab",
     icon: "ChartColumn",
@@ -105,5 +95,25 @@ export default function contribute(plugin: PluginContext) {
       openPanel("history", { location: "workspace" });
     },
   });
-  return () => {};
+
+  client.addSlashCommand({
+    name: "usage",
+    description: "Open Usage Monitor or history",
+    argumentHint: "[limits|history]",
+    context: "workspace",
+    onSubmit({ args, openPanel }) {
+      const trimmed = args.trim().toLowerCase();
+      if (trimmed === "history") {
+        openPanel("history", { location: "workspace" });
+      } else {
+        openPanel("limits", { location: "workspace" });
+      }
+    },
+  });
+
+  const removePills = contributeComposerPills(client);
+
+  return () => {
+    removePills();
+  };
 }

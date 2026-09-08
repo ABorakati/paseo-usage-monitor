@@ -1,10 +1,10 @@
+import type { PluginTheme } from "@getpaseo/plugin";
 import {
-  Icon,
   useRpc,
   type PluginSurfaceProps,
-  type PluginTheme,
   type PluginWorkspacePanelProps,
-} from "@getpaseo/plugin";
+} from "@getpaseo/plugin/client";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { useCallback, useMemo, useState } from "react";
