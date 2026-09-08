@@ -134,6 +134,9 @@ function credentialRemedy(
       variable ??= source.variable;
       continue;
     }
+    // omp's vault is a convenience behind the user's own login; the remedy
+    // stays the exported variable or the file the chain also names
+    if (source.kind === "omp") continue;
     if (source.kind === "keychain") {
       // Only a host with a Keychain can act on this; elsewhere the file
       // sources further down the chain carry the remedy.

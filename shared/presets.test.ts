@@ -1565,3 +1565,59 @@ describe("github-copilot reads its quota through a probe", () => {
     expect(project("github-copilot", { ...GITHUB_COPILOT_PROBE, buckets: [] })).toEqual([]);
   });
 });
+
+/**
+ * omp provider ids each preset reads its API key from, checked against omp's
+ * catalogue descriptors (packages/catalog/src/provider-models/descriptors.ts)
+ * so a rename on either side fails here rather than as a silent miss at run
+ * time. Presets absent from this map deliberately have no omp source: `xai`
+ * wants a management key omp never stores, and the OAuth-only presets read
+ * the CLI's own files.
+ */
+const OMP_PROVIDER_IDS: Record<string, string> = {
+  openrouter: "openrouter",
+  "openrouter-credits": "openrouter",
+  deepseek: "deepseek",
+  deepinfra: "deepinfra",
+  novita: "novita",
+  siliconflow: "siliconflow",
+  "siliconflow-cn": "siliconflow-cn",
+  moonshot: "moonshot",
+  "moonshot-cn": "moonshot",
+  kimi: "kimi-code",
+  minimax: "minimax",
+  "minimax-cn": "minimax",
+  venice: "venice",
+  vercel: "vercel-ai-gateway",
+  zai: "zai",
+  "zai-coding-plan": "zai",
+  "zhipuai-coding-plan": "zhipu-coding-plan",
+};
+
+describe("omp vault sources", () => {
+  test("every mapped preset reads its key from omp after the environment", () => {
+    for (const [presetId, ompProvider] of Object.entries(OMP_PROVIDER_IDS)) {
+      const chains = Object.values(getUsagePreset(presetId)?.credentials ?? {});
+      const chain = chains.find((sources) => sources.some((source) => source.kind === "omp")) ?? [];
+      const omp = chain.filter((source) => source.kind === "omp");
+      expect([presetId, omp]).toEqual([
+        presetId,
+        [{ kind: "omp", provider: ompProvider, path: "key" }],
+      ]);
+      const lastEnv = chain.map((source) => source.kind).lastIndexOf("env");
+      const ompAt = chain.findIndex((source) => source.kind === "omp");
+      expect([presetId, lastEnv < ompAt]).toEqual([presetId, true]);
+    }
+  });
+
+  test("no preset outside the map carries an omp source", () => {
+    for (const [presetId, provider] of presetEntries) {
+      if (presetId in OMP_PROVIDER_IDS) continue;
+      const sources = Object.values(provider.credentials).flat();
+      expect([presetId, sources.some((source) => source.kind === "omp")]).toEqual([
+        presetId,
+        false,
+      ]);
+    }
+  });
+});

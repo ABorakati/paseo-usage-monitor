@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { UsageCredentialMissingError, UsageInterpolationError } from "./errors.server";
 import { interpolate } from "./interpolate.server";
 import { readStringAtPath, readTimestampAtPath } from "./json-path.server";
@@ -29,6 +30,8 @@ type UsageJsonFileCredential = Extract<UsageCredentialSource, { kind: "jsonFile"
 
 type UsageKeychainCredential = Extract<UsageCredentialSource, { kind: "keychain" }>;
 
+type UsageOmpCredential = Extract<UsageCredentialSource, { kind: "omp" }>;
+
 /** The fields a json-bearing source shares, whether the json came from a file or a Keychain item. */
 type UsageJsonCredential = Pick<UsageJsonFileCredential, "path" | "expiresAtPath">;
 
@@ -42,6 +45,11 @@ export interface CredentialAdapters {
    * failure says so rather than hinting at an item that could never exist.
    */
   readKeychainItem?: (service: string) => string | null;
+  /**
+   * The `data` json of the first enabled row omp stores for a provider, or
+   * null when omp is not installed, has no vault, or has no row for it.
+   */
+  readOmpCredential?: (provider: string) => string | null;
   now(): Date;
 }
 
@@ -62,7 +70,42 @@ export function createNodeCredentialAdapters(): CredentialAdapters {
       }
     },
     readKeychainItem: process.platform === "darwin" ? readMacKeychainItem : undefined,
+    readOmpCredential(provider: string): string | null {
+      return readOmpVaultRow(ompAgentDbPath(process.env, homedir()), provider);
+    },
   };
+}
+
+/** omp's agent directory, mirroring its own `PI_CONFIG_DIR` / `PI_CODING_AGENT_DIR` rules. */
+export function ompAgentDbPath(env: NodeJS.ProcessEnv, homeDir: string): string {
+  const agentDir =
+    env.PI_CODING_AGENT_DIR !== undefined && env.PI_CODING_AGENT_DIR !== ""
+      ? env.PI_CODING_AGENT_DIR
+      : join(homeDir, env.PI_CONFIG_DIR ?? ".omp", "agent");
+  return join(agentDir, "agent.db");
+}
+
+function readOmpVaultRow(dbPath: string, provider: string): string | null {
+  if (!existsSync(dbPath)) return null;
+  // the provider id is schema-validated to [a-z0-9._-], so quoting it is
+  // enough; the CLI has no parameter binding to lean on
+  const sql = `SELECT data FROM auth_credentials WHERE provider = '${provider}' AND disabled_cause IS NULL ORDER BY id ASC LIMIT 1;`;
+  let out: string;
+  try {
+    out = execFileSync("sqlite3", ["-readonly", "-json", dbPath, sql], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5_000,
+    });
+  } catch {
+    // no sqlite3 on PATH, a locked database, or a vault older than the
+    // auth_credentials table all mean this source does not apply
+    return null;
+  }
+  const rows = parseJsonDocument(out.trim() === "" ? "[]" : out);
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const data = (rows[0] as { data?: unknown }).data;
+  return typeof data === "string" ? data : null;
 }
 
 function readMacKeychainItem(service: string): string | null {
@@ -132,6 +175,8 @@ function describePlace(source: UsageCredentialSource): string {
       return `file ${source.file}#${source.path}`;
     case "keychain":
       return `keychain "${source.service}"#${source.path}`;
+    case "omp":
+      return `omp "${source.provider}"#${source.path}`;
   }
 }
 
@@ -212,6 +257,12 @@ function readKeychainCredential(
   return readJsonCredential(source, text, adapters);
 }
 
+function readOmpCredential(source: UsageOmpCredential, adapters: CredentialAdapters): SourceRead {
+  const text = adapters.readOmpCredential?.(source.provider) ?? null;
+  if (text === null) return UNAVAILABLE;
+  return readJsonCredential(source, text, adapters);
+}
+
 function expandCredentialPath(
   raw: string,
   adapters: CredentialAdapters,
@@ -231,6 +282,7 @@ function expandCredentialPath(
 function readSource(source: UsageCredentialSource, adapters: CredentialAdapters): SourceRead {
   if (source.kind === "jsonFile") return readJsonFileCredential(source, adapters);
   if (source.kind === "keychain") return readKeychainCredential(source, adapters);
+  if (source.kind === "omp") return readOmpCredential(source, adapters);
   const value = adapters.env[source.variable];
   if (value === undefined) return UNAVAILABLE;
   const token = value.trim();

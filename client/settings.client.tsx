@@ -1697,6 +1697,10 @@ function CredentialField({ name, editor, presetId, dispatch, styles }: Credentia
             <Text key={`keychain:${source.service}#${source.path}`} style={styles.muted}>
               {`Also checks the macOS Keychain item "${source.service}"#${source.path}`}
             </Text>
+          ) : source.kind === "omp" ? (
+            <Text key={`omp:${source.provider}#${source.path}`} style={styles.muted}>
+              {`Also checks omp's stored login for "${source.provider}"`}
+            </Text>
           ) : (
             <Text key={`${source.file}#${source.path}`} style={styles.muted}>
               {`Also checks ${source.file}#${source.path}`}

@@ -69,10 +69,27 @@ export const UsageKeychainCredentialSchema = z.object({
   refreshedBy: z.string().min(1).optional(),
 });
 
+/**
+ * A row in omp's credential vault, the SQLite store `omp` fills through
+ * `/login` and `omp auth-broker`. The row's `data` column is a json document:
+ * `{ "key": "..." }` for an API key, the token fields for an OAuth login. It
+ * is read through the `sqlite3` CLI, read-only, so the plugin never holds the
+ * database open against omp's own writes.
+ */
+export const UsageOmpCredentialSchema = z.object({
+  kind: z.literal("omp"),
+  /** omp's provider id, as `/login <provider>` names it. */
+  provider: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),
+  /** JSON path inside the row's `data`; `key` for an API key row. */
+  path: z.string().min(1),
+  expiresAtPath: z.string().min(1).optional(),
+});
+
 export const UsageCredentialSourceSchema = z.discriminatedUnion("kind", [
   UsageEnvCredentialSchema,
   UsageJsonFileCredentialSchema,
   UsageKeychainCredentialSchema,
+  UsageOmpCredentialSchema,
 ]);
 
 /**
