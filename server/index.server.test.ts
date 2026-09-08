@@ -29,6 +29,8 @@ describe("index.server v0.8 entry point", () => {
       "usage.config.write-provider",
       "usage.config.remove-provider",
       "usage.config.test-provider",
+      "usage.codex.banked-reset.read",
+      "usage.codex.banked-reset.consume",
     ]);
 
     // v0.8 Lifecycle hook

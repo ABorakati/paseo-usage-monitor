@@ -32,6 +32,7 @@ import {
 } from "../shared/config.shared";
 import {
   readUsageLimits,
+  USAGE_LIMITS_QUERY_KEY,
   type UsageBalanceReading,
   type UsageDisplay,
   type UsageIcon,
@@ -43,13 +44,13 @@ import {
   type UsageSnapshot,
   type UsageWindow,
 } from "../shared/limits.shared";
+import { CodexBankedResetAction } from "./codex-reset.client";
 import { UsageMeter, clampPercent } from "./meter.client";
 import { isDashboardVisible } from "../shared/pills.shared";
 import { UsageHistorySurface } from "./history.client";
 import { setTooltipTitle, TooltipPressable as Pressable } from "./tooltip.client";
 import { UsageSettingsBody } from "./settings.client";
 
-export const USAGE_LIMITS_QUERY_KEY = ["usage-limits", "snapshot"];
 const USAGE_CONFIG_QUERY_KEY = ["usage-config"];
 export const EM_DASH = "—";
 const DAY_MS = 86_400_000;
@@ -999,6 +1000,7 @@ function ProviderCard({
             display={display}
             columns={columns}
           />
+          <CodexBankedResetAction provider={provider} theme={theme} compact={compact} />
         </ScrollView>
         {compact ? null : (
           <>

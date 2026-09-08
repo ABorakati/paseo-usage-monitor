@@ -22,6 +22,8 @@ Cards are reordered by dragging the grip on the right of a card header, or with 
 
 A card can also carry a `notice`: one line saying why its readings are not current. A rate-limited provider keeps its last good readings with their original timestamp and explains itself in the notice rather than discarding real numbers — the surface shows it in the warning colour and marks the card stale. A provider whose credential was rejected does the same. A notice can accompany either a healthy-but-stale card or an error row, so it is independent of `status`. See [Rate limits](docs/PRESETS.md#rate-limits) and [Expiry](docs/CREDENTIALS.md#expiry).
 
+The Codex dashboard card and composer detail card show **Use banked reset** when the account has one available. The action checks the current credit, shows its expiry, and requires confirmation. See [`codex` caveats](docs/PRESETS.md#per-preset-caveats).
+
 ![Usage history](docs/images/usage-history.png)
 
 **Usage history** — cumulative token usage over time as a stacked chart, switchable between 24h, 7d, and 30d. By default each series is one agent CLI. A provider row expands in place to show the models it ran, so the model breakdown appears beside everything else rather than replacing the view; several providers can be open at once. Grouping by model instead lifts every model to the top level, which is the only way to compare two models you reach through different tools.

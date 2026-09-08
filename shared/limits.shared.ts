@@ -392,6 +392,8 @@ export const UsageProviderSchema = z.object({
   description: z.string().min(1).optional(),
   /** Marks a preset whose endpoint no vendor has published. */
   unverified: z.boolean().default(false),
+  /** Built-in Codex capability. Direct provider config cannot enable vendor mutations. */
+  supportsBankedReset: z.boolean().default(false),
   /** The mark shown on the card, unless `display.icon` overrides it. */
   icon: UsageIconSchema.optional(),
   enabled: z.boolean().default(true),
@@ -516,6 +518,8 @@ export const UsageProviderSnapshotSchema = z.object({
   label: z.string(),
   description: z.string().nullable(),
   unverified: z.boolean(),
+  /** True only for the built-in Codex preset, never inferred from a reading id. */
+  supportsBankedReset: z.boolean().optional(),
   status: UsageProviderStatusSchema,
   readings: z.array(UsageReadingSchema),
   error: z.string().nullable(),
@@ -545,6 +549,8 @@ export const UsageSnapshotSchema = z.object({
   configPath: z.string(),
   providers: z.array(UsageProviderSnapshotSchema),
 });
+
+export const USAGE_LIMITS_QUERY_KEY = ["usage-limits", "snapshot"] as const;
 
 export const readUsageLimits = defineRpc({
   name: "usage.limits.read",

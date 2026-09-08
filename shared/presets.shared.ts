@@ -269,6 +269,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     icon: { kind: "monogram", text: "Cx", color: "#10B981" },
     description:
       "Codex session, weekly, code-review and reserve limits, plus banked resets and any prepaid credit balance",
+    supportsBankedReset: true,
     credentials: {
       // No expiresAtPath: auth.json records `auth_mode`, `last_refresh` and the
       // tokens object, and nothing else. `last_refresh` is when the CLI last
@@ -292,6 +293,23 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           file: "~/.config/codex/auth.json",
           path: "tokens.access_token",
           refreshedBy: "codex",
+        },
+      ],
+      accountId: [
+        {
+          kind: "jsonFile",
+          file: "${CODEX_HOME}/auth.json",
+          path: "tokens.account_id",
+        },
+        {
+          kind: "jsonFile",
+          file: "~/.codex/auth.json",
+          path: "tokens.account_id",
+        },
+        {
+          kind: "jsonFile",
+          file: "~/.config/codex/auth.json",
+          path: "tokens.account_id",
         },
       ],
     },

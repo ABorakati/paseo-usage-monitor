@@ -215,6 +215,7 @@ function baseSnapshot(id: string, provider: UsageProvider): UsageProviderSnapsho
     label: provider.label,
     description: provider.description ?? null,
     unverified: provider.unverified,
+    ...(provider.supportsBankedReset ? { supportsBankedReset: true } : {}),
     status: "ok",
     readings: [],
     error: null,

@@ -1,3 +1,4 @@
+import { createCodexBankedResetService } from "./codex-reset.server";
 import { createNodeConfigAdapters, loadUsageConfig, usageConfigPath } from "./config.server";
 import {
   createNodeUsageConfigStoreAdapters,
@@ -8,6 +9,7 @@ import {
   writeUsageProviderEntry,
 } from "./config-store.server";
 import type { UsageConfigState, UsageProviderWrite } from "../shared/config.shared";
+import type { CodexBankedResetDetails } from "../shared/codex-reset.shared";
 import { createNodeCredentialAdapters } from "./credentials.server";
 import { createNodeHistoryAdapters, readUsageHistorySnapshot } from "./history.server";
 import type { UsageHistoryQuery, UsageHistorySnapshot } from "../shared/history.shared";
@@ -38,6 +40,7 @@ let cache: ServiceCache | null = null;
  * that preserves both still rebuilds. A read failure propagates as a
  * `UsageConfigError` instead of resolving to the defaults.
  */
+
 function resolveService(): UsageService {
   const read = configAdapters.readConfigFile(configPath);
   const configText = read.kind === "text" ? read.text : null;
@@ -83,4 +86,26 @@ export function removeProvider(input: { id: string }): UsageConfigState {
 
 export function testProvider(input: { id: string }): Promise<UsageProviderTestResult> {
   return testUsageProviderEntry(input.id, configStoreAdapters);
+}
+
+export function readCodexBankedReset(input: {
+  providerId: string;
+}): Promise<CodexBankedResetDetails> {
+  return createCodexBankedResetService({
+    entries: buildProviderRegistry(loadUsageConfig(configAdapters)),
+    source: sourceAdapters,
+    credentials: credentialAdapters,
+  }).read(input.providerId);
+}
+
+export function consumeCodexBankedReset(input: {
+  providerId: string;
+  creditId: string | null;
+  redeemRequestId: string;
+}) {
+  return createCodexBankedResetService({
+    entries: buildProviderRegistry(loadUsageConfig(configAdapters)),
+    source: sourceAdapters,
+    credentials: credentialAdapters,
+  }).consume(input);
 }
