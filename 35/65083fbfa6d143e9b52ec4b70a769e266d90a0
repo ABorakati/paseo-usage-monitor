@@ -1,0 +1,18 @@
+package-lock.json
+  h_0ae9538d78aa59 2-3,8-10,12-13,956-958,961-962,967-969,972,977-979
+package.json
+  h_0ae9538d78aa59 28-29
+test-stubs/plugin-client.ts
+  h_0ae9538d78aa59 85,105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "3565083fbfa6d143e9b52ec4b70a769e266d90a0",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
