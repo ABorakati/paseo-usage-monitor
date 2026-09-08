@@ -1,0 +1,30 @@
+README.md
+  h_0ae9538d78aa59 110
+client/pills.client.test.ts
+  h_0ae9538d78aa59 8-9,34,306-355
+client/pills.client.tsx
+  h_0ae9538d78aa59 5,15,160-162,279-303,426,434,438-442,592-624,726-886,952,1061
+docs/CREDENTIALS.md
+  h_0ae9538d78aa59 150-163
+docs/TROUBLESHOOTING.md
+  h_0ae9538d78aa59 43
+server/service.server.ts
+  h_0ae9538d78aa59 115-127,135,139-142,144-147,149-150,222,314,321,379,381,389-390,418-419,426-433,440,495
+server/service.test.ts
+  h_0ae9538d78aa59 240,511,1130,1134-1173,1309,1421
+shared/limits.shared.ts
+  h_0ae9538d78aa59 530-537
+shared/pills.test.ts
+  h_0ae9538d78aa59 412
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8727b98f504b39d575dc80f494615afd6414d797",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
