@@ -1,0 +1,16 @@
+README.md
+  h_0ae9538d78aa59 37,39,49,52-54,58,106-109
+docs/CONFIGURATION.md
+  h_0ae9538d78aa59 128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "fca6d2e8fa494423449acd25d1e7c09c11940d41",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
