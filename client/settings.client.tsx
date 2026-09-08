@@ -1691,12 +1691,18 @@ function CredentialField({ name, editor, presetId, dispatch, styles }: Credentia
         </View>
       )}
       {sources
-        .filter((source) => source.kind === "jsonFile")
-        .map((source) => (
-          <Text key={`${source.file}#${source.path}`} style={styles.muted}>
-            {`Also checks ${source.file}#${source.path}`}
-          </Text>
-        ))}
+        .filter((source) => source.kind !== "env")
+        .map((source) =>
+          source.kind === "keychain" ? (
+            <Text key={`keychain:${source.service}#${source.path}`} style={styles.muted}>
+              {`Also checks the macOS Keychain item "${source.service}"#${source.path}`}
+            </Text>
+          ) : (
+            <Text key={`${source.file}#${source.path}`} style={styles.muted}>
+              {`Also checks ${source.file}#${source.path}`}
+            </Text>
+          ),
+        )}
       {stored && !replacing ? (
         <ActionButton label="Replace stored value" onPress={replace} styles={styles} />
       ) : null}

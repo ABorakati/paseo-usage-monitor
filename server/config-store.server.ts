@@ -103,6 +103,7 @@ export function usageSecretsPath(adapters: ConfigAdapters): string {
 
 function describeCredentialSource(source: UsageCredentialSource): string {
   if (source.kind === "env") return `env ${source.variable}`;
+  if (source.kind === "keychain") return `keychain "${source.service}"#${source.path}`;
   return `file ${source.file}#${source.path}`;
 }
 
@@ -220,6 +221,9 @@ function isSameSource(left: UsageCredentialSource, right: UsageCredentialSource)
   if (left.kind === "env" && right.kind === "env") return left.variable === right.variable;
   if (left.kind === "jsonFile" && right.kind === "jsonFile") {
     return left.file === right.file && left.path === right.path;
+  }
+  if (left.kind === "keychain" && right.kind === "keychain") {
+    return left.service === right.service && left.path === right.path;
   }
   return false;
 }

@@ -101,6 +101,16 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     refreshIntervalMs: 1_800_000,
     credentials: {
       token: [
+        // Claude Code on macOS keeps the pair in the Keychain and writes the
+        // file only when it cannot, so on a Mac the file below is a stale
+        // leftover and this item is the one `claude` actually refreshes.
+        {
+          kind: "keychain",
+          service: "Claude Code-credentials",
+          path: "claudeAiOauth.accessToken",
+          expiresAtPath: "claudeAiOauth.expiresAt",
+          refreshedBy: "claude",
+        },
         {
           kind: "jsonFile",
           file: "${CLAUDE_CONFIG_DIR}/.credentials.json",
