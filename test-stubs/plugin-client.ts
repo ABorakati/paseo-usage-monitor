@@ -82,6 +82,7 @@ export function createMockClientContext(initialProviders: unknown[] = []): MockC
 
     paseo: {
       workspaces: {} as unknown as PluginClientContext["paseo"]["workspaces"],
+      terminals: {} as unknown as PluginClientContext["paseo"]["terminals"],
       projects: {} as unknown as PluginClientContext["paseo"]["projects"],
       providers: {} as unknown as PluginClientContext["paseo"]["providers"],
       config: {} as unknown as PluginClientContext["paseo"]["config"],
@@ -101,7 +102,7 @@ export function createMockClientContext(initialProviders: unknown[] = []): MockC
             agentSubscribers.delete(listener);
           };
         },
-      },
+      } as unknown as PluginClientContext["paseo"]["agents"],
     },
 
     simulateAgentAdded(agentData) {
