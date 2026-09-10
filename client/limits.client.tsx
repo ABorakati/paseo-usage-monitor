@@ -85,6 +85,18 @@ const DRAG_HANDLE_HIT_SLOP = { top: 11, bottom: 11, left: 11, right: 11 };
 const EMPTY_PAN_HANDLERS = {};
 /** The server holds a per-provider TTL, so a poll inside it is served from cache. */
 export const LIMITS_POLL_MS = 60_000;
+/**
+ * A provider whose source is a local file the daemon watches lands its next
+ * reading at the end of a turn, so this poll is what notices the dropped
+ * cache. It matches the 15-second floor Orca uses for the same feed.
+ */
+export const LIVE_LIMITS_POLL_MS = 15_000;
+
+export function limitsPollInterval(snapshot: UsageSnapshot | undefined): number {
+  return snapshot?.providers.some((provider) => provider.live) === true
+    ? LIVE_LIMITS_POLL_MS
+    : LIMITS_POLL_MS;
+}
 
 /**
  * A backoff is the provider refusing politely, not the button breaking, so the
@@ -1243,7 +1255,7 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
   const { data, error, isPending, isFetching, refetch } = useQuery({
     queryKey: USAGE_LIMITS_QUERY_KEY,
     queryFn: () => readSnapshot(false),
-    refetchInterval: LIMITS_POLL_MS,
+    refetchInterval: (query) => limitsPollInterval(query.state.data),
     refetchOnWindowFocus: Platform.OS === "web",
   });
 

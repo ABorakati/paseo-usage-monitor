@@ -518,6 +518,12 @@ export const UsageProviderSnapshotSchema = z.object({
   label: z.string(),
   description: z.string().nullable(),
   unverified: z.boolean(),
+  /**
+   * True when the readings come from a local file the daemon watches, so the
+   * writer's next change lands without waiting out the refresh interval. The
+   * surface polls such a provider faster for the same reason.
+   */
+  live: z.boolean(),
   /** True only for the built-in Codex preset, never inferred from a reading id. */
   supportsBankedReset: z.boolean().optional(),
   status: UsageProviderStatusSchema,

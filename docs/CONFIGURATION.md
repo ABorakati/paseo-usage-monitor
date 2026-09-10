@@ -109,11 +109,11 @@ A composer pill is a glance above the chat prompt: one gauge, one number, and on
 | ------------ | ----------------------------------- | -------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `enabled`    | boolean                             | no       | `false`      | Whether this provider appears on the composer rail.                                                                                |
 | `order`      | integer                             | no       | —            | Ascending position along the rail; pills without an order sort after ordered ones, by id.                                          |
-| `style`      | `"ring" \| "bar" \| "none"`         | no       | card `style` | Dial, left-to-right bar, or number alone (`none`). Inherits the card's own `display.style` (default `"bar"`).                      |
+| `style`      | `"ring" \| "bar" \| "none"`         | no       | card `style` | Dial, left-to-right bar, or the mark alone (`none`). Inherits the card's own `display.style` (default `"bar"`).                    |
 | `value`      | `"used" \| "remaining"`             | no       | card `value` | Counts consumption (`used`) or headroom (`remaining`). Inherits the card's own `display.value` (default `"used"`).                 |
 | `reading`    | string                              | no       | automatic    | Mapping id to track. Omitted picks the shortest quota window (the session figure), falling back to a balance.                      |
-| `label`      | `"provider" \| "reading" \| "none"` | no       | `"none"`     | Text beside the gauge: vendor name, reading label, or neither. Off by default.                                                     |
-| `readout`    | `"percent" \| "amount" \| "none"`   | no       | `"percent"`  | Value beside the gauge: percentage, currency or unit amount, or neither.                                                           |
+| `label`      | `"provider" \| "reading" \| "none"` | no       | `"none"`     | Leading part of the pill's text line: vendor name, reading label, or neither. Off by default.                                      |
+| `readout`    | `"percent" \| "amount" \| "none"`   | no       | `"percent"`  | Trailing part of the pill's text line: percentage, currency or unit amount, or neither.                                            |
 | `visibility` | `"always" \| "matching"`            | no       | `"always"`   | `"always"` shows the pill on every composer. `"matching"` shows it only on agents whose harness and model a rule accepts.          |
 | `matchRules` | array of match rules                | no       | —            | Checked only under `visibility: "matching"`. See [Matching the agent's harness and model](#matching-the-agents-harness-and-model). |
 
@@ -125,7 +125,7 @@ Two fields inherit from the card when omitted:
 Without a pinned `reading`, the pill tracks the shortest quota window because that is the number a composer acts on: the five-hour session quota runs out mid-task while a weekly quota rarely does. A provider with no quota readings falls back to its balance reading.
 
 When `enabled` is `false` and no other pill field is configured, the `pill` object is omitted from the saved config file to avoid empty no-op blocks.
-On narrow chat panes (including split views), pills automatically collapse to just their provider icon so the rail never overflows. Opening a pill's card dynamically clamps the card within the pane's horizontal boundaries, preventing clipping across split dividers.
+The host draws one icon slot and one line of text for each pill. The icon carries the provider mark, with the gauge for `style` drawn into the same 14px slot: a `ring` is a dial with the mark centred inside it, a `bar` is the mark above a 3px bar pinned to the bottom of the slot, and `none` is the mark alone. A reading that states no ceiling has nothing to draw, so that pill falls back to its mark. The text line joins the parts `label` and `readout` ask for, in that order, separated by `·`, and shows the provider name when those would leave it empty — so a pill always renders its icon and its text, at any pane width. The card a pill opens is a host-anchored popover: the host positions it, keeps it in view, dismisses it on a press outside, and presents it as a bottom sheet on compact layouts.
 
 ### Matching the agent's harness and model
 

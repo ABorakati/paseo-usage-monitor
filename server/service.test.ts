@@ -234,6 +234,7 @@ describe("usage service", () => {
           label: "Antigravity",
           description: null,
           unverified: false,
+          live: false,
           status: "ok",
           error: null,
           notice: null,
@@ -504,6 +505,7 @@ describe("usage service", () => {
         label: "mystery",
         description: null,
         unverified: false,
+        live: false,
         status: "error",
         readings: [],
         error: 'Unknown preset "does-not-exist"',
@@ -573,6 +575,37 @@ describe("usage service", () => {
 
     expect(calls).toBe(1);
     expect(only(second.providers, "provider")).toEqual(only(first.providers, "provider"));
+  });
+
+  test("drops a cached reading when a watched file changes", async () => {
+    let calls = 0;
+    const source = createFakeSource({
+      http: async () => {
+        calls += 1;
+        return { used: calls };
+      },
+    });
+    const clock = createClock();
+    const service = createService({
+      source,
+      now: clock.now,
+      overrides: {
+        counter: {
+          label: "Counter",
+          refreshIntervalMs: 60_000,
+          source: HTTP_SOURCE,
+          readings: COUNTER_READINGS,
+        },
+      },
+    });
+
+    await service.read({ refresh: false });
+    clock.advance(1_000);
+    service.invalidate(["counter"]);
+    const after = await service.read({ refresh: false });
+
+    expect(calls).toBe(2);
+    expect(only(after.providers, "provider").readings).toMatchObject([{ used: 2 }]);
   });
 
   test("refetches once the provider's refresh interval has elapsed", async () => {

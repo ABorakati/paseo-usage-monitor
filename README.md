@@ -32,7 +32,7 @@ Series colour is derived from the active theme's accent rather than fixed, so it
 
 It plots **Work** (input + output tokens) by default, with Cached, Total and Cost also selectable. Cache re-reads are 99.5% of the raw token total on real transcripts, so a single "tokens" figure reads as work performed when it mostly is not — see [Which metric, and why work is the default](docs/HISTORY.md#which-metric-and-why-work-is-the-default). Cost prices each turn from the vendor's own reported figure where a log carries one and from a cached public rate table otherwise, and says which — see [Cost](docs/HISTORY.md#cost).
 
-**Usage providers** — add, edit, test and remove providers from inside the app instead of hand-writing JSON. It writes the same config file, and a key you type goes into a separate owner-only secrets file rather than into the config. See [Editing providers from the app](#editing-providers-from-the-app).
+**Usage providers** — add, edit, test and remove providers from inside the app instead of hand-writing JSON. It writes the same config file, and a key you type goes into a separate owner-only secrets file rather than into the config. The same surface installs the Claude Code status line hook, which turns the `claude-statusline` preset into a turn-by-turn feed. See [Editing providers from the app](#editing-providers-from-the-app).
 
 ## Install
 
@@ -100,18 +100,17 @@ A provider stays off the rail until it opts in. Turn a provider on in **Usage pr
 
 Each pill tracks one reading from that provider:
 
-- **Three styles** — dial gauge (`ring`), left-to-right bar (`bar`), or numeric readout alone (`none`). An omitted style inherits the card meter shape.
+- **Three styles** — dial gauge (`ring`), left-to-right bar (`bar`), or the provider mark alone (`none`), drawn into the pill's small icon slot. An omitted style inherits the card meter shape.
 - **Used vs remaining** — counts consumed quota (`used`) or headroom left (`remaining`). An omitted direction inherits the card direction.
 - **Tracked reading** — automatic selection tracks the shortest resetting quota window (the five-hour session quota), falling back to a balance reading when no quota exists. A specific reading mapping can also be pinned.
 - **Text label** — off by default (the brand mark already identifies the pill), with choices for provider name or reading label when turned on.
 - **When it shows** — **Always show**, or **Match the agent**. Matching keeps the pill on the composers whose agent it belongs to: a Claude pill above Claude Code chats, a Codex pill above Codex ones, chosen by harness, model vendor, or model pattern. See [Matching the agent's harness and model](docs/CONFIGURATION.md#matching-the-agents-harness-and-model).
-- **Responsive narrow collapse** — when the chat pane is narrow (e.g. in split pane view or compact layout), pills collapse to just the provider icon so the rail never overflows.
-- **Split-pane containment** — clicking a pill opens its detail card anchored and clamped within the active pane's boundaries, so the card never extends under the split divider or adjacent pane. Clicking in an adjacent pane dismisses the card.
-- **Side-by-side isolation** — when two split panes show the same provider's pill side by side, clicking a pill opens only the card for that specific agent.
+- **Host-owned trigger** — the rail hands each pill a trigger the host renders and owns, and the pill always draws its icon with one line of text beside it, so nothing collapses away on a narrow pane.
+- **Host-anchored popover** — pressing a pill opens its detail card as a popover that the host anchors, positions, contains and dismisses, presented as a bottom sheet on compact layouts. A press outside the card closes it.
 - **Turn-ended auto-refresh** — on Paseo v0.8, the daemon lifecycle hook automatically triggers a background quota refresh when an agent turn ends, keeping readings current without waiting for the poll interval.
 - **Refresh via terminal** — when a card names the CLI that owns its stale credential, a **Refresh via terminal** action runs that CLI for you, live, right there in the card. See [Refresh via terminal](docs/CREDENTIALS.md#refresh-via-terminal) for what it does and does not do.
 
-Pressing a pill opens a per-provider detail panel showing every quota window, its progress bar, and its reset time.
+Pressing a pill opens a per-provider detail card showing every quota window, its progress bar, and its reset time.
 
 ![Composer pill detail panel](docs/images/composer-pill-card.webp)
 
@@ -181,6 +180,37 @@ The surface talks to four handlers, should you want to find them in the code or 
 | `usage.config.test-provider`   | Reads one provider once and returns `ok`, a message, and a reading count.                             |
 
 Every write returns the whole new state rather than an acknowledgement, so the surface can never drift from the file.
+
+## Usage-limit alerts
+
+When a turn fails because a provider's quota ran out — or a Claude Code turn ends with its "You've hit your limit" message — the plugin records a **usage-limit alert**. The chat shows it as a callout in place of the raw error, with the vendor's own wording, a link to the page where the quota is managed or topped up, and the reset time when the message named one. A toast fires at the same moment unless you turn it off.
+
+From the callout you can:
+
+- **Wait for the reset** — arm a resume. At the reset time the daemon sends the original agent a continue prompt, repeated with your last request.
+- **Top up** — buy credit when the refusal is a spent prepaid balance rather than an exhausted window. A balance has no reset to wait for, so a balance alert offers **Top up** and no resume.
+- **Hand off** — start a new agent on another provider, in the same working directory, with a prompt that repeats the last request.
+- **Dismiss** — close the callout without acting.
+
+The daemon reads the vendor from the agent's provider and, on a harness that runs many vendors, from the model id (`deepseek/deepseek-flash`, `moonshot/kimi-k3`, `openrouter/anthropic/claude-sonnet-4`). Every preset the plugin tracks is covered: Claude, Codex, GitHub Copilot, Cursor, Grok, Antigravity, Kimi, Z.ai, Zhipu, MiniMax, Synthetic, OpenCode Go, Chutes, ZenMux, DeepSeek, Moonshot, SiliconFlow, StepFun, Novita, DeepInfra, Venice, xAI, NanoGPT, Poe, OpenRouter, Vercel and OpenCode Zen, plus the Anthropic and OpenAI APIs behind an `anthropic/…` or `openai/…` model. A vendor whose console page is not published gets a callout with no link rather than a guessed one.
+
+### Alert settings
+
+The settings live in the alert file under `settings`:
+
+| Setting           | Default | Does                                                                 |
+| ----------------- | ------- | -------------------------------------------------------------------- |
+| `enabled`         | `true`  | Master switch for detection, callouts, and toasts.                   |
+| `autoResume`      | `false` | Arm a resume at the alert's reset time as soon as it is detected.    |
+| `handoffProvider` | `null`  | `provider/model` the handoff picker offers first.                    |
+| `autoHandoff`     | `false` | Create the handoff agent immediately instead of waiting for a click. |
+| `toast`           | `true`  | Show an in-app toast when an alert is detected.                      |
+
+### The alert file
+
+Alerts are stored in `${PASEO_HOME:-~/.paseo}/limit-alerts.json`, beside `usage-limits.json`. The file holds the settings and the most recent 50 alerts. Dismissed, resumed, and handed-off alerts are dropped once they are a week old, and a new limit for an agent replaces that agent's still-open alert.
+
+A resume is an in-process timer rather than a daemon schedule. Every scheduled resume is re-armed when the plugin starts, so it survives a reload. It does not survive a daemon that is down at the reset time: a resume that came due while the daemon was off fires on the next start.
 
 ## Defaults
 

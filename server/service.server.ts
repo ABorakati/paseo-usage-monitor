@@ -44,6 +44,12 @@ export interface UsageServiceInput {
 
 export interface UsageService {
   read(options: { refresh: boolean }): Promise<UsageSnapshot>;
+  /**
+   * Drops cached readings for the named providers. A watched file source calls
+   * this when its writer lands a new document, so the next read re-projects it
+   * instead of serving the reading taken before the change.
+   */
+  invalidate(providerIds: readonly string[]): void;
 }
 
 interface CacheEntry {
@@ -215,6 +221,7 @@ function baseSnapshot(id: string, provider: UsageProvider): UsageProviderSnapsho
     label: provider.label,
     description: provider.description ?? null,
     unverified: provider.unverified,
+    live: provider.source?.kind === "file",
     ...(provider.supportsBankedReset ? { supportsBankedReset: true } : {}),
     status: "ok",
     readings: [],
@@ -489,6 +496,7 @@ export function createUsageService(input: UsageServiceInput): UsageService {
         label: entry.id,
         description: null,
         unverified: false,
+        live: false,
         status: "error",
         readings: [],
         error: entry.error,
@@ -511,6 +519,10 @@ export function createUsageService(input: UsageServiceInput): UsageService {
         entries.map((entry) => entrySnapshot(entry, options.refresh)),
       );
       return { configPath, providers };
+    },
+
+    invalidate(providerIds) {
+      for (const providerId of providerIds) cache.delete(providerId);
     },
   };
 }

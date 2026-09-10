@@ -1,10 +1,25 @@
 import type React from "react";
-import type { PluginClientContext, PluginComposerPillContribution } from "@getpaseo/plugin/client";
-import type { PluginCleanup, PluginRpcContract } from "@getpaseo/plugin";
+import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
+import type { PluginRpcContract } from "@getpaseo/plugin";
 import type { PaseoAgent, PaseoAgentUpdate, PaseoAgentListResult } from "@getpaseo/client";
 import type { ZodType, input as ZodInput, output as ZodOutput } from "zod";
 
+/**
+ * What the host's `addComposerPill` accepts, taken from the contract itself so
+ * this stub cannot drift from the SDK's contribution shape.
+ */
+type RegisteredPill = Parameters<PluginClientContext["addComposerPill"]>[0];
+
 export function Icon(): React.ReactElement | null {
+  return null;
+}
+
+/** The host's modal and text field, present so a client module's imports resolve. */
+export function Modal(): React.ReactElement | null {
+  return null;
+}
+
+export function TextInput(): React.ReactElement | null {
   return null;
 }
 
@@ -34,14 +49,14 @@ export function defineSettings<Definition>(definition: Definition): Definition {
 }
 
 export interface MockClientContext extends PluginClientContext {
-  registeredPills: PluginComposerPillContribution[];
+  registeredPills: RegisteredPill[];
   simulateAgentAdded: (agent: Partial<PaseoAgent> & { id: string; workspaceId: string }) => void;
   simulateAgentRemoved: (agentId: string) => void;
   simulateLimitsUpdate: (providers: unknown[]) => void;
 }
 
 export function createMockClientContext(initialProviders: unknown[] = []): MockClientContext {
-  const registeredPills: PluginComposerPillContribution[] = [];
+  const registeredPills: RegisteredPill[] = [];
   const agentSubscribers = new Set<(update: PaseoAgentUpdate) => void>();
   const agents = new Map<string, PaseoAgent>();
   let currentProviders = initialProviders;
@@ -49,15 +64,23 @@ export function createMockClientContext(initialProviders: unknown[] = []): MockC
   const mock: MockClientContext = {
     registeredPills,
 
-    addComposerPill(contribution: PluginComposerPillContribution): PluginCleanup {
+    addComposerPill(contribution: RegisteredPill): PluginButtonRegistration {
       registeredPills.push(contribution);
-      return () => {
-        const index = registeredPills.indexOf(contribution);
-        if (index >= 0) {
-          registeredPills.splice(index, 1);
-        }
+      return {
+        update(patch) {
+          Object.assign(contribution.button, patch);
+        },
+        remove() {
+          const index = registeredPills.indexOf(contribution);
+          if (index >= 0) {
+            registeredPills.splice(index, 1);
+          }
+        },
       };
     },
+
+    // Nothing in these tests draws a header button, so it holds no state.
+    addHeaderButton: () => ({ update: () => {}, remove: () => {} }),
 
     addSettingsScreen: () => () => {},
     addSurface: () => () => {},

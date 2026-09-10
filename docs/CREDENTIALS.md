@@ -115,18 +115,25 @@ What this buys, over the endpoint preset:
 
 What it costs: **two readings instead of three.** The CLI sends no per-model limits to a statusline, so the `scoped` per-model bucket the endpoint preset reports has no equivalent here. The numbers also only move while Claude Code runs — which is when your quota moves anyway.
 
-Install `statusline-hook.sh`, shipped at the plugin root beside `README.md`, then register it:
+Install it from **Usage provider settings → Claude Code status line**. The press does three things:
 
-```bash
-cp statusline-hook.sh ~/.claude/statusline-hook.sh
-chmod +x ~/.claude/statusline-hook.sh
-```
+1. writes `~/.claude/paseo-statusline.mjs` (or `$CLAUDE_CONFIG_DIR`);
+2. sets `statusLine.command` to `node "<that path>"`;
+3. records whatever command held the slot in `~/.claude/paseo-statusline-wrap.json`, which the hook runs with the same payload and forwards the output of.
+
+Step 3 is what makes the press safe over an existing status line: **whatever that command printed is still what you see.** Removal puts it back and deletes the files the hook added. Claude Code's settings file is copied to `settings.json.paseo-usage-monitor.bak` once before the first write.
+
+The hook is Node, not bash, because Claude Code on Windows runs a statusline command through `cmd.exe`, where a `.sh` script and a hardcoded `python3` do not work. The install refuses if `node` is not on PATH, and says so.
+
+Installing the hook does not change which readings the `claude` card shows. Press **Use live readings** in the same section to repoint the `claude` provider at the statusline preset. The OAuth preset keeps its per-model and extra-usage rows, which a statusline payload does not carry.
+
+To install by hand instead, copy `statusline-hook.mjs` from the plugin root and register it:
 
 ```json
-{ "statusLine": { "type": "command", "command": "~/.claude/statusline-hook.sh" } }
+{ "statusLine": { "type": "command", "command": "node ~/.claude/paseo-statusline.mjs" } }
 ```
 
-in `~/.claude/settings.json`. **Whatever a statusline command prints becomes your status line**, so the shipped script prints one — model, directory, and both windows — rather than blanking it:
+in `~/.claude/settings.json`. With no wrap file the hook prints its own line, because **whatever a statusline command prints becomes your status line**:
 
 ```
 Opus 5 · paseo-plugins · 5h 42% · 7d 18%
@@ -135,6 +142,8 @@ Opus 5 · paseo-plugins · 5h 42% · 7d 18%
 It writes `${CLAUDE_CONFIG_DIR:-~/.claude}/paseo-rate-limits.json` through a temporary file and a rename, so the plugin never reads half a document, and it writes the `rate_limits` object **through unchanged**: the preset's reading paths are Claude Code's own field names, `five_hour.utilization` and `five_hour.resets_at`, the same paths the endpoint preset uses. Nothing reshapes or renames anything, which is why a reshaping script that guesses a field name is worse than none — it writes a plausible zero forever.
 
 A session that has no plan quota — an API key, Bedrock or Vertex — sends `rate_limits: null`. The script then leaves the last good file alone, because a quota that does not apply to this session is not news that the quota changed.
+
+The daemon watches the directory that file lives in and drops its cached reading the moment the hook renames a new one into place, so the card catches up on the next poll. A live provider polls every fifteen seconds rather than on its own refresh interval — the same floor Orca uses for this feed.
 
 Until the hook is registered the card says so, naming both paths it looked in. That is the [`file` source](CONFIGURATION.md#kind-file) error, verbatim.
 

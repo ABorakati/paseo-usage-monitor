@@ -1,6 +1,9 @@
+import type { PluginTheme } from "@getpaseo/plugin";
 import {
+  type PluginButtonContentProps,
+  type PluginButtonIconProps,
+  type PluginButtonRegistration,
   type PluginClientContext,
-  type PluginComposerPillProps,
   useRpc,
   usePaseo,
 } from "@getpaseo/plugin/client";
@@ -10,12 +13,10 @@ import {
   type ComponentType,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import {
   Image,
@@ -34,7 +35,9 @@ import {
   formatUpdatedLabel,
   formatWhenHint,
   isShowingStaleReadings,
+  limitsPollInterval,
   LIMITS_POLL_MS,
+  LIVE_LIMITS_POLL_MS,
   quotaPacePercent,
   useTickingClock,
 } from "./limits.client";
@@ -46,13 +49,14 @@ import {
   type UsageWindow,
 } from "../shared/limits.shared";
 import { CodexBankedResetAction } from "./codex-reset.client";
-import { UsageMeter, usageTone } from "./meter.client";
+import { clampPercent, UsageMeter, usageTone } from "./meter.client";
 import {
   composerPillId,
   type ComposerPillEntry,
   matchesPillSelection,
   type PillMetrics,
   pillMetrics,
+  type ResolvedPillSettings,
   resolvePillSettings,
   selectComposerPills,
   selectPillReading,
@@ -60,100 +64,85 @@ import {
 } from "../shared/pills.shared";
 
 /**
- * Usage on the composer rail, and the card a pill opens above itself. The host
- * owns the pressable, the pill chrome and the pending state, so a component
- * here draws the inside of one pill and nothing else. Every rule about which
- * reading a pill tracks lives in `pills.shared.ts`.
+ * Usage on the composer rail: the mark the host draws inside each pill, and
+ * the card body the host shows when one is pressed. The host owns the
+ * pressable, the pill chrome, the anchoring, the containment and the
+ * dismissal, so a component here draws the inside of one pill — or the body
+ * of its card — and nothing else. Every rule about which reading a pill
+ * tracks lives in `pills.shared.ts`.
  *
- * The card is an absolutely-positioned child of the pill rather than a
- * portalled popover: the host's anchored menu belongs to the app, and a plugin
- * only gets to draw inside its own pill. The rail sets no `overflow`, so the
- * card clears the pill and floats over the transcript.
+ * The label is not a component: the host renders one text line from the
+ * contribution, so `contributeComposerPills` publishes it through the
+ * registration the host hands back.
  */
 
 const SETTINGS_SURFACE_ID = "settings";
-/** Big enough to read as a gauge, small enough to leave the label room. */
-const RAIL_BAR_WIDTH = 34;
-const MARK_SIZE = 14;
-/**
- * Clears the 32px pill and leaves the same 12px gap the host's own anchored
- * panels leave above a rail pill.
- */
-const CARD_LIFT = 44;
-/**
- * Fixed rather than a min/max pair: the card is absolute, so a flexible width
- * would size itself to the pill it hangs off and jump about between providers.
- */
-const CARD_WIDTH = 232;
 /** The card is wide enough for a bar, and a bar states progress plainly. */
 const CARD_METER_STYLE = "bar" as const;
+/** The rail has room for one 14px shape, and a dial reads as a level there. */
+const RAIL_METER_STYLE = "ring" as const;
 /**
- * How far the dismiss catcher reaches beyond the pill. Larger than any pane the
- * composer sits in, so a press outside the card always lands on it.
+ * The slot the host hands a custom icon. `UsageMeter`'s rail ring is 14px too,
+ * so a ring fills the slot exactly; the marks drawn inside the other styles
+ * scale from the same number.
  */
-const CATCHER_REACH = 4000;
-/** Chat pane width below which the pill collapses to just its mark icon. */
-const NARROW_PANE_WIDTH = 540;
+const MARK_SLOT = 14;
+/** The mark inside the ring, and the one above the bar, at the 14px slot. */
+const RING_MARK_SIZE = 8;
+const BAR_MARK_SIZE = 10;
+const MARK_RADIUS = 4;
+const MARK_TEXT_SIZE = 8;
+/** The bar pinned under the pill's mark. */
+const MARK_BAR_HEIGHT = 3;
 
-function findPaneElement(node: HTMLElement | null): HTMLElement | null {
-  if (!node) {
-    return null;
-  }
-  return (
-    node.closest?.('[data-testid^="workspace-pane-"], [data-testid="workspace-side-panel"]') ??
-    node.parentElement?.parentElement?.parentElement ??
-    null
-  );
+interface MarkStyles {
+  /** The slot this mark draws in, so an icon can size itself to it. */
+  size: number;
+  box: ViewStyle;
+  text: TextStyle;
+  image: ImageStyle;
 }
 
-export function pillInstanceKey(agentId: string | undefined | null, providerId: string): string {
-  return agentId ? `${agentId}\u0000${providerId}` : providerId;
-}
-export interface CardPlacement {
-  left: number;
-  maxWidth: number;
-}
-
-export function computeCardPlacement(input: {
-  pillLeft: number;
-  paneLeft: number;
-  paneRight: number;
-  cardWidth?: number;
-  paneMargin?: number;
-}): CardPlacement {
-  const cardWidth = input.cardWidth ?? CARD_WIDTH;
-  const margin = input.paneMargin ?? 8;
-  const paneWidth = Math.max(0, input.paneRight - input.paneLeft);
-  const maxWidth = Math.min(cardWidth, Math.max(160, paneWidth - margin * 2));
-  const maxAllowedRight = input.paneRight - margin;
-  const overflowRight = input.pillLeft + maxWidth - maxAllowedRight;
-  let left = 0;
-  if (overflowRight > 0) {
-    left = -overflowRight;
-  }
-  const minAllowedLeft = input.paneLeft + margin;
-  const minLeft = minAllowedLeft - input.pillLeft;
-  left = Math.max(minLeft, left);
-  return { left, maxWidth };
+/** The provider mark at one of the pill's three sizes. */
+function createMarkStyles(size: number, plate: string, foreground: string): MarkStyles {
+  const radius = Math.max(2, Math.round((size * MARK_RADIUS) / MARK_SLOT));
+  return {
+    size,
+    box: {
+      width: size,
+      height: size,
+      borderRadius: radius,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: plate,
+      flexShrink: 0,
+    },
+    // Two initials still have to read in the smallest slot the host hands out.
+    text: {
+      fontSize: Math.max(5, Math.round((size * MARK_TEXT_SIZE) / MARK_SLOT)),
+      fontWeight: "600",
+      color: foreground,
+    },
+    image: { width: size, height: size, borderRadius: radius, flexShrink: 0 },
+  };
 }
 
 interface PillStyles {
-  label: TextStyle;
-  readout: TextStyle;
-  stale: TextStyle;
+  mark: MarkStyles;
+  ringMark: MarkStyles;
+  barMark: MarkStyles;
+  ring: ViewStyle;
+  ringMarkBox: ViewStyle;
   bar: ViewStyle;
-  gauge: ViewStyle;
-  mark: ViewStyle;
-  markText: TextStyle;
-  markImage: ImageStyle;
-  card: ViewStyle;
+  barTrack: ViewStyle;
+  barFill: ViewStyle;
+  cardBody: ViewStyle;
   cardTitle: TextStyle;
   cardHeadline: TextStyle;
   cardDetail: TextStyle;
   cardMeter: ViewStyle;
   cardRefresh: ViewStyle;
   cardWindow: ViewStyle;
-  cardCatcher: ViewStyle;
   cardIconAction: ViewStyle;
   cardRow: ViewStyle;
   cardRule: ViewStyle;
@@ -161,75 +150,62 @@ interface PillStyles {
   terminalOutput: ViewStyle;
   terminalLine: TextStyle;
   terminalActions: ViewStyle;
-  pillContent: ViewStyle;
 }
 
-function createPillStyles(theme: PluginComposerPillProps["theme"], plate: string): PillStyles {
+function createPillStyles(theme: PluginTheme, plate: string, size: number): PillStyles {
   const muted = theme.colors.foregroundMuted;
   const foreground = theme.colors.foreground;
-  /**
-   * The rail hands each pill a shrinking box and clips nothing, so anything
-   * that cannot shrink spills out of its own pill on a narrow pane. The text
-   * gives way first and truncates; the mark and the gauge hold their size,
-   * because a half-drawn gauge is worse than a shortened word.
-   */
-  const shrinkable: TextStyle = { flexShrink: 1, minWidth: 0 };
-  const fixed: ViewStyle = { flexShrink: 0, flexGrow: 0 };
+  // Stated at the 14px slot, so a host that hands a smaller one still gets a
+  // mark that leaves the gauge around it readable.
+  const ringMarkSize = Math.max(4, Math.round((size * RING_MARK_SIZE) / MARK_SLOT));
+  const barMarkSize = Math.max(4, Math.round((size * BAR_MARK_SIZE) / MARK_SLOT));
   return {
-    label: { fontSize: 12, color: muted, ...shrinkable },
-    readout: { fontSize: 12, color: foreground, fontVariant: ["tabular-nums"], ...shrinkable },
-    // A stale number is still the best number available, so it dims rather
-    // than disappears.
-    stale: {
-      fontSize: 12,
-      color: muted,
-      fontVariant: ["tabular-nums"],
-      ...shrinkable,
-    },
-    pillContent: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      flexShrink: 1,
-      minWidth: 0,
-    },
-    bar: { ...fixed, width: RAIL_BAR_WIDTH },
-    gauge: fixed,
-    mark: {
-      ...fixed,
-      width: MARK_SIZE,
-      height: MARK_SIZE,
-      borderRadius: 4,
+    mark: createMarkStyles(size, plate, foreground),
+    ringMark: createMarkStyles(ringMarkSize, plate, foreground),
+    barMark: createMarkStyles(barMarkSize, plate, foreground),
+    /**
+     * `UsageMeter`'s rail ring is 14px and the host's slot is 14px, so the
+     * gauge is the whole box; the mark sits on the hole in its middle.
+     */
+    ring: {
+      width: size,
+      height: size,
       alignItems: "center",
       justifyContent: "center",
+      flexShrink: 0,
+    },
+    ringMarkBox: {
+      position: "absolute",
+      left: (size - ringMarkSize) / 2,
+      top: (size - ringMarkSize) / 2,
+    },
+    /** Mark on top, its own progress bar pinned to the foot of the same box. */
+    bar: {
+      width: size,
+      height: size,
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "space-between",
+      flexShrink: 0,
+    },
+    // Darker than the meter's own default track: the host paints the pill
+    // `surface2` while it is hovered, which would swallow the empty part.
+    barTrack: {
+      width: "100%",
+      height: MARK_BAR_HEIGHT,
+      borderRadius: MARK_BAR_HEIGHT / 2,
+      backgroundColor: theme.colors.surface0,
+      overflow: "hidden",
+      flexShrink: 0,
+    },
+    barFill: {
+      height: MARK_BAR_HEIGHT,
+      borderRadius: MARK_BAR_HEIGHT / 2,
       backgroundColor: plate,
     },
-    markText: { fontSize: 8, fontWeight: "600", color: foreground },
-    markImage: { width: MARK_SIZE, height: MARK_SIZE, borderRadius: 4, flexShrink: 0 },
-    /**
-     * Anchored to the pill rather than portalled: the host's own anchored menu
-     * belongs to the app, and a plugin only gets to draw inside its pill. The
-     * rail sets no `overflow`, so an absolute child clears the pill and floats
-     * over the transcript.
-     */
-    card: {
-      position: "absolute",
-      bottom: CARD_LIFT,
-      left: 0,
-      width: CARD_WIDTH,
-      gap: 2,
-      padding: 12,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      backgroundColor: theme.colors.surface2,
-      zIndex: 40,
-      elevation: 8,
-      shadowColor: "#000000",
-      shadowOpacity: 0.35,
-      shadowRadius: 12,
-      shadowOffset: { width: 0, height: 4 },
-    },
+    // The host draws the popover's own surface around the body, so this only
+    // spaces the rows inside it.
+    cardBody: { gap: 2 },
     cardTitle: { fontSize: 14, fontWeight: "600", color: foreground },
     cardHeadline: { fontSize: 14, fontWeight: "600", color: foreground },
     cardDetail: { fontSize: 12, color: muted },
@@ -245,18 +221,6 @@ function createPillStyles(theme: PluginComposerPillProps["theme"], plate: string
       flexShrink: 0,
     },
     cardWindow: { gap: 4, marginTop: 6 },
-    /**
-     * Reaches far past the rail in every direction so a press anywhere outside
-     * the card lands on it. Transparent, and below the card's own z-index.
-     */
-    cardCatcher: {
-      position: "absolute",
-      left: -CATCHER_REACH,
-      right: -CATCHER_REACH,
-      top: -CATCHER_REACH,
-      bottom: -CATCHER_REACH,
-      zIndex: 39,
-    },
     cardIconAction: {
       width: 24,
       height: 24,
@@ -278,9 +242,10 @@ function createPillStyles(theme: PluginComposerPillProps["theme"], plate: string
     },
     cardAction: { fontSize: 12, color: theme.colors.accent, flexShrink: 0 },
     /**
-     * The live capture of the CLI the reader launched. Fixed height rather than
-     * flowing with output length, so a chatty CLI never grows the card past the
-     * rail it hangs off; the tail is what matters, and it stays pinned in view.
+     * The live capture of the CLI the reader launched. A fixed ceiling rather
+     * than a flowing height, so a chatty CLI cannot push the rest of the body
+     * out of the host's popover; the tail is what matters, and it stays in
+     * view.
      */
     terminalOutput: {
       marginTop: 4,
@@ -308,7 +273,7 @@ function createPillStyles(theme: PluginComposerPillProps["theme"], plate: string
 /**
  * A rail-sized provider mark. `ProviderMark` in `limits.client.tsx` draws the
  * card's 24-28px mark and needs that surface's whole stylesheet to do it, which
- * a 32px pill has no use for.
+ * a 14px pill has no use for.
  */
 function PillMark({
   icon,
@@ -318,25 +283,21 @@ function PillMark({
 }: {
   icon: UsageIcon | null;
   label: string;
-  styles: PillStyles;
+  styles: MarkStyles;
   color: string;
 }) {
   if (icon?.kind === "image") {
     return (
-      <Image
-        accessibilityIgnoresInvertColors
-        source={imageSource(icon.uri)}
-        style={styles.markImage}
-      />
+      <Image accessibilityIgnoresInvertColors source={imageSource(icon.uri)} style={styles.image} />
     );
   }
   if (icon?.kind === "lucide") {
-    return <Icon name={icon.name} size={MARK_SIZE} color={color} />;
+    return <Icon name={icon.name} size={styles.size} color={color} />;
   }
   const text = icon?.kind === "monogram" ? icon.text : label;
   return (
-    <View style={styles.mark}>
-      <Text style={styles.markText}>{text.slice(0, 2).toUpperCase()}</Text>
+    <View style={styles.box}>
+      <Text style={styles.text}>{text.slice(0, 2).toUpperCase()}</Text>
     </View>
   );
 }
@@ -360,62 +321,10 @@ function findProvider(
 }
 
 /**
- * Which pill has its card open. One at a time and module-level, because every
- * pill is its own React tree and opening one has to close the last.
- *
- * A control inside the card is a child of the host's own pressable, and a
- * plugin cannot stop that press from reaching it, so a press on the dismiss
- * catcher or on Refresh would otherwise be undone by the host toggling right
- * after. Those presses claim the next toggle instead, which makes the outcome
- * the same whichever handler runs first.
- */
-let openPillId: string | null = null;
-let toggleClaimedUntil = 0;
-const openPillListeners = new Set<() => void>();
-/** Covers the host's press landing, short enough to never strand a pill. */
-const TOGGLE_CLAIM_MS = 350;
-
-export function claimNextToggle(): void {
-  toggleClaimedUntil = Date.now() + TOGGLE_CLAIM_MS;
-}
-
-export function resetToggleClaim(): void {
-  toggleClaimedUntil = 0;
-}
-
-export function toggleOpenPill(instanceKey: string): void {
-  if (Date.now() < toggleClaimedUntil) {
-    toggleClaimedUntil = 0;
-    return;
-  }
-  openPillId = openPillId === instanceKey ? null : instanceKey;
-  for (const listener of openPillListeners) listener();
-}
-
-export function closeOpenPill(claimToggle = true): void {
-  if (claimToggle) {
-    claimNextToggle();
-  }
-  if (openPillId === null) {
-    return;
-  }
-  openPillId = null;
-  for (const listener of openPillListeners) listener();
-}
-
-function subscribeOpenPill(listener: () => void): () => void {
-  openPillListeners.add(listener);
-  return () => {
-    openPillListeners.delete(listener);
-  };
-}
-
-export function readOpenPill(): string | null {
-  return openPillId;
-}
-/**
- * The card a pill opens: the tracked reading in full, then one row per other
- * window so a weekly allowance is one glance away from a session figure.
+ * The body a pill's popover shows: the tracked reading in full, then one row
+ * per other window so a weekly allowance is one glance away from a session
+ * figure. The host owns the popover's surface, its placement and its
+ * dismissal, so this draws the rows and nothing around them.
  */
 function PillCard({
   provider,
@@ -423,16 +332,16 @@ function PillCard({
   styles,
   tone,
   theme,
-  anchorRef,
   workspaceId,
+  close,
 }: {
   provider: UsageProviderSnapshot;
   metrics: PillMetrics | null;
   styles: PillStyles;
   tone: string;
-  theme: PluginComposerPillProps["theme"];
-  anchorRef?: { current: View | null };
+  theme: PluginTheme;
   workspaceId: string;
+  close: () => void;
 }) {
   const now = useTickingClock();
   const { refreshing, refresh } = useProviderRefresh(provider.fetchedAt);
@@ -460,217 +369,131 @@ function PillCard({
   const headlineStyle = useMemo(() => [styles.cardHeadline, { color: tone }], [styles, tone]);
   const trackedWindow = useMemo(() => trackedReadingWindow(provider, metrics), [metrics, provider]);
   /**
-   * Opens this provider's own editor. Closing the card is the host press
-   * firing alongside this one, which is the wanted order: the card gets out of
-   * the way and the settings screen takes over.
+   * Opens this provider's own editor and drops the popover: once the settings
+   * surface is what the reader is looking at, the card has said its piece.
    */
   const openProviderSettings = useCallback(() => {
     requestProviderEditor(provider.providerId);
     clientContext?.openSurface(SETTINGS_SURFACE_ID);
-  }, [provider.providerId]);
-  const closeCard = useCallback(() => {
-    closeOpenPill();
-  }, []);
-  const cardRef = useRef<View | null>(null);
-  const [cardOffset, setCardOffset] = useState<{ left: number; maxWidth: number }>({
-    left: 0,
-    maxWidth: CARD_WIDTH,
-  });
-
-  const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
-
-  useIsomorphicLayoutEffect(() => {
-    const el = anchorRef?.current as unknown as HTMLElement | null;
-    if (!el || typeof document === "undefined") {
-      return;
-    }
-    const pane = findPaneElement(el);
-    const updateOffset = () => {
-      const paneRect = pane?.getBoundingClientRect?.();
-      const pillRect = el.getBoundingClientRect?.();
-      if (!paneRect || !pillRect) {
-        return;
-      }
-      setCardOffset(
-        computeCardPlacement({
-          pillLeft: pillRect.left,
-          paneLeft: paneRect.left,
-          paneRight: paneRect.right,
-        }),
-      );
-    };
-    updateOffset();
-    if (typeof ResizeObserver !== "undefined" && pane) {
-      const observer = new ResizeObserver(updateOffset);
-      observer.observe(pane);
-      return () => {
-        observer.disconnect();
-      };
-    }
-  }, [anchorRef]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
-      const cardEl = cardRef.current as unknown as HTMLElement | null;
-      if (cardEl && !cardEl.contains(e.target as Node)) {
-        closeCard();
-      }
-    };
-    window.addEventListener("pointerdown", handlePointerDown, true);
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown, true);
-    };
-  }, [closeCard]);
-
-  const cardStyle = useMemo<ViewStyle[]>(
-    () => [
-      styles.card,
-      {
-        left: cardOffset.left,
-        width: Math.min(CARD_WIDTH, cardOffset.maxWidth),
-      },
-    ],
-    [styles.card, cardOffset],
-  );
+    close();
+  }, [close, provider.providerId]);
 
   return (
-    <>
-      {/*
-       * Dismisses on a press anywhere else. A plugin cannot reach the host's
-       * overlay host, so the catcher is a child of the pill stretched well past
-       * the composer. It sits under the card and above everything else, which
-       * is what makes the first click outside close rather than act.
-       */}
-      <Pressable
-        accessibilityLabel={`Close ${provider.label} usage`}
-        accessibilityRole="button"
-        onPress={closeCard}
-        style={styles.cardCatcher}
-      />
-      <View ref={cardRef} style={cardStyle}>
-        <View style={styles.cardRow}>
-          <Text numberOfLines={1} style={styles.cardTitle}>
-            {metrics?.windowLabel === null || metrics === null
-              ? provider.label
-              : `${provider.label} · ${metrics.windowLabel}`}
-          </Text>
-          <Pressable
-            accessibilityLabel={`Refresh ${provider.label} usage`}
-            accessibilityRole="button"
-            accessibilityState={refreshing ? CARD_BUSY : CARD_IDLE}
-            disabled={refreshing}
-            onPress={refresh}
-            style={styles.cardRefresh}
-          >
-            <Icon
-              name="RefreshCw"
-              size={13}
-              color={refreshing ? theme.colors.foregroundMuted : theme.colors.foreground}
-            />
-          </Pressable>
-        </View>
-        {headline === null ? null : <Text style={headlineStyle}>{headline}</Text>}
-        {metrics === null || metrics.percentFilled === null ? null : (
-          <View style={styles.cardMeter}>
-            <UsageMeter
-              percentUsed={metrics.percentUsed ?? 0}
-              percentFilled={metrics.percentFilled}
-              pacePercent={quotaPacePercent(trackedWindow, now)}
-              style={CARD_METER_STYLE}
-              trackColor={theme.colors.surface0}
-              theme={theme}
-              compact
-            />
-          </View>
-        )}
-        {amounts === null ? null : <Text style={styles.cardDetail}>{amounts}</Text>}
-        {resets === null ? null : <Text style={styles.cardDetail}>{resets}</Text>}
-        {provider.notice === null ? null : <Text style={styles.cardDetail}>{provider.notice}</Text>}
-        {provider.error === null ? null : <Text style={styles.cardDetail}>{provider.error}</Text>}
-        <CodexBankedResetAction
-          provider={provider}
-          theme={theme}
-          compact
-          beforeAction={claimNextToggle}
-        />
-        {provider.authRefreshCommand === null ? null : terminalRefresh.status === "idle" ? (
-          <Pressable
-            accessibilityLabel={`Refresh ${provider.label} credentials by running ${provider.authRefreshCommand}`}
-            accessibilityRole="button"
-            onPress={terminalRefresh.start}
-          >
-            <Text style={styles.cardAction}>Refresh via terminal</Text>
-          </Pressable>
-        ) : (
-          <>
-            <View style={styles.terminalOutput}>
-              <Text style={styles.terminalLine}>
-                {terminalRefresh.lines.length === 0
-                  ? `Starting \`${provider.authRefreshCommand}\`…`
-                  : terminalRefresh.lines.join("\n")}
-              </Text>
-            </View>
-            <View style={styles.terminalActions}>
-              <Text style={styles.cardDetail}>
-                {terminalRefresh.status === "running" ? "Running…" : "Done."}
-              </Text>
-              {terminalRefresh.status === "running" ? (
-                <Pressable
-                  accessibilityLabel={`Stop refreshing ${provider.label} credentials`}
-                  accessibilityRole="button"
-                  onPress={terminalRefresh.stop}
-                >
-                  <Text style={styles.cardAction}>Stop</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </>
-        )}
-        {others.length === 0 ? null : (
-          <>
-            <View style={styles.cardRule} />
-            {others.map((row) => (
-              <View key={row.id} style={styles.cardWindow}>
-                <View style={styles.cardRow}>
-                  <Text numberOfLines={1} style={styles.cardDetail}>
-                    {row.name}
-                  </Text>
-                  <Text style={styles.cardDetail}>{row.readout}</Text>
-                </View>
-                {row.percentFilled === null ? null : (
-                  <UsageMeter
-                    percentUsed={row.percentUsed ?? 0}
-                    percentFilled={row.percentFilled}
-                    pacePercent={quotaPacePercent(row.window, now)}
-                    style={CARD_METER_STYLE}
-                    trackColor={theme.colors.surface0}
-                    theme={theme}
-                    compact
-                  />
-                )}
-              </View>
-            ))}
-          </>
-        )}
-        <View style={styles.cardRule} />
-        <View style={styles.cardRow}>
-          <Text numberOfLines={1} style={styles.cardDetail}>
-            {refreshing ? "Refreshing…" : (updated ?? provider.label)}
-          </Text>
-          <Pressable
-            accessibilityLabel={`${provider.label} settings`}
-            accessibilityRole="button"
-            onPress={openProviderSettings}
-            style={styles.cardIconAction}
-          >
-            <Icon name="Settings2" size={13} color={theme.colors.accent} />
-          </Pressable>
-        </View>
+    <View style={styles.cardBody}>
+      <View style={styles.cardRow}>
+        <Text numberOfLines={1} style={styles.cardTitle}>
+          {metrics?.windowLabel === null || metrics === null
+            ? provider.label
+            : `${provider.label} · ${metrics.windowLabel}`}
+        </Text>
+        <Pressable
+          accessibilityLabel={`Refresh ${provider.label} usage`}
+          accessibilityRole="button"
+          accessibilityState={refreshing ? CARD_BUSY : CARD_IDLE}
+          disabled={refreshing}
+          onPress={refresh}
+          style={styles.cardRefresh}
+        >
+          <Icon
+            name="RefreshCw"
+            size={13}
+            color={refreshing ? theme.colors.foregroundMuted : theme.colors.foreground}
+          />
+        </Pressable>
       </View>
-    </>
+      {headline === null ? null : <Text style={headlineStyle}>{headline}</Text>}
+      {metrics === null || metrics.percentFilled === null ? null : (
+        <View style={styles.cardMeter}>
+          <UsageMeter
+            percentUsed={metrics.percentUsed ?? 0}
+            percentFilled={metrics.percentFilled}
+            pacePercent={quotaPacePercent(trackedWindow, now)}
+            style={CARD_METER_STYLE}
+            trackColor={theme.colors.surface0}
+            theme={theme}
+            compact
+          />
+        </View>
+      )}
+      {amounts === null ? null : <Text style={styles.cardDetail}>{amounts}</Text>}
+      {resets === null ? null : <Text style={styles.cardDetail}>{resets}</Text>}
+      {provider.notice === null ? null : <Text style={styles.cardDetail}>{provider.notice}</Text>}
+      {provider.error === null ? null : <Text style={styles.cardDetail}>{provider.error}</Text>}
+      <CodexBankedResetAction provider={provider} theme={theme} compact />
+      {provider.authRefreshCommand === null ? null : terminalRefresh.status === "idle" ? (
+        <Pressable
+          accessibilityLabel={`Refresh ${provider.label} credentials by running ${provider.authRefreshCommand}`}
+          accessibilityRole="button"
+          onPress={terminalRefresh.start}
+        >
+          <Text style={styles.cardAction}>Refresh via terminal</Text>
+        </Pressable>
+      ) : (
+        <>
+          <View style={styles.terminalOutput}>
+            <Text style={styles.terminalLine}>
+              {terminalRefresh.lines.length === 0
+                ? `Starting \`${provider.authRefreshCommand}\`…`
+                : terminalRefresh.lines.join("\n")}
+            </Text>
+          </View>
+          <View style={styles.terminalActions}>
+            <Text style={styles.cardDetail}>
+              {terminalRefresh.status === "running" ? "Running…" : "Done."}
+            </Text>
+            {terminalRefresh.status === "running" ? (
+              <Pressable
+                accessibilityLabel={`Stop refreshing ${provider.label} credentials`}
+                accessibilityRole="button"
+                onPress={terminalRefresh.stop}
+              >
+                <Text style={styles.cardAction}>Stop</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </>
+      )}
+      {others.length === 0 ? null : (
+        <>
+          <View style={styles.cardRule} />
+          {others.map((row) => (
+            <View key={row.id} style={styles.cardWindow}>
+              <View style={styles.cardRow}>
+                <Text numberOfLines={1} style={styles.cardDetail}>
+                  {row.name}
+                </Text>
+                <Text style={styles.cardDetail}>{row.readout}</Text>
+              </View>
+              {row.percentFilled === null ? null : (
+                <UsageMeter
+                  percentUsed={row.percentUsed ?? 0}
+                  percentFilled={row.percentFilled}
+                  pacePercent={quotaPacePercent(row.window, now)}
+                  style={CARD_METER_STYLE}
+                  trackColor={theme.colors.surface0}
+                  theme={theme}
+                  compact
+                />
+              )}
+            </View>
+          ))}
+        </>
+      )}
+      <View style={styles.cardRule} />
+      <View style={styles.cardRow}>
+        <Text numberOfLines={1} style={styles.cardDetail}>
+          {refreshing ? "Refreshing…" : (updated ?? provider.label)}
+        </Text>
+        <Pressable
+          accessibilityLabel={`${provider.label} settings`}
+          accessibilityRole="button"
+          onPress={openProviderSettings}
+          style={styles.cardIconAction}
+        >
+          <Icon name="Settings2" size={13} color={theme.colors.accent} />
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -711,11 +534,8 @@ function useProviderRefresh(fetchedAt: string | null): {
     })();
   }, [queryClient, readSnapshot]);
   const refresh = useCallback(() => {
-    // Only a pressed refresh claims the toggle: the press reaches the host's
-    // pressable too and would close the card the reader is watching. The
-    // automatic one runs from an effect, where no press is in flight, and
-    // claiming there would swallow the reader's next press instead.
-    claimNextToggle();
+    // The host owns the popover, so a press inside the card does not travel
+    // through the pill's own trigger; nothing has to be claimed here.
     runRefresh();
   }, [runRefresh]);
   const aged =
@@ -945,25 +765,25 @@ function trackedAmounts(provider: UsageProviderSnapshot, metrics: PillMetrics): 
 }
 
 /**
- * One component per provider, cached: the host remounts a pill when its
+ * One icon per provider, cached: the host remounts a button when its icon
  * component identity changes, so building a new one on every poll would reset
  * the pill on a one-minute cycle.
  */
-const pillComponents = new Map<string, ComponentType<PluginComposerPillProps>>();
+const pillIcons = new Map<string, ComponentType<PluginButtonIconProps>>();
 
-export function pillComponentFor(providerId: string): ComponentType<PluginComposerPillProps> {
-  const existing = pillComponents.get(providerId);
+export function pillIconFor(providerId: string): ComponentType<PluginButtonIconProps> {
+  const existing = pillIcons.get(providerId);
   if (existing !== undefined) {
     return existing;
   }
-  function UsagePillContent({ theme, agentId, layout, workspaceId }: PluginComposerPillProps) {
+  function UsagePillIcon({ theme, size }: PluginButtonIconProps) {
     const readSnapshot = useRpc(readUsageLimits);
     // Shares the panel's key, so the rail costs no extra request and both
     // surfaces always agree on the numbers.
     const { data } = useQuery({
       queryKey: USAGE_LIMITS_QUERY_KEY,
       queryFn: () => readSnapshot({ refresh: false }),
-      refetchInterval: LIMITS_POLL_MS,
+      refetchInterval: (query) => limitsPollInterval(query.state.data),
       refetchOnWindowFocus: Platform.OS === "web",
     });
     const provider = findProvider(data?.providers, providerId);
@@ -973,131 +793,166 @@ export function pillComponentFor(providerId: string): ComponentType<PluginCompos
         ? null
         : selectPillReading(provider.readings, settings.reading);
     const metrics = reading === null || settings === null ? null : pillMetrics(reading, settings);
-    const failed = provider?.status === "error";
-    const stale = provider?.notice !== null && provider?.notice !== undefined;
-    const tone = failed ? theme.colors.statusDanger : usageTone(metrics?.percentUsed ?? 0, theme);
-    const styles = useMemo(() => createPillStyles(theme, tone), [theme, tone]);
-    const opened = useSyncExternalStore(subscribeOpenPill, readOpenPill, readOpenPill);
-    const pillKey = pillInstanceKey(agentId, providerId);
-    const containerRef = useRef<View | null>(null);
-    const [paneWidth, setPaneWidth] = useState<number | null>(null);
-
-    const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
-
-    useIsomorphicLayoutEffect(() => {
-      const el = containerRef.current as unknown as HTMLElement | null;
-      if (!el || typeof document === "undefined") {
-        return;
-      }
-      const pane = findPaneElement(el);
-      if (!pane) {
-        return;
-      }
-      const updateWidth = () => {
-        const rect = pane.getBoundingClientRect?.();
-        if (rect && Number.isFinite(rect.width) && rect.width > 0) {
-          setPaneWidth(rect.width);
-        }
-      };
-      updateWidth();
-      if (typeof ResizeObserver !== "undefined") {
-        const observer = new ResizeObserver((entries) => {
-          for (const entry of entries) {
-            if (entry.contentRect.width > 0) {
-              setPaneWidth(entry.contentRect.width);
-            }
-          }
-        });
-        observer.observe(pane);
-        return () => {
-          observer.disconnect();
-        };
-      }
-    }, []);
-
-    const isNarrow = Boolean(
-      layout?.compact || (paneWidth !== null && paneWidth < NARROW_PANE_WIDTH),
-    );
-    const labelText = resolveLabel(settings?.label ?? "none", provider, metrics?.readingLabel);
-    const showGauge =
-      !isNarrow &&
-      settings !== null &&
-      settings.style !== "none" &&
-      metrics?.percentFilled !== null;
-    return (
-      <View ref={containerRef} style={styles.pillContent}>
-        <PillMark
-          icon={provider?.icon ?? null}
-          label={provider?.label ?? providerId}
-          styles={styles}
-          color={tone}
-        />
-        {!isNarrow && labelText !== null ? (
-          <Text numberOfLines={1} style={styles.label}>
-            {labelText}
-          </Text>
-        ) : null}
-        {showGauge && metrics !== null && settings !== null ? (
-          <View style={settings.style === "bar" ? styles.bar : styles.gauge}>
-            <UsageMeter
-              percentUsed={metrics.percentUsed ?? 0}
-              percentFilled={metrics.percentFilled ?? 0}
-              pacePercent={null}
-              style={settings.style === "ring" ? "ring" : "bar"}
-              scale="rail"
-              // The host paints the pill `surface2` while hovered, which is the
-              // meter's own default track, so the empty part of the gauge
-              // vanished under the cursor.
-              trackColor={theme.colors.surface0}
-              theme={theme}
-              compact
-            />
-          </View>
-        ) : null}
-        {!isNarrow && settings?.readout !== "none" ? (
-          <Text style={stale ? styles.stale : styles.readout}>{metrics?.readout ?? EM_DASH}</Text>
-        ) : null}
-        {opened === pillKey && provider !== null ? (
-          <PillCard
-            provider={provider}
-            metrics={metrics}
-            styles={styles}
-            tone={tone}
+    // The tone carries the provider's own health, so a failed fetch reads as
+    // danger whatever the last number said.
+    const tone =
+      provider?.status === "error"
+        ? theme.colors.statusDanger
+        : usageTone(metrics?.percentUsed ?? 0, theme);
+    const styles = useMemo(() => createPillStyles(theme, tone, size), [theme, tone, size]);
+    const mark = {
+      icon: provider?.icon ?? null,
+      label: provider?.label ?? providerId,
+      color: tone,
+    };
+    /**
+     * A provider that has not opted onto the rail, one set to no gauge, or a
+     * reading with no ceiling to draw: the mark alone still says which
+     * provider the pill belongs to.
+     */
+    if (
+      settings === null ||
+      settings.style === "none" ||
+      metrics === null ||
+      metrics.percentFilled === null
+    ) {
+      return <PillMark {...mark} styles={styles.mark} />;
+    }
+    if (settings.style === "ring") {
+      return (
+        <View style={styles.ring}>
+          <UsageMeter
+            percentUsed={metrics.percentUsed ?? 0}
+            percentFilled={metrics.percentFilled}
+            pacePercent={null}
+            style={RAIL_METER_STYLE}
+            scale="rail"
+            trackColor={theme.colors.surface0}
             theme={theme}
-            anchorRef={containerRef}
-            workspaceId={workspaceId}
+            compact
           />
-        ) : null}
+          <View style={styles.ringMarkBox}>
+            <PillMark {...mark} styles={styles.ringMark} />
+          </View>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.bar}>
+        <PillMark {...mark} styles={styles.barMark} />
+        <View style={styles.barTrack}>
+          <View style={[styles.barFill, { width: `${clampPercent(metrics.percentFilled)}%` }]} />
+        </View>
       </View>
     );
   }
-  UsagePillContent.displayName = `UsagePillContent(${providerId})`;
-  pillComponents.set(providerId, UsagePillContent);
-  return UsagePillContent;
-}
-
-function resolveLabel(
-  mode: "provider" | "reading" | "none",
-  provider: UsageProviderSnapshot | null,
-  readingLabel: string | undefined,
-): string | null {
-  if (mode === "none") {
-    return null;
-  }
-  if (mode === "reading") {
-    return readingLabel ?? provider?.label ?? null;
-  }
-  return provider?.label ?? null;
+  UsagePillIcon.displayName = `UsagePillIcon(${providerId})`;
+  pillIcons.set(providerId, UsagePillIcon);
+  return UsagePillIcon;
 }
 
 /**
- * The host copies a contribution's fields once, so a pill re-registers only
- * when one of them changes. The selection a rule reads is part of that: an
- * agent that switches model must lose the pills that no longer match it.
+ * One card body per provider, cached for the same reason its icon is.
+ */
+const pillContents = new Map<string, ComponentType<PluginButtonContentProps>>();
+
+export function pillContentFor(providerId: string): ComponentType<PluginButtonContentProps> {
+  const existing = pillContents.get(providerId);
+  if (existing !== undefined) {
+    return existing;
+  }
+  function UsagePillCard({ theme, workspaceId, close }: PluginButtonContentProps) {
+    const readSnapshot = useRpc(readUsageLimits);
+    const { data } = useQuery({
+      queryKey: USAGE_LIMITS_QUERY_KEY,
+      queryFn: () => readSnapshot({ refresh: false }),
+      refetchInterval: (query) => limitsPollInterval(query.state.data),
+      refetchOnWindowFocus: Platform.OS === "web",
+    });
+    const provider = findProvider(data?.providers, providerId);
+    const settings = provider === null ? null : resolvePillSettings(provider.display);
+    const reading =
+      provider === null || settings === null
+        ? null
+        : selectPillReading(provider.readings, settings.reading);
+    const metrics = reading === null || settings === null ? null : pillMetrics(reading, settings);
+    const tone =
+      provider?.status === "error"
+        ? theme.colors.statusDanger
+        : usageTone(metrics?.percentUsed ?? 0, theme);
+    // The card draws no mark, but it shares the stylesheet, and the rail slot
+    // is what its mark sizes are stated at.
+    const styles = useMemo(() => createPillStyles(theme, tone, MARK_SLOT), [theme, tone]);
+    // Nothing to draw before the first snapshot lands, and nothing to draw if
+    // the provider has since left it.
+    if (provider === null) {
+      return null;
+    }
+    return (
+      <PillCard
+        provider={provider}
+        metrics={metrics}
+        styles={styles}
+        tone={tone}
+        theme={theme}
+        workspaceId={workspaceId}
+        close={close}
+      />
+    );
+  }
+  UsagePillCard.displayName = `UsagePillCard(${providerId})`;
+  pillContents.set(providerId, UsagePillCard);
+  return UsagePillCard;
+}
+
+/**
+ * The host renders exactly one text line per pill, so the three things the old
+ * two-slot pill drew separately are joined here. The host always renders text —
+ * an omitted label falls back to the title — so an empty join falls back to the
+ * provider's own name.
+ */
+function composerPillLabel(
+  provider: UsageProviderSnapshot,
+  settings: ResolvedPillSettings,
+  metrics: PillMetrics | null,
+): string {
+  const parts: string[] = [];
+  if (settings.label === "provider") {
+    parts.push(provider.label);
+  }
+  if (settings.label === "reading" && metrics !== null) {
+    parts.push(metrics.readingLabel);
+  }
+  if (settings.readout === "percent" || settings.readout === "amount") {
+    // A stale reading keeps its number: the last good one beats a dash, and
+    // the card says why it did not move.
+    parts.push(metrics?.readout ?? EM_DASH);
+  }
+  const joined = parts.filter((part) => part !== "").join(" · ");
+  return joined === "" ? provider.label : joined;
+}
+
+/** The label for one entry, from the snapshot the poll last published. */
+function entryLabel(provider: UsageProviderSnapshot | null, entry: ComposerPillEntry): string {
+  if (provider === null) {
+    return entry.providerLabel;
+  }
+  const reading = selectPillReading(provider.readings, entry.settings.reading);
+  const metrics = reading === null ? null : pillMetrics(reading, entry.settings);
+  return composerPillLabel(provider, entry.settings, metrics);
+}
+
+/**
+ * A pill's live registration with the host. The handle updates the button in
+ * place, so a pill whose text changes keeps its identity and its place on the
+ * rail; only a pill that is no longer wanted is removed and re-added.
  */
 interface Registration {
-  remove: () => void;
-  signature: string;
+  handle: PluginButtonRegistration;
+  /** The one contribution field `update` cannot change, so a change here re-registers. */
+  workspaceId: string;
+  title: string;
+  label: string;
 }
 
 interface AgentSelection {
@@ -1131,24 +986,26 @@ interface WantedPill {
   agentId: string;
   workspaceId: string;
   entry: ComposerPillEntry;
-  /** Only the fields the host copies; a change here forces re-registration. */
-  signature: string;
+  title: string;
+  label: string;
 }
 
 /**
  * Pills are per agent, and the host wants one registration per composer, so the
  * live set is the cross product of open agents and the providers whose rules
- * accept that agent's own harness and model. The component reads the numbers
- * itself; this loop only decides which pills exist.
+ * accept that agent's own harness and model. The icon reads the numbers itself;
+ * this loop decides which pills exist and what text each one carries.
  */
 export function contributeComposerPills(client: PluginClientContext): () => void {
-  // A panel component gets theme, host and layout, and no way to open anything.
-  // The client entrypoint is the only place holding that capability, so the
-  // detail panel borrows it from here rather than duplicating navigation.
+  // A popover's content gets theme, host and layout, and no way to open
+  // anything. The client entrypoint is the only place holding that capability,
+  // so the card body borrows it from here rather than duplicating navigation.
   clientContext = client;
   const selectionByAgent = new Map<string, AgentSelection>();
   const registrations = new Map<string, Registration>();
   let entries: ComposerPillEntry[] = [];
+  let providers: readonly UsageProviderSnapshot[] = [];
+  let live = false;
   let stopped = false;
 
   function sync(): void {
@@ -1165,36 +1022,48 @@ export function contributeComposerPills(client: PluginClientContext): () => void
           agentId,
           workspaceId: selection.workspaceId,
           entry,
-          signature: JSON.stringify([selection.workspaceId, entry.providerLabel]),
+          title: `${entry.providerLabel} usage`,
+          label: entryLabel(findProvider(providers, entry.providerId), entry),
         });
       }
     }
     for (const [key, registration] of registrations) {
       const target = wanted.get(key);
-      if (target !== undefined && target.signature === registration.signature) {
+      // The host copies the workspace once, so a pill that moves pane is a new
+      // registration rather than an update; everything else publishes in place.
+      if (target === undefined || target.workspaceId !== registration.workspaceId) {
+        registration.handle.remove();
+        registrations.delete(key);
         continue;
       }
-      registration.remove();
-      registrations.delete(key);
+      if (registration.title !== target.title) {
+        registration.handle.update({ title: target.title });
+        registration.title = target.title;
+      }
+      if (registration.label !== target.label) {
+        registration.handle.update({ label: target.label });
+        registration.label = target.label;
+      }
     }
     for (const [key, target] of wanted) {
       if (registrations.has(key)) {
         continue;
       }
-      const { agentId, workspaceId, entry } = target;
-      const remove = client.addComposerPill({
+      const { agentId, workspaceId, entry, title, label } = target;
+      const handle = client.addComposerPill({
         id: composerPillId(entry.providerId),
-        title: `${entry.providerLabel} usage`,
         workspaceId,
         agentId,
-        Component: pillComponentFor(entry.providerId),
-        onPress() {
-          // The card opens in place, anchored to the pill. A second press closes
-          // it, and opening another pill's card closes this one.
-          toggleOpenPill(pillInstanceKey(agentId, entry.providerId));
+        button: {
+          title,
+          label,
+          icon: pillIconFor(entry.providerId),
+          // The host anchors, contains, scrolls and dismisses this popover;
+          // the card draws its body and nothing around it.
+          behavior: { kind: "popover", Content: pillContentFor(entry.providerId) },
         },
       });
-      registrations.set(key, { remove, signature: target.signature });
+      registrations.set(key, { handle, workspaceId, title, label });
     }
   }
 
@@ -1240,6 +1109,8 @@ export function contributeComposerPills(client: PluginClientContext): () => void
       return;
     }
     entries = selectComposerPills(snapshot.providers);
+    providers = snapshot.providers;
+    live = snapshot.providers.some((provider) => provider.live);
     for (const entry of directory.entries) {
       trackAgent(entry.agent);
     }
@@ -1267,14 +1138,26 @@ export function contributeComposerPills(client: PluginClientContext): () => void
   });
 
   refreshQuietly();
-  const timer = setInterval(refreshQuietly, LIMITS_POLL_MS);
+  // Re-armed rather than fixed, so a watched file source gets the shorter poll
+  // as soon as one appears in the snapshot.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  function scheduleRefresh(): void {
+    timer = setTimeout(
+      () => {
+        refreshQuietly();
+        scheduleRefresh();
+      },
+      live ? LIVE_LIMITS_POLL_MS : LIMITS_POLL_MS,
+    );
+  }
+  scheduleRefresh();
 
   return () => {
     stopped = true;
-    clearInterval(timer);
+    clearTimeout(timer);
     unsubscribe();
     for (const registration of registrations.values()) {
-      registration.remove();
+      registration.handle.remove();
     }
     registrations.clear();
   };

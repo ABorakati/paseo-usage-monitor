@@ -222,15 +222,16 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
    * preset reports two readings where `claude` reports three.
    *
    * It carries no credential at all. What it needs instead is the hook
-   * installed, which `statusline-hook.sh` and the README cover; until then the
+   * installed, which the Usage provider settings surface does; until then the
    * card says which paths it looked in.
    */
   "claude-statusline": definePreset({
     label: "Claude",
     icon: { kind: "monogram", text: "Cl", color: "#D97706" },
     description: "Claude Code session and weekly limits, read from its own statusline output",
-    // A local file costs a read, so this refreshes as often as the panel asks
-    // rather than on the endpoint's thirty-minute budget.
+    // The daemon watches this file and drops the cached reading when the hook
+    // rewrites it, and the panel polls a live provider every fifteen seconds,
+    // so this interval is only the backstop for a file that stops changing.
     refreshIntervalMs: 60_000,
     source: {
       kind: "file",

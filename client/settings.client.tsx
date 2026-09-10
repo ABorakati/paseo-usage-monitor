@@ -8,6 +8,7 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useState,
   useSyncExternalStore,
 } from "react";
 import type { input as ZodInput, ZodError } from "zod";
@@ -34,6 +35,12 @@ import {
   type UsageProviderWrite,
 } from "../shared/config.shared";
 import {
+  installClaudeStatusLine,
+  readClaudeStatusLine,
+  uninstallClaudeStatusLine,
+  type ClaudeStatusLineStatus,
+} from "../shared/claude-hook.shared";
+import {
   USAGE_PROVIDER_ID_PATTERN,
   UsageDisplaySchema,
   UsageProviderOverrideSchema,
@@ -50,10 +57,18 @@ import {
 } from "./editor-request.client";
 import { getUsagePreset } from "../shared/presets.shared";
 import { getDefaultPillMatchRules, isDashboardVisible } from "../shared/pills.shared";
+import {
+  LIMIT_ALERT_SETTINGS_QUERY_KEY,
+  readLimitAlertSettings,
+  writeLimitAlertSettings,
+  type LimitAlertSettings,
+} from "../shared/limit-alerts.shared";
+import { splitHandoffValue, useHandoffOptions } from "./limit-alerts.client";
 import { TooltipPressable as Pressable } from "./tooltip.client";
 
 const CONFIG_QUERY_KEY = ["usage-config"];
 const LIMITS_QUERY_KEY = ["usage-limits"];
+const CLAUDE_STATUSLINE_QUERY_KEY = ["usage-claude-statusline"];
 const UNITS = ["tokens", "requests", "credits", "flows", "usd", "percent"];
 const READING_KINDS: readonly ReadingDraft["kind"][] = ["quota", "balance", "rate"];
 const ACCESS_SELECTED = { selected: true, disabled: false };
@@ -270,6 +285,25 @@ interface ChoiceProps {
   onPress(): void;
   styles: SettingsStyles;
   disabled?: boolean;
+}
+
+interface HandoffProviderChoiceProps {
+  provider: string;
+  label: string;
+  selected: boolean;
+  disabled: boolean;
+  styles: SettingsStyles;
+  onSelect(provider: string): void;
+}
+
+interface HandoffModelChoiceProps {
+  provider: string;
+  modelId: string;
+  label: string;
+  selected: boolean;
+  disabled: boolean;
+  styles: SettingsStyles;
+  onSelect(provider: string, modelId: string): void;
 }
 
 interface ActionButtonProps {
@@ -1242,6 +1276,51 @@ function Choice({ label, selected, onPress, styles, disabled = false }: ChoicePr
     >
       <Text style={selected ? styles.primaryButtonText : styles.buttonText}>{label}</Text>
     </Pressable>
+  );
+}
+
+/**
+ * A provider or model choice owns its press callback, because a `map` cannot.
+ * Both drive the same saved `provider/model` value through the settings RPC.
+ */
+function HandoffProviderChoice({
+  provider,
+  label,
+  selected,
+  disabled,
+  styles,
+  onSelect,
+}: HandoffProviderChoiceProps) {
+  const select = useCallback(() => onSelect(provider), [onSelect, provider]);
+  return (
+    <Choice
+      label={label}
+      selected={selected}
+      disabled={disabled}
+      onPress={select}
+      styles={styles}
+    />
+  );
+}
+
+function HandoffModelChoice({
+  provider,
+  modelId,
+  label,
+  selected,
+  disabled,
+  styles,
+  onSelect,
+}: HandoffModelChoiceProps) {
+  const select = useCallback(() => onSelect(provider, modelId), [modelId, onSelect, provider]);
+  return (
+    <Choice
+      label={label}
+      selected={selected}
+      disabled={disabled}
+      onPress={select}
+      styles={styles}
+    />
   );
 }
 
@@ -2543,6 +2622,136 @@ function ConfiguredProviders({
   );
 }
 
+interface ClaudeStatusLineProps {
+  config: UsageConfigState;
+  switching: boolean;
+  styles: SettingsStyles;
+  onUseLiveReadings(): void;
+}
+
+/**
+ * Claude Code's statusLine slot holds one command, so this plugin cannot add a
+ * second reader beside whatever the user already runs. Installing the hook
+ * takes the slot and forwards the payload to the command it displaced, which
+ * keeps that command's output as the visible status line while the same
+ * document lands in the file the `claude-statusline` preset reads.
+ */
+function ClaudeStatusLine({ config, switching, styles, onUseLiveReadings }: ClaudeStatusLineProps) {
+  const readStatus = useRpc(readClaudeStatusLine);
+  const installHook = useRpc(installClaudeStatusLine);
+  const uninstallHook = useRpc(uninstallClaudeStatusLine);
+  const queryClient = useQueryClient();
+  const statusQuery = useQuery({
+    queryKey: CLAUDE_STATUSLINE_QUERY_KEY,
+    queryFn: () => readStatus({}),
+  });
+  const apply = useCallback(
+    (status: ClaudeStatusLineStatus) => {
+      queryClient.setQueryData(CLAUDE_STATUSLINE_QUERY_KEY, status);
+      void queryClient.invalidateQueries({ queryKey: LIMITS_QUERY_KEY });
+    },
+    [queryClient],
+  );
+  const installMutation = useMutation({
+    mutationFn: () => installHook({}),
+    onSuccess: apply,
+  });
+  const uninstallMutation = useMutation({
+    mutationFn: () => uninstallHook({}),
+    onSuccess: apply,
+  });
+  const status = statusQuery.data;
+  const busy = installMutation.isPending || uninstallMutation.isPending;
+  const message =
+    installMutation.data?.message ?? uninstallMutation.data?.message ?? status?.message ?? null;
+  const usingStatusLinePreset = config.providers.claude?.preset === "claude-statusline";
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Claude Code status line</Text>
+      <Text style={styles.muted}>
+        Claude Code hands its rate limits to the status line command every turn. The hook records
+        them locally, so the readings land when a turn ends instead of on the endpoint&apos;s
+        30-minute poll.
+      </Text>
+      {statusQuery.isPending ? (
+        <Text style={styles.muted}>Checking the status line setting…</Text>
+      ) : null}
+      {statusQuery.error === null ? null : (
+        <Text style={styles.error}>{statusQuery.error.message}</Text>
+      )}
+      {status === undefined ? null : (
+        <>
+          <Text style={status.installed ? styles.success : styles.muted}>
+            {status.installed ? "Installed." : "Not installed."}
+          </Text>
+          {status.currentCommand === null ? null : (
+            <>
+              <Text style={styles.muted}>Current command</Text>
+              <Text selectable style={styles.mono}>
+                {status.currentCommand}
+              </Text>
+            </>
+          )}
+          {status.wrappedCommand === null ? null : (
+            <>
+              <Text style={styles.muted}>Forwarded to</Text>
+              <Text selectable style={styles.mono}>
+                {status.wrappedCommand}
+              </Text>
+            </>
+          )}
+          <Text style={styles.muted}>Rate limit file</Text>
+          <Text selectable style={styles.mono}>
+            {status.limitsPath}
+          </Text>
+          {status.nodeCommand === null ? (
+            <Text style={styles.warning}>
+              Node.js is not on PATH, so the hook cannot run on this machine.
+            </Text>
+          ) : null}
+        </>
+      )}
+      {message === null ? null : <Text style={styles.muted}>{message}</Text>}
+      <View style={styles.wrapRow}>
+        <ActionButton
+          label={status?.installed === true ? "Reinstall" : "Install"}
+          tone="primary"
+          disabled={busy || status?.nodeCommand === null}
+          onPress={installMutation.mutate}
+          styles={styles}
+        />
+        {status?.installed === true ? (
+          <ActionButton
+            label="Remove"
+            tone="danger"
+            disabled={busy}
+            onPress={uninstallMutation.mutate}
+            styles={styles}
+          />
+        ) : null}
+      </View>
+      {status?.installed !== true ? null : usingStatusLinePreset ? (
+        <Text style={styles.success}>The claude provider reads these live readings.</Text>
+      ) : (
+        <>
+          <Text style={styles.muted}>
+            The claude provider still polls the OAuth endpoint every 30 minutes. Switching it to the
+            statusline preset trades the per-model and extra-usage rows for turn-by-turn freshness.
+          </Text>
+          <ActionButton
+            label="Use live readings"
+            tone="primary"
+            disabled={switching}
+            onPress={onUseLiveReadings}
+            styles={styles}
+          />
+        </>
+      )}
+    </View>
+  );
+}
+
 function Paths({ config, styles }: PathsProps) {
   return (
     <View style={styles.section}>
@@ -2557,6 +2766,207 @@ function Paths({ config, styles }: PathsProps) {
           {config.secretsPath}
         </Text>
       </View>
+    </View>
+  );
+}
+
+interface LimitAlertSettingsGroupProps {
+  theme: PluginTheme;
+  styles: SettingsStyles;
+}
+
+/**
+ * The usage-limit callout's own settings, loaded and saved through the alert
+ * RPCs rather than the provider config, so the group never joins the provider
+ * editor's draft. Every switch persists on press.
+ */
+function LimitAlertSettingsGroup({ theme, styles }: LimitAlertSettingsGroupProps) {
+  const readAlertSettings = useRpc(readLimitAlertSettings);
+  const writeAlertSettings = useRpc(writeLimitAlertSettings);
+  const queryClient = useQueryClient();
+  const settingsQuery = useQuery({
+    queryKey: LIMIT_ALERT_SETTINGS_QUERY_KEY,
+    queryFn: () => readAlertSettings({}),
+  });
+  const saveMutation = useMutation({
+    mutationFn: (partial: Partial<LimitAlertSettings>) => writeAlertSettings(partial),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(LIMIT_ALERT_SETTINGS_QUERY_KEY, settings);
+    },
+  });
+  const settings = settingsQuery.data;
+  const save = useCallback(
+    (partial: Partial<LimitAlertSettings>) => saveMutation.mutate(partial),
+    [saveMutation],
+  );
+  const [browsingProvider, setBrowsingProvider] = useState<string | null>(null);
+  const handoffQuery = useHandoffOptions(settings !== undefined);
+  const selection = splitHandoffValue(settings?.handoffProvider ?? null);
+  const activeProvider = browsingProvider ?? selection?.provider ?? null;
+  const activeModels =
+    (handoffQuery.data ?? []).find((option) => option.provider === activeProvider)?.models ?? [];
+  const switchTrackColor = useMemo(
+    () => ({ false: theme.colors.surface2, true: theme.colors.accent }),
+    [theme.colors.surface2, theme.colors.accent],
+  );
+
+  const toggleEnabled = useCallback((value: boolean) => save({ enabled: value }), [save]);
+  const toggleToast = useCallback((value: boolean) => save({ toast: value }), [save]);
+  const toggleAutoResume = useCallback((value: boolean) => save({ autoResume: value }), [save]);
+  const toggleAutoHandoff = useCallback((value: boolean) => save({ autoHandoff: value }), [save]);
+  const clearHandoff = useCallback(() => {
+    setBrowsingProvider(null);
+    save({ handoffProvider: null });
+  }, [save]);
+  const chooseHandoff = useCallback(
+    (provider: string, modelId: string) => {
+      setBrowsingProvider(null);
+      save({ handoffProvider: `${provider}/${modelId}` });
+    },
+    [save],
+  );
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Usage-limit alerts</Text>
+      <Text style={styles.muted}>
+        When a provider refuses a turn because the quota ran out, a callout replaces the raw error
+        with the reset time, a link to the vendor&apos;s usage page, a resume timer, and a handoff
+        picker. Changes save as you press them.
+      </Text>
+      {settingsQuery.isPending ? <Text style={styles.muted}>Loading alert settings…</Text> : null}
+      {settingsQuery.error === null ? null : (
+        <Text style={styles.error}>{settingsQuery.error.message}</Text>
+      )}
+      {saveMutation.error === null ? null : (
+        <Text style={styles.error}>{saveMutation.error.message}</Text>
+      )}
+      {settings === undefined ? null : (
+        <>
+          <View style={styles.switchRow}>
+            <View style={styles.grow}>
+              <Text style={styles.label}>Detect usage limits</Text>
+              <Text style={styles.muted}>Show the callout and record the alert</Text>
+            </View>
+            <Switch
+              value={settings.enabled}
+              onValueChange={toggleEnabled}
+              trackColor={switchTrackColor}
+              thumbColor={
+                settings.enabled ? theme.colors.accentForeground : theme.colors.foregroundMuted
+              }
+              accessibilityLabel="Detect usage limits"
+            />
+          </View>
+          <View style={styles.switchRow}>
+            <View style={styles.grow}>
+              <Text style={styles.label}>Notify</Text>
+              <Text style={styles.muted}>Show a toast when a limit is first seen</Text>
+            </View>
+            <Switch
+              value={settings.toast}
+              onValueChange={toggleToast}
+              trackColor={switchTrackColor}
+              thumbColor={
+                settings.toast ? theme.colors.accentForeground : theme.colors.foregroundMuted
+              }
+              disabled={!settings.enabled}
+              accessibilityLabel="Notify when a limit is first seen"
+            />
+          </View>
+          <View style={styles.switchRow}>
+            <View style={styles.grow}>
+              <Text style={styles.label}>Resume automatically</Text>
+              <Text style={styles.muted}>
+                Arm the continue prompt for the reset time without waiting for a press
+              </Text>
+            </View>
+            <Switch
+              value={settings.autoResume}
+              onValueChange={toggleAutoResume}
+              trackColor={switchTrackColor}
+              thumbColor={
+                settings.autoResume ? theme.colors.accentForeground : theme.colors.foregroundMuted
+              }
+              disabled={!settings.enabled}
+              accessibilityLabel="Resume automatically at the reset time"
+            />
+          </View>
+          <View style={styles.switchRow}>
+            <View style={styles.grow}>
+              <Text style={styles.label}>Hand off automatically</Text>
+              <Text style={styles.muted}>
+                Start the new agent on another provider without waiting for a press
+              </Text>
+            </View>
+            <Switch
+              value={settings.autoHandoff}
+              onValueChange={toggleAutoHandoff}
+              trackColor={switchTrackColor}
+              thumbColor={
+                settings.autoHandoff ? theme.colors.accentForeground : theme.colors.foregroundMuted
+              }
+              disabled={!settings.enabled}
+              accessibilityLabel="Hand off automatically"
+            />
+          </View>
+          <Text style={styles.label}>Default handoff target</Text>
+          <Text style={styles.muted}>
+            Offered first in the callout&apos;s picker. Pick a provider, then a model.
+          </Text>
+          <Text style={styles.muted}>
+            {settings.handoffProvider === null
+              ? "None saved"
+              : `Saved: ${settings.handoffProvider}`}
+          </Text>
+          {handoffQuery.isPending ? <Text style={styles.muted}>Loading providers…</Text> : null}
+          {handoffQuery.error === null ? null : (
+            <Text style={styles.error}>{handoffQuery.error.message}</Text>
+          )}
+          <View style={styles.wrapRow}>
+            {(handoffQuery.data ?? []).map((option) => (
+              <HandoffProviderChoice
+                key={option.provider}
+                provider={option.provider}
+                label={option.label}
+                selected={option.provider === activeProvider}
+                disabled={!settings.enabled}
+                onSelect={setBrowsingProvider}
+                styles={styles}
+              />
+            ))}
+            <Choice
+              label="None"
+              selected={selection === null}
+              disabled={!settings.enabled}
+              onPress={clearHandoff}
+              styles={styles}
+            />
+          </View>
+          {activeProvider === null ? null : (
+            <View style={styles.wrapRow}>
+              {activeModels.length === 0 ? (
+                <Text style={styles.muted}>No selectable models.</Text>
+              ) : (
+                activeModels.map((model) => (
+                  <HandoffModelChoice
+                    key={model.id}
+                    provider={activeProvider}
+                    modelId={model.id}
+                    label={model.label}
+                    selected={
+                      selection?.provider === activeProvider && selection.modelId === model.id
+                    }
+                    disabled={!settings.enabled}
+                    onSelect={chooseHandoff}
+                    styles={styles}
+                  />
+                ))
+              )}
+            </View>
+          )}
+        </>
+      )}
     </View>
   );
 }
@@ -2924,6 +3334,23 @@ export function UsageSettingsBody({ theme, layout, showHeader }: UsageSettingsBo
     },
     [testMutation],
   );
+  /**
+   * The statusline preset reads the file the hook writes. Switching only the
+   * preset keeps the card's own display settings, and the write merges into the
+   * providers already in the file rather than replacing them.
+   */
+  const useLiveClaude = useCallback(() => {
+    const entry = configQuery.data?.providers.claude;
+    if (entry === undefined) return;
+    writeMutation.mutate({
+      id: "claude",
+      entry:
+        entry.display === undefined
+          ? { preset: "claude-statusline" }
+          : { preset: "claude-statusline", display: entry.display },
+      secrets: {},
+    });
+  }, [configQuery.data, writeMutation]);
 
   const mutationError = writeMutation.error ?? removeMutation.error ?? testMutation.error;
   const errorMessage =
@@ -2955,6 +3382,15 @@ export function UsageSettingsBody({ theme, layout, showHeader }: UsageSettingsBo
             onRemove={remove}
           />
         )}
+        {configQuery.data === undefined ? null : (
+          <ClaudeStatusLine
+            config={configQuery.data}
+            switching={writeMutation.isPending}
+            styles={styles}
+            onUseLiveReadings={useLiveClaude}
+          />
+        )}
+        <LimitAlertSettingsGroup theme={theme} styles={styles} />
         {configQuery.data === undefined ? null : (
           <PresetPicker
             presets={configQuery.data.presets}
