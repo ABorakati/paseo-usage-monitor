@@ -1,0 +1,19 @@
+client/pills.client.test.ts
+  s_78d0c9873f2987::t_656e584406e33c 7,9-13,25-40,113-119,156,221-249
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "40ac2994e529f735c1965b0ecac4247ee125e288",
+  "prompts": {},
+  "sessions": {
+    "s_78d0c9873f2987": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5279a27e-1241-4dd5-a582-aa5b715d3e65",
+        "model": "claude-opus-5"
+      },
+      "human_author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
