@@ -28,12 +28,17 @@ interface StubAdapters extends CredentialAdapters {
 interface StubAdaptersInput {
   env?: NodeJS.ProcessEnv;
   files?: Record<string, string | undefined>;
+  /** Present only on a host with a Keychain, as the node adapters are. */
+  keychain?: Record<string, string | undefined>;
+  /** omp's credential vault, keyed by omp provider id; the row's `data` json. */
+  omp?: Record<string, string | undefined>;
   now?: Date;
 }
 
 function createStubAdapters(input: StubAdaptersInput): StubAdapters {
   const files = input.files ?? {};
   const reads: string[] = [];
+  const keychain = input.keychain;
   return {
     env: input.env ?? {},
     homeDir: HOME_DIR,
@@ -44,6 +49,17 @@ function createStubAdapters(input: StubAdaptersInput): StubAdapters {
     readTextFile(path: string): string | null {
       reads.push(path);
       return files[path] ?? null;
+    },
+    readKeychainItem:
+      keychain === undefined
+        ? undefined
+        : (service: string): string | null => {
+            reads.push(`keychain:${service}`);
+            return keychain[service] ?? null;
+          },
+    readOmpCredential(provider: string): string | null {
+      reads.push(`omp:${provider}`);
+      return input.omp?.[provider] ?? null;
     },
   };
 }
@@ -610,5 +626,146 @@ describe("UsageCredentialResolver.redact", () => {
     expect(resolver.redact("invalid header value: sk-ant-oat01-abcdefgh")).toBe(
       "invalid header value: <redacted>",
     );
+  });
+});
+
+describe("a credential kept in the macOS Keychain", () => {
+  const KEYCHAIN_SERVICE = "Claude Code-credentials";
+
+  const CLAUDE_KEYCHAIN_SOURCE: UsageCredentialSource = {
+    kind: "keychain",
+    service: KEYCHAIN_SERVICE,
+    path: "claudeAiOauth.accessToken",
+    expiresAtPath: "claudeAiOauth.expiresAt",
+  };
+
+  const CLAUDE_KEYCHAIN_DESCRIPTION = `keychain "${KEYCHAIN_SERVICE}"#claudeAiOauth.accessToken`;
+
+  test("reads the token out of the item's json, the same way as a file", () => {
+    const adapters = createStubAdapters({
+      keychain: { [KEYCHAIN_SERVICE]: claudeCredentialsFile(NOW_MS + HOUR_MS) },
+    });
+    expect(
+      createCredentialResolver({ CLAUDE_TOKEN: [CLAUDE_KEYCHAIN_SOURCE] }, adapters).resolve(
+        "CLAUDE_TOKEN",
+      ),
+    ).toBe(ACCESS_TOKEN);
+    expect(adapters.reads).toEqual([`keychain:${KEYCHAIN_SERVICE}`]);
+  });
+
+  test("wins over a stale credential file that sits earlier in the chain", () => {
+    // Claude Code on macOS stops writing the file once it has a Keychain, so
+    // the file lingers with a token that expired weeks ago.
+    const adapters = createStubAdapters({
+      files: { [CLAUDE_CREDENTIALS_PATH]: claudeCredentialsFile(NOW_MS - 14 * 24 * HOUR_MS) },
+      keychain: { [KEYCHAIN_SERVICE]: claudeCredentialsFile(NOW_MS + HOUR_MS) },
+    });
+    const credentials: UsageCredentials = {
+      CLAUDE_TOKEN: [CLAUDE_EXPIRING_SOURCE, CLAUDE_KEYCHAIN_SOURCE],
+    };
+    expect(createCredentialResolver(credentials, adapters).resolve("CLAUDE_TOKEN")).toBe(
+      ACCESS_TOKEN,
+    );
+  });
+
+  test("is skipped on a host without a Keychain and says so", () => {
+    const adapters = createStubAdapters({ env: { ANTHROPIC_API_KEY: "env-value" } });
+    const credentials: UsageCredentials = {
+      CLAUDE_TOKEN: [CLAUDE_KEYCHAIN_SOURCE, { kind: "env", variable: "ANTHROPIC_API_KEY" }],
+    };
+    expect(createCredentialResolver(credentials, adapters).resolve("CLAUDE_TOKEN")).toBe(
+      "env-value",
+    );
+    const error = captureError(UsageCredentialMissingError, () => {
+      createCredentialResolver({ CLAUDE_TOKEN: [CLAUDE_KEYCHAIN_SOURCE] }, adapters).resolve(
+        "CLAUDE_TOKEN",
+      );
+    });
+    expect(error.tried).toEqual([`${CLAUDE_KEYCHAIN_DESCRIPTION} (no Keychain on this host)`]);
+  });
+
+  test("an item that is missing reads as unavailable, not as signed out", () => {
+    const adapters = createStubAdapters({ keychain: {} });
+    const error = captureError(UsageCredentialMissingError, () => {
+      createCredentialResolver({ CLAUDE_TOKEN: [CLAUDE_KEYCHAIN_SOURCE] }, adapters).resolve(
+        "CLAUDE_TOKEN",
+      );
+    });
+    expect(error.tried).toEqual([CLAUDE_KEYCHAIN_DESCRIPTION]);
+  });
+
+  test("an expired item names itself with its age and never its value", () => {
+    const adapters = createStubAdapters({
+      keychain: { [KEYCHAIN_SERVICE]: claudeCredentialsFile(NOW_MS - 5 * HOUR_MS) },
+    });
+    const error = captureError(UsageCredentialMissingError, () => {
+      createCredentialResolver({ CLAUDE_TOKEN: [CLAUDE_KEYCHAIN_SOURCE] }, adapters).resolve(
+        "CLAUDE_TOKEN",
+      );
+    });
+    expect(error.tried).toEqual([`${CLAUDE_KEYCHAIN_DESCRIPTION} (expired 5h ago)`]);
+    expect(error.message).not.toContain(ACCESS_TOKEN);
+  });
+
+  test("an item that is not json is skipped", () => {
+    const adapters = createStubAdapters({ keychain: { [KEYCHAIN_SERVICE]: "not json" } });
+    expect(() =>
+      createCredentialResolver({ CLAUDE_TOKEN: [CLAUDE_KEYCHAIN_SOURCE] }, adapters).resolve(
+        "CLAUDE_TOKEN",
+      ),
+    ).toThrow(UsageCredentialMissingError);
+  });
+});
+
+describe("a credential kept in omp's vault", () => {
+  const OMP_SOURCE: UsageCredentialSource = { kind: "omp", provider: "openrouter", path: "key" };
+
+  const OMP_DESCRIPTION = 'omp "openrouter"#key';
+
+  test("reads the api key out of the stored row", () => {
+    const adapters = createStubAdapters({
+      omp: { openrouter: JSON.stringify({ key: ACCESS_TOKEN, source: "login" }) },
+    });
+    expect(createCredentialResolver({ apiKey: [OMP_SOURCE] }, adapters).resolve("apiKey")).toBe(
+      ACCESS_TOKEN,
+    );
+    expect(adapters.reads).toEqual(["omp:openrouter"]);
+  });
+
+  test("comes after the environment so an exported key still wins", () => {
+    const adapters = createStubAdapters({
+      env: { OPENROUTER_API_KEY: "env-value" },
+      omp: { openrouter: JSON.stringify({ key: ACCESS_TOKEN }) },
+    });
+    const credentials: UsageCredentials = {
+      apiKey: [{ kind: "env", variable: "OPENROUTER_API_KEY" }, OMP_SOURCE],
+    };
+    expect(createCredentialResolver(credentials, adapters).resolve("apiKey")).toBe("env-value");
+    expect(adapters.reads).toEqual([]);
+  });
+
+  test("a provider omp has no row for is unavailable, and the failure names the vault", () => {
+    const adapters = createStubAdapters({ omp: {} });
+    const error = captureError(UsageCredentialMissingError, () => {
+      createCredentialResolver({ apiKey: [OMP_SOURCE] }, adapters).resolve("apiKey");
+    });
+    expect(error.tried).toEqual([OMP_DESCRIPTION]);
+  });
+
+  test("an oauth row can be read through its own path and expiry", () => {
+    const source: UsageCredentialSource = {
+      kind: "omp",
+      provider: "kimi-code",
+      path: "access",
+      expiresAtPath: "expires",
+    };
+    const adapters = createStubAdapters({
+      omp: { "kimi-code": JSON.stringify({ access: ACCESS_TOKEN, expires: NOW_MS - HOUR_MS }) },
+    });
+    const error = captureError(UsageCredentialMissingError, () => {
+      createCredentialResolver({ token: [source] }, adapters).resolve("token");
+    });
+    expect(error.tried).toEqual(['omp "kimi-code"#access (expired 1h ago)']);
+    expect(error.message).not.toContain(ACCESS_TOKEN);
   });
 });

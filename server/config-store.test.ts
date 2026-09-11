@@ -154,7 +154,7 @@ describe("usage config state", () => {
       label: "DeepSeek",
       endpoint: "https://api.deepseek.com/user/balance",
       credentialNames: ["apiKey"],
-      credentialHints: ["env DEEPSEEK_API_KEY"],
+      credentialHints: ["env DEEPSEEK_API_KEY", 'omp "deepseek"#key'],
       unverified: false,
     });
     // The wording is the preset's own; what the summary owes the settings form
@@ -231,6 +231,7 @@ describe("writeUsageProviderEntry", () => {
               file: SECRETS_PATH,
               path: "deepseek.apiKey",
             },
+            { kind: "omp", provider: "deepseek", path: "key" },
           ],
         },
       },
@@ -287,7 +288,12 @@ describe("writeUsageProviderEntry", () => {
     expect(parseFile(store, CONFIG_PATH)).toEqual({
       deepseek: {
         preset: "deepseek",
-        credentials: { apiKey: [{ kind: "env", variable: "DEEPSEEK_API_KEY" }] },
+        credentials: {
+          apiKey: [
+            { kind: "env", variable: "DEEPSEEK_API_KEY" },
+            { kind: "omp", provider: "deepseek", path: "key" },
+          ],
+        },
       },
     });
   });
@@ -328,6 +334,7 @@ describe("writeUsageProviderEntry", () => {
           apiKey: [
             { kind: "env", variable: "DEEPSEEK_API_KEY" },
             { kind: "jsonFile", file: SECRETS_PATH, path: "deepseek.apiKey" },
+            { kind: "omp", provider: "deepseek", path: "key" },
           ],
         },
       },

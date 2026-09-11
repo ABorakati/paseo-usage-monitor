@@ -101,6 +101,16 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     refreshIntervalMs: 1_800_000,
     credentials: {
       token: [
+        // Claude Code on macOS keeps the pair in the Keychain and writes the
+        // file only when it cannot, so on a Mac the file below is a stale
+        // leftover and this item is the one `claude` actually refreshes.
+        {
+          kind: "keychain",
+          service: "Claude Code-credentials",
+          path: "claudeAiOauth.accessToken",
+          expiresAtPath: "claudeAiOauth.expiresAt",
+          refreshedBy: "claude",
+        },
         {
           kind: "jsonFile",
           file: "${CLAUDE_CONFIG_DIR}/.credentials.json",
@@ -474,7 +484,10 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     icon: { kind: "monogram", text: "DS", color: "#3B82F6" },
     description: "Prepaid API balance",
     credentials: {
-      apiKey: [{ kind: "env", variable: "DEEPSEEK_API_KEY" }],
+      apiKey: [
+        { kind: "env", variable: "DEEPSEEK_API_KEY" },
+        { kind: "omp", provider: "deepseek", path: "key" },
+      ],
     },
     source: {
       kind: "http",
@@ -538,7 +551,10 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     description:
       "Spend cap on the current API key, not the account; an unlimited key reports no numbers",
     credentials: {
-      apiKey: [{ kind: "env", variable: "OPENROUTER_API_KEY" }],
+      apiKey: [
+        { kind: "env", variable: "OPENROUTER_API_KEY" },
+        { kind: "omp", provider: "openrouter", path: "key" },
+      ],
     },
     source: {
       kind: "http",
@@ -564,7 +580,10 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     description:
       "Account-wide credits purchased against credits used, unlike the per-key cap the openrouter preset reads; a 401 here means the account key is not provisioned for the credits endpoint",
     credentials: {
-      apiKey: [{ kind: "env", variable: "OPENROUTER_API_KEY" }],
+      apiKey: [
+        { kind: "env", variable: "OPENROUTER_API_KEY" },
+        { kind: "omp", provider: "openrouter", path: "key" },
+      ],
     },
     source: {
       kind: "http",
@@ -589,7 +608,10 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     icon: { kind: "monogram", text: "Nv", color: "#06B6D4" },
     description: "Prepaid balance against the account's credit limit, billed in USD",
     credentials: {
-      apiKey: [{ kind: "env", variable: "NOVITA_API_KEY" }],
+      apiKey: [
+        { kind: "env", variable: "NOVITA_API_KEY" },
+        { kind: "omp", provider: "novita", path: "key" },
+      ],
     },
     source: {
       kind: "http",
@@ -620,7 +642,10 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     icon: { kind: "monogram", text: "DI", color: "#F59E0B" },
     description: "Prepaid balance, reported by the vendor as a negative number",
     credentials: {
-      apiKey: [{ kind: "env", variable: "DEEPINFRA_API_KEY" }],
+      apiKey: [
+        { kind: "env", variable: "DEEPINFRA_API_KEY" },
+        { kind: "omp", provider: "deepinfra", path: "key" },
+      ],
     },
     source: {
       kind: "http",
@@ -651,7 +676,10 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     description:
       "Prepaid balance on the international api.siliconflow.com host; the domestic api.siliconflow.cn mirror uses the same shape but may bill in a different currency",
     credentials: {
-      apiKey: [{ kind: "env", variable: "SILICONFLOW_API_KEY" }],
+      apiKey: [
+        { kind: "env", variable: "SILICONFLOW_API_KEY" },
+        { kind: "omp", provider: "siliconflow", path: "key" },
+      ],
     },
     source: {
       kind: "http",
@@ -726,7 +754,10 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     description:
       "Prepaid balance on the domestic api.siliconflow.cn host, the same shape as the international one; the amount is shown unitless because the domestic account bills in CNY",
     credentials: {
-      apiKey: [{ kind: "env", variable: "SILICONFLOW_API_KEY" }],
+      apiKey: [
+        { kind: "env", variable: "SILICONFLOW_API_KEY" },
+        { kind: "omp", provider: "siliconflow-cn", path: "key" },
+      ],
     },
     source: {
       kind: "http",
@@ -751,7 +782,10 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     description:
       "Moonshot platform balance in USD on the international host; this is the platform key, not the coding-plan key the kimi preset uses, and a domestic .cn key returns 401 here",
     credentials: {
-      apiKey: [{ kind: "env", variable: "MOONSHOT_API_KEY" }],
+      apiKey: [
+        { kind: "env", variable: "MOONSHOT_API_KEY" },
+        { kind: "omp", provider: "moonshot", path: "key" },
+      ],
     },
     source: {
       kind: "http",
@@ -776,7 +810,10 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     description:
       "Moonshot platform balance on the domestic host, which an international key cannot read and vice versa; the amount is shown unitless because the domestic account is understood to bill in CNY and no source confirms the currency the field carries",
     credentials: {
-      apiKey: [{ kind: "env", variable: "MOONSHOT_API_KEY" }],
+      apiKey: [
+        { kind: "env", variable: "MOONSHOT_API_KEY" },
+        { kind: "omp", provider: "moonshot", path: "key" },
+      ],
     },
     source: {
       kind: "http",
@@ -801,7 +838,10 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     description:
       "DIEM allowance for the current epoch and any USD balance; which one bills depends on the account's consumption currency, so both are shown",
     credentials: {
-      apiKey: [{ kind: "env", variable: "VENICE_API_KEY" }],
+      apiKey: [
+        { kind: "env", variable: "VENICE_API_KEY" },
+        { kind: "omp", provider: "venice", path: "key" },
+      ],
     },
     source: {
       kind: "http",
@@ -854,6 +894,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           path: "access_token",
           expiresAtPath: "expires_at",
         },
+        { kind: "omp", provider: "kimi-code", path: "key" },
       ],
     },
     source: {
@@ -901,6 +942,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           path: "oauth.access_token",
           expiresAtPath: "oauth.expires_at",
         },
+        { kind: "omp", provider: "minimax", path: "key" },
       ],
     },
     source: {
@@ -966,6 +1008,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
       token: [
         { kind: "env", variable: "MINIMAX_CN_API_KEY" },
         { kind: "env", variable: "MINIMAX_API_KEY" },
+        { kind: "omp", provider: "minimax", path: "key" },
       ],
     },
     source: {
@@ -1036,6 +1079,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         { kind: "env", variable: "Z_AI_API_KEY" },
         { kind: "env", variable: "ZAI_API_KEY" },
         { kind: "env", variable: "GLM_API_KEY" },
+        { kind: "omp", provider: "zai", path: "key" },
       ],
     },
     source: {
@@ -1070,6 +1114,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         { kind: "env", variable: "Z_AI_API_KEY" },
         { kind: "env", variable: "ZAI_API_KEY" },
         { kind: "env", variable: "GLM_API_KEY" },
+        { kind: "omp", provider: "zai", path: "key" },
       ],
     },
     source: {
@@ -1104,6 +1149,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         { kind: "env", variable: "ZHIPU_API_KEY" },
         { kind: "env", variable: "ZHIPUAI_API_KEY" },
         { kind: "env", variable: "BIGMODEL_API_KEY" },
+        { kind: "omp", provider: "zhipu-coding-plan", path: "key" },
       ],
     },
     source: {
@@ -1165,6 +1211,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
       apiKey: [
         { kind: "env", variable: "AI_GATEWAY_API_KEY" },
         { kind: "env", variable: "VERCEL_AI_GATEWAY_API_KEY" },
+        { kind: "omp", provider: "vercel-ai-gateway", path: "key" },
       ],
     },
     source: {

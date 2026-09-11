@@ -13,10 +13,16 @@ Secrets are never written in `usage-limits.json`. Instead a provider **declares*
 }
 ```
 
-| Source kind | Fields                          | Reads                                              |
-| ----------- | ------------------------------- | -------------------------------------------------- |
-| `env`       | `variable`                      | An environment variable of the **daemon** process. |
-| `jsonFile`  | `file`, `path`, `expiresAtPath` | A JSON path inside a file on the daemon machine.   |
+| Source kind | Fields                              | Reads                                                                                                                                                                                                            |
+| ----------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `env`       | `variable`                          | An environment variable of the **daemon** process.                                                                                                                                                               |
+| `jsonFile`  | `file`, `path`, `expiresAtPath`     | A JSON path inside a file on the daemon machine.                                                                                                                                                                 |
+| `keychain`  | `service`, `path`, `expiresAtPath`  | A JSON path inside a macOS Keychain generic password, read with `security find-generic-password -s <service> -w`.                                                                                                |
+| `omp`       | `provider`, `path`, `expiresAtPath` | A JSON path inside the row [omp](https://omp.sh) stores for that provider in its credential vault (`~/.omp/agent/agent.db`, honouring `PI_CONFIG_DIR` and `PI_CODING_AGENT_DIR`), read with `sqlite3 -readonly`. |
+
+A `keychain` source applies only where the daemon runs on macOS. Elsewhere it is skipped like a missing file, and a chain that fails reports it as `(no Keychain on this host)` rather than pointing at an item that could never exist. The `claude` preset declares one first, because Claude Code on macOS keeps its OAuth pair in the Keychain item `Claude Code-credentials` and writes `~/.claude/.credentials.json` only when the Keychain is unavailable — so on a Mac that file is a leftover that goes stale while the item stays fresh, and `claude` refreshes the item, not the file.
+
+An `omp` source lets a key you pasted into omp with `/login <provider>` serve the matching card without exporting it a second time. The API-key presets that have an omp counterpart (OpenRouter, DeepSeek, DeepInfra, Novita, SiliconFlow, Moonshot, Kimi, MiniMax, Venice, Vercel AI Gateway, Z.ai, Zhipu) declare one after their environment sources, so an exported variable still wins. The row's `data` is `{ "key": "..." }` for an API key, so `path` is `key`; an OAuth row carries the token fields instead and can be addressed the same way. The source is skipped when `sqlite3` is not on the daemon's `PATH`, the vault does not exist, or omp holds no enabled row for that provider.
 
 A `jsonFile`'s `file` expands a leading `~` to the home directory and `${VAR}` from the daemon environment. That is path expansion, and it is the one place `${...}` means an environment variable rather than a declared credential. An unset variable inside a path is an error rather than a silently mangled path.
 
@@ -66,12 +72,12 @@ Measured on this machine: the token sat **34 hours past its expiry**. Every refr
 
 ### Which presets declare it
 
-| Preset    | `expiresAtPath`                  | On                                                    |
-| --------- | -------------------------------- | ----------------------------------------------------- |
-| `claude`  | `claudeAiOauth.expiresAt`        | Both `.credentials.json` sources                      |
-| `kimi`    | `expires_at`                     | All three `kimi-code.json` sources                    |
-| `minimax` | `expires_at`, `oauth.expires_at` | `~/.mmx/credentials.json`, `~/.mmx/config.json` oauth |
-| `codex`   | None, deliberately               | —                                                     |
+| Preset    | `expiresAtPath`                  | On                                                       |
+| --------- | -------------------------------- | -------------------------------------------------------- |
+| `claude`  | `claudeAiOauth.expiresAt`        | The Keychain source and both `.credentials.json` sources |
+| `kimi`    | `expires_at`                     | All three `kimi-code.json` sources                       |
+| `minimax` | `expires_at`, `oauth.expires_at` | `~/.mmx/credentials.json`, `~/.mmx/config.json` oauth    |
+| `codex`   | None, deliberately               | —                                                        |
 
 `codex` is the interesting absence. `~/.codex/auth.json` carries `last_refresh`, which records when the token was last refreshed rather than when it dies, so no path in that file can honestly answer the question. A guessed expiry would skip a credential that works, so all three `codex` sources stay two-field. The `~/.mmx/config.json` `api_key` source declares none for the same class of reason: a plain API key has no expiry to read. The `github-copilot` probe reads its own credential file and is in the same position: `hosts.json` records the OAuth token and the login it belongs to, and nothing about when it dies.
 

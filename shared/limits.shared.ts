@@ -52,9 +52,44 @@ export const UsageJsonFileCredentialSchema = z.object({
   refreshedBy: z.string().min(1).optional(),
 });
 
+/**
+ * A generic password in the macOS Keychain whose value is a json document,
+ * read through `security find-generic-password -w`. Claude Code keeps its
+ * OAuth pair there and only falls back to `.credentials.json` when the
+ * Keychain is unavailable, so on a Mac the file goes stale while the item
+ * stays fresh. `path` and `expiresAtPath` address the item's json exactly as
+ * they address a file's.
+ */
+export const UsageKeychainCredentialSchema = z.object({
+  kind: z.literal("keychain"),
+  /** The item's service name, `-s` to `security`. */
+  service: z.string().min(1),
+  path: z.string().min(1),
+  expiresAtPath: z.string().min(1).optional(),
+  refreshedBy: z.string().min(1).optional(),
+});
+
+/**
+ * A row in omp's credential vault, the SQLite store `omp` fills through
+ * `/login` and `omp auth-broker`. The row's `data` column is a json document:
+ * `{ "key": "..." }` for an API key, the token fields for an OAuth login. It
+ * is read through the `sqlite3` CLI, read-only, so the plugin never holds the
+ * database open against omp's own writes.
+ */
+export const UsageOmpCredentialSchema = z.object({
+  kind: z.literal("omp"),
+  /** omp's provider id, as `/login <provider>` names it. */
+  provider: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),
+  /** JSON path inside the row's `data`; `key` for an API key row. */
+  path: z.string().min(1),
+  expiresAtPath: z.string().min(1).optional(),
+});
+
 export const UsageCredentialSourceSchema = z.discriminatedUnion("kind", [
   UsageEnvCredentialSchema,
   UsageJsonFileCredentialSchema,
+  UsageKeychainCredentialSchema,
+  UsageOmpCredentialSchema,
 ]);
 
 /**

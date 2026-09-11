@@ -103,6 +103,8 @@ export function usageSecretsPath(adapters: ConfigAdapters): string {
 
 function describeCredentialSource(source: UsageCredentialSource): string {
   if (source.kind === "env") return `env ${source.variable}`;
+  if (source.kind === "keychain") return `keychain "${source.service}"#${source.path}`;
+  if (source.kind === "omp") return `omp "${source.provider}"#${source.path}`;
   return `file ${source.file}#${source.path}`;
 }
 
@@ -221,6 +223,12 @@ function isSameSource(left: UsageCredentialSource, right: UsageCredentialSource)
   if (left.kind === "jsonFile" && right.kind === "jsonFile") {
     return left.file === right.file && left.path === right.path;
   }
+  if (left.kind === "keychain" && right.kind === "keychain") {
+    return left.service === right.service && left.path === right.path;
+  }
+  if (left.kind === "omp" && right.kind === "omp") {
+    return left.provider === right.provider && left.path === right.path;
+  }
   return false;
 }
 
@@ -273,7 +281,10 @@ function withSecretSources(
       (source) => source.kind === "env",
     );
     const remaining = withoutSource(effective, stored);
-    credentials[name] = uniqueSources([...presetEnvironment, ...remaining, stored]);
+    // a key the user pasted outranks one the plugin finds in omp's vault by itself
+    const vault = remaining.filter((source) => source.kind === "omp");
+    const explicit = remaining.filter((source) => source.kind !== "omp");
+    credentials[name] = uniqueSources([...presetEnvironment, ...explicit, stored, ...vault]);
   }
 
   if (Object.keys(credentials).length === 0) {
