@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { PaseoApi } from "@getpaseo/client";
-import type { PluginLifecycleEvents } from "@getpaseo/plugin/server";
+import type { PluginHandlerContext, PluginLifecycleEvents } from "@getpaseo/plugin/server";
+
+// Derived rather than imported: `PaseoApi` lives in `@getpaseo/client`, and the
+// compiler rejects a plugin server bundle that imports that specifier directly.
+type PaseoApi = PluginHandlerContext["paseo"];
 import {
   LimitAlertSchema,
   LimitAlertSettingsSchema,

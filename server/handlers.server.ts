@@ -1,4 +1,4 @@
-import type { PaseoApi } from "@getpaseo/client";
+import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { createCodexBankedResetService } from "./codex-reset.server";
 import { createNodeConfigAdapters, loadUsageConfig, usageConfigPath } from "./config.server";
 import {
@@ -34,6 +34,10 @@ import { buildProviderRegistry, type UsageProviderEntry } from "./registry.serve
 import { createUsageService, type UsageService } from "./service.server";
 import { createNodeReadingStoreAdapters, createReadingStore } from "./reading-store.server";
 import { createNodeSourceAdapters } from "./source.server";
+
+// Derived rather than imported: `PaseoApi` lives in `@getpaseo/client`, and the
+// compiler rejects a plugin server bundle that imports that specifier directly.
+type PaseoApi = PluginHandlerContext["paseo"];
 
 const configAdapters = createNodeConfigAdapters();
 const credentialAdapters = createNodeCredentialAdapters();
