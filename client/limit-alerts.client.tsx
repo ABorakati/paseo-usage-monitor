@@ -1,4 +1,3 @@
-import type { PaseoApi } from "@getpaseo/client";
 import type { PluginCleanup, PluginTheme } from "@getpaseo/plugin";
 import {
   type PluginClientContext,
@@ -62,6 +61,11 @@ export const LIMIT_ALERT_UNKNOWN_PROVIDER = "unknown";
 
 /** Heading label until the renderer resolves the provider from the agent. */
 export const LIMIT_ALERT_FALLBACK_LABEL = "Provider";
+
+// Derived rather than imported: `PaseoApi` lives in `@getpaseo/client`, and the
+// compiler rejects a client bundle that imports that specifier directly — only
+// `usePaseo()`'s own return type is reachable from here.
+type PaseoApi = ReturnType<typeof usePaseo>;
 
 const HANDOFF_OPTIONS_QUERY_KEY = ["usage-limits", "handoff-options"] as const;
 
