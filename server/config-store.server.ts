@@ -105,7 +105,6 @@ export function usageSecretsPath(adapters: ConfigAdapters): string {
   return path.join(path.dirname(usageConfigPath(adapters)), "usage-limits.secrets.json");
 }
 
-
 function describeEndpoint(source: UsageSource | undefined): string | null {
   if (source === undefined || source.kind === "command") return null;
   if (source.kind === "http") return source.url;
@@ -279,7 +278,14 @@ function withSecretSources(
       (source) => source.kind === "env",
     );
     const remaining = withoutSource(effective, stored);
-    credentials[name] = uniqueSources([...presetEnvironment, ...remaining, stored]);
+    // Keep a typed secret ahead of credentials discovered in OMP's SQLite vault.
+    const vault = remaining.filter(
+      (source) => source.kind === "sqlite" && source.refreshedBy === "omp",
+    );
+    const explicit = remaining.filter(
+      (source) => source.kind !== "sqlite" || source.refreshedBy !== "omp",
+    );
+    credentials[name] = uniqueSources([...presetEnvironment, ...explicit, stored, ...vault]);
   }
 
   if (Object.keys(credentials).length === 0) {

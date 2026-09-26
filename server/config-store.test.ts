@@ -154,7 +154,10 @@ describe("usage config state", () => {
       label: "DeepSeek",
       endpoint: "https://api.deepseek.com/user/balance",
       credentialNames: ["apiKey"],
-      credentialHints: ["env DEEPSEEK_API_KEY"],
+      credentialHints: expect.arrayContaining([
+        "env DEEPSEEK_API_KEY",
+        expect.stringContaining("sqlite ~/.omp/agent/agent.db"),
+      ]),
       unverified: false,
     });
     // The wording is the preset's own; what the summary owes the settings form
@@ -220,17 +223,26 @@ describe("writeUsageProviderEntry", () => {
     expect(parseFile(store, SECRETS_PATH)).toEqual({
       deepseek: { apiKey: "sk-test-secret" },
     });
-    expect(parseFile(store, CONFIG_PATH)).toEqual({
+    expect(parseFile(store, CONFIG_PATH)).toMatchObject({
       deepseek: {
         preset: "deepseek",
         credentials: {
           apiKey: [
             { kind: "env", variable: "DEEPSEEK_API_KEY" },
+            { kind: "jsonFile", file: SECRETS_PATH, path: "deepseek.apiKey" },
             {
-              kind: "jsonFile",
-              file: SECRETS_PATH,
-              path: "deepseek.apiKey",
+              kind: "sqlite",
+              file: "${PI_CODING_AGENT_DIR}/agent.db",
+              path: "key",
+              refreshedBy: "omp",
             },
+            {
+              kind: "sqlite",
+              file: "~/${PI_CONFIG_DIR}/agent/agent.db",
+              path: "key",
+              refreshedBy: "omp",
+            },
+            { kind: "sqlite", file: "~/.omp/agent/agent.db", path: "key", refreshedBy: "omp" },
           ],
         },
       },
@@ -284,10 +296,27 @@ describe("writeUsageProviderEntry", () => {
     );
 
     expect(parseFile(store, SECRETS_PATH)).toEqual({});
-    expect(parseFile(store, CONFIG_PATH)).toEqual({
+    expect(parseFile(store, CONFIG_PATH)).toMatchObject({
       deepseek: {
         preset: "deepseek",
-        credentials: { apiKey: [{ kind: "env", variable: "DEEPSEEK_API_KEY" }] },
+        credentials: {
+          apiKey: [
+            { kind: "env", variable: "DEEPSEEK_API_KEY" },
+            {
+              kind: "sqlite",
+              file: "${PI_CODING_AGENT_DIR}/agent.db",
+              path: "key",
+              refreshedBy: "omp",
+            },
+            {
+              kind: "sqlite",
+              file: "~/${PI_CONFIG_DIR}/agent/agent.db",
+              path: "key",
+              refreshedBy: "omp",
+            },
+            { kind: "sqlite", file: "~/.omp/agent/agent.db", path: "key", refreshedBy: "omp" },
+          ],
+        },
       },
     });
   });
@@ -328,6 +357,19 @@ describe("writeUsageProviderEntry", () => {
           apiKey: [
             { kind: "env", variable: "DEEPSEEK_API_KEY" },
             { kind: "jsonFile", file: SECRETS_PATH, path: "deepseek.apiKey" },
+            {
+              kind: "sqlite",
+              file: "${PI_CODING_AGENT_DIR}/agent.db",
+              path: "key",
+              refreshedBy: "omp",
+            },
+            {
+              kind: "sqlite",
+              file: "~/${PI_CONFIG_DIR}/agent/agent.db",
+              path: "key",
+              refreshedBy: "omp",
+            },
+            { kind: "sqlite", file: "~/.omp/agent/agent.db", path: "key", refreshedBy: "omp" },
           ],
         },
       },

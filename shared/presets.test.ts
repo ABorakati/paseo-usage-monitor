@@ -1588,3 +1588,54 @@ describe("github-copilot reads its quota through a probe", () => {
     expect(project("github-copilot", { ...GITHUB_COPILOT_PROBE, buckets: [] })).toEqual([]);
   });
 });
+
+/**
+ * These presets can read API keys from OMP's vault. The provider IDs match
+ * OMP's login catalogue, and the database query chooses the newest enabled key.
+ */
+const OMP_API_KEY_PRESETS: Record<string, string> = {
+  openrouter: "openrouter",
+  "openrouter-credits": "openrouter",
+  deepseek: "deepseek",
+  deepinfra: "deepinfra",
+  novita: "novita",
+  siliconflow: "siliconflow",
+  "siliconflow-cn": "siliconflow-cn",
+  moonshot: "moonshot",
+  "moonshot-cn": "moonshot",
+  kimi: "kimi-code",
+  minimax: "minimax",
+  "minimax-cn": "minimax",
+  venice: "venice",
+  vercel: "vercel-ai-gateway",
+  zai: "zai",
+  "zai-coding-plan": "zai",
+  "zhipuai-coding-plan": "zhipu-coding-plan",
+};
+
+describe("OMP API-key database sources", () => {
+  test("each preset uses ordered path candidates and the newest enabled API key", () => {
+    for (const [presetId, ompProvider] of Object.entries(OMP_API_KEY_PRESETS)) {
+      const chain = Object.values(getUsagePreset(presetId)?.credentials ?? {}).flat();
+      const vaultSources = chain.slice(-3);
+      expect(vaultSources.map((source) => source.kind === "sqlite" && source.file)).toEqual([
+        "${PI_CODING_AGENT_DIR}/agent.db",
+        "~/${PI_CONFIG_DIR}/agent/agent.db",
+        "~/.omp/agent/agent.db",
+      ]);
+
+      for (const source of vaultSources) {
+        expect(source).toMatchObject({
+          kind: "sqlite",
+          path: "key",
+          refreshedBy: "omp",
+        });
+        if (source.kind !== "sqlite") continue;
+        expect(source.query).toContain(`'${ompProvider}'`);
+        expect(source.query).toContain("credential_type = 'api_key'");
+        expect(source.query).toContain("disabled_cause IS NULL");
+        expect(source.query).toContain("ORDER BY updated_at DESC LIMIT 1");
+      }
+    }
+  });
+});

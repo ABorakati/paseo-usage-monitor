@@ -24,6 +24,8 @@ A `keychain` source applies only where the daemon runs on macOS. Elsewhere it is
 
 Both `jsonFile` and `sqlite` expand a leading `~` to the home directory and `${VAR}` from the daemon environment. That is path expansion, and it is the one place `${...}` means an environment variable rather than a declared credential. An unset variable inside a path is an error rather than a silently mangled path.
 
+Some built-in sources read API keys from OMP's SQLite vault. They check `${PI_CODING_AGENT_DIR}/agent.db`, then `~/${PI_CONFIG_DIR}/agent/agent.db`, then `~/.omp/agent/agent.db`. Unset path variables skip that candidate. Each query selects the newest enabled API-key row by `updated_at`, using the same read-only SQLite adapter as the other database sources. A typed secret in Usage provider settings comes before these discovered keys.
+
 Resolution rules:
 
 - The chain is tried in order and the first source that resolves wins.

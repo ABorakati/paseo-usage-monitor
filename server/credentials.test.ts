@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, test, vi } from "vitest";
+import { getUsagePreset } from "../shared/presets.shared";
 import {
   createCredentialResolver,
   createNodeCredentialAdapters,
@@ -690,7 +691,6 @@ describe("a credential kept in the macOS Keychain", () => {
     );
     expect(adapters.reads).toEqual([`keychain:${KEYCHAIN_SERVICE}`, CLAUDE_CREDENTIALS_PATH]);
   });
-
   test("reads the token out of the item's json, the same way as a file", () => {
     const adapters = createStubAdapters({
       keychain: { [KEYCHAIN_SERVICE]: claudeCredentialsFile(NOW_MS + HOUR_MS) },
@@ -915,6 +915,130 @@ describe("the real sqlite adapter", () => {
       expect(readSqliteQuery(dbPath, "SELECT token FROM auth")).toBe("sk-sqlite-value");
       expect(readSqliteQuery(dbPath, `VACUUM INTO '${dumpPath}'`)).toBeNull();
       expect(existsSync(dumpPath)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  test("prefers the explicit OMP agent directory over the configured home directory", () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-credentials-path-precedence-"));
+    try {
+      const explicitDir = join(dir, "explicit-agent");
+      const homeDir = join(dir, "home");
+      const configuredDbPath = join(homeDir, "configured", "agent", "agent.db");
+      const explicitDbPath = join(explicitDir, "agent.db");
+      mkdirSync(explicitDir, { recursive: true });
+      mkdirSync(join(homeDir, "configured", "agent"), { recursive: true });
+
+      const createVault = (dbPath: string, key: string) => {
+        const writer = new DatabaseSync(dbPath);
+        writer.exec(
+          "CREATE TABLE auth_credentials (provider TEXT, credential_type TEXT, disabled_cause TEXT, updated_at TEXT, data TEXT)",
+        );
+        writer
+          .prepare(
+            "INSERT INTO auth_credentials VALUES ('deepseek', 'api_key', NULL, '2026-09-20T00:00:00Z', ?)",
+          )
+          .run(JSON.stringify({ key }));
+        writer.close();
+      };
+      createVault(explicitDbPath, "explicit-agent-key");
+      createVault(configuredDbPath, "configured-home-key");
+
+      const preset = getUsagePreset("deepseek");
+      if (preset === null) throw new Error("DeepSeek preset must exist");
+      const adapters = createNodeCredentialAdapters();
+      const readSqliteQuery = vi.spyOn(adapters, "readSqliteQuery");
+      const resolver = createCredentialResolver(preset.credentials, {
+        ...adapters,
+        env: {
+          DEEPSEEK_API_KEY: "",
+          PI_CODING_AGENT_DIR: explicitDir,
+          PI_CONFIG_DIR: "configured",
+        },
+        homeDir,
+      });
+
+      expect(resolver.resolve("apiKey")).toBe("explicit-agent-key");
+      expect(readSqliteQuery).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("prefers the environment credential over an OMP SQLite file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-credentials-precedence-"));
+    try {
+      const dbPath = join(dir, "agent.db");
+      const writer = new DatabaseSync(dbPath);
+      writer.exec("CREATE TABLE auth_credentials (data TEXT)");
+      writer.exec(`INSERT INTO auth_credentials VALUES ('{"key":"vault-key"}')`);
+      writer.close();
+
+      const adapters = createNodeCredentialAdapters();
+      const readSqliteQuery = vi.spyOn(adapters, "readSqliteQuery");
+      const resolver = createCredentialResolver(
+        {
+          apiKey: [
+            { kind: "env", variable: "DEEPSEEK_API_KEY" },
+            {
+              kind: "sqlite",
+              file: dbPath,
+              query: "SELECT data FROM auth_credentials",
+              path: "key",
+              refreshedBy: "omp",
+            },
+          ],
+        },
+        { ...adapters, env: { DEEPSEEK_API_KEY: "explicit-key" } },
+      );
+
+      expect(resolver.resolve("apiKey")).toBe("explicit-key");
+      expect(readSqliteQuery).not.toHaveBeenCalled();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("selects the newest enabled API-key row from the OMP SQLite database", () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-credentials-current-row-"));
+    try {
+      const dbPath = join(dir, "agent.db");
+      const writer = new DatabaseSync(dbPath);
+      writer.exec(
+        "CREATE TABLE auth_credentials (id INTEGER PRIMARY KEY, provider TEXT, credential_type TEXT, disabled_cause TEXT, updated_at TEXT, data TEXT)",
+      );
+      const insert = writer.prepare(
+        "INSERT INTO auth_credentials (provider, credential_type, disabled_cause, updated_at, data) VALUES (?, ?, ?, ?, ?)",
+      );
+      insert.run("deepseek", "api_key", null, "2026-01-01T00:00:00Z", '{"key":"old-key"}');
+      insert.run(
+        "deepseek",
+        "api_key",
+        "revoked",
+        "2026-09-20T00:00:00Z",
+        '{"key":"disabled-key"}',
+      );
+      insert.run("deepseek", "oauth", null, "2026-09-19T00:00:00Z", '{"access":"oauth-token"}');
+      insert.run("deepseek", "api_key", null, "2026-09-18T00:00:00Z", '{"key":"newest-key"}');
+      writer.close();
+
+      const resolver = createCredentialResolver(
+        {
+          apiKey: [
+            {
+              kind: "sqlite",
+              file: dbPath,
+              query:
+                "SELECT data FROM auth_credentials WHERE provider = 'deepseek' AND credential_type = 'api_key' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+              path: "key",
+              refreshedBy: "omp",
+            },
+          ],
+        },
+        createNodeCredentialAdapters(),
+      );
+
+      expect(resolver.resolve("apiKey")).toBe("newest-key");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

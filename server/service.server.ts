@@ -150,6 +150,7 @@ function credentialRemedy(
       variable ??= source.variable;
       continue;
     }
+
     if (source.kind === "keychain") {
       // Only a host with a Keychain can act on this; elsewhere the file
       // sources further down the chain carry the remedy.
