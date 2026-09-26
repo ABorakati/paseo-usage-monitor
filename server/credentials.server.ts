@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { UsageCredentialMissingError, UsageInterpolationError } from "./errors.server";
 import { interpolate } from "./interpolate.server";
 import { readStringAtPath, readTimestampAtPath } from "./json-path.server";
@@ -25,14 +26,15 @@ import type { UsageCredentials, UsageCredentialSource } from "../shared/limits.s
  */
 
 type UsageJsonFileCredential = Extract<UsageCredentialSource, { kind: "jsonFile" }>;
+type UsageSqliteCredential = Extract<UsageCredentialSource, { kind: "sqlite" }>;
 
 export interface CredentialAdapters {
   env: NodeJS.ProcessEnv;
   homeDir: string;
   readTextFile(path: string): string | null;
+  readSqliteQuery?(path: string, query: string): string | null;
   now(): Date;
 }
-
 export function createNodeCredentialAdapters(): CredentialAdapters {
   return {
     env: process.env,
@@ -46,6 +48,26 @@ export function createNodeCredentialAdapters(): CredentialAdapters {
       } catch {
         // A credential file that is absent, unreadable, or a directory means
         // this source does not apply, which the chain handles by moving on.
+        return null;
+      }
+    },
+    readSqliteQuery(dbPath: string, query: string): string | null {
+      try {
+        const db = new DatabaseSync(dbPath, { readOnly: true });
+        try {
+          const stmt = db.prepare(query);
+          // A statement with no result columns is a write (`VACUUM INTO`,
+          // `PRAGMA`, DML). Stepping it would execute it against a database
+          // this plugin only reads, so only a row-returning statement runs.
+          if (stmt.columns().length === 0) return null;
+          const row = stmt.get() as Record<string, unknown> | undefined;
+          if (!row) return null;
+          const firstVal = Object.values(row)[0];
+          return typeof firstVal === "string" ? firstVal : null;
+        } finally {
+          db.close();
+        }
+      } catch {
         return null;
       }
     },
@@ -95,9 +117,22 @@ function formatAge(ageMs: number): string {
   return `${Math.floor(ageMs / DAY_MS)}d`;
 }
 
+/**
+ * One line naming where a credential lives, shared by the failure messages
+ * below and the preset hints in the config store so both spell the same place
+ * the same way — a sqlite source must not read as `file …#undefined`.
+ */
+export function describeCredentialPlace(source: UsageCredentialSource): string {
+  if (source.kind === "env") return `env ${source.variable}`;
+  if (source.kind === "sqlite") {
+    const path = source.path === undefined ? "" : `#${source.path}`;
+    return `sqlite ${source.file} (${source.query})${path}`;
+  }
+  return `file ${source.file}#${source.path}`;
+}
+
 function describeSource(source: UsageCredentialSource, read: SourceRead): string {
-  const place =
-    source.kind === "env" ? `env ${source.variable}` : `file ${source.file}#${source.path}`;
+  const place = describeCredentialPlace(source);
   if (read.kind === "expired") return `${place} (expired ${formatAge(read.ageMs)} ago)`;
   // A path built from an unset variable never existed, so saying only that the
   // file did not resolve would send the user looking for a file.
@@ -123,7 +158,7 @@ function parseJsonDocument(text: string): unknown {
  * not be locked out of a token that still works.
  */
 function readExpiredAge(
-  source: UsageJsonFileCredential,
+  source: { expiresAtPath?: string },
   document: unknown,
   adapters: CredentialAdapters,
 ): number | null {
@@ -169,9 +204,34 @@ function expandCredentialPath(
     throw error;
   }
 }
+function readSqliteCredential(
+  source: UsageSqliteCredential,
+  adapters: CredentialAdapters,
+): SourceRead {
+  if (typeof adapters.readSqliteQuery !== "function") return UNAVAILABLE;
+  const expanded = expandCredentialPath(source.file, adapters);
+  if (expanded.kind === "unset") return expanded;
+  const rawValue = adapters.readSqliteQuery(expanded.path, source.query);
+  if (rawValue === null) return UNAVAILABLE;
+  if (source.path === undefined) {
+    const token = rawValue.trim();
+    if (token === "") return EMPTY;
+    return { kind: "resolved", token };
+  }
+  const document = parseJsonDocument(rawValue);
+  if (document === null) return UNAVAILABLE;
+  const value = readStringAtPath(document, source.path);
+  if (value === null) return UNAVAILABLE;
+  const token = value.trim();
+  if (token === "") return EMPTY;
+  const ageMs = readExpiredAge(source, document, adapters);
+  if (ageMs !== null) return { kind: "expired", ageMs };
+  return { kind: "resolved", token };
+}
 
 function readSource(source: UsageCredentialSource, adapters: CredentialAdapters): SourceRead {
   if (source.kind === "jsonFile") return readJsonFileCredential(source, adapters);
+  if (source.kind === "sqlite") return readSqliteCredential(source, adapters);
   const value = adapters.env[source.variable];
   if (value === undefined) return UNAVAILABLE;
   const token = value.trim();
@@ -186,6 +246,13 @@ const REDACTED = "<redacted>";
 export interface UsageCredentialResolver {
   resolve(name: string): string;
   /**
+   * The source that produced the value for `name`, once one resolved. Lets a
+   * remedy name the file or database that actually held the rejected token
+   * instead of the first candidate in the chain. Undefined until `resolve`
+   * succeeds, and forever for a name whose chain produced nothing.
+   */
+  resolvedSource(name: string): UsageCredentialSource | undefined;
+  /**
    * Replaces every value this resolver has handed out with "<redacted>".
    * Longest first, so a value containing another is not partially replaced.
    */
@@ -197,6 +264,7 @@ export function createCredentialResolver(
   adapters: CredentialAdapters,
 ): UsageCredentialResolver {
   const resolved = new Map<string, string>();
+  const resolvedFrom = new Map<string, UsageCredentialSource>();
   const secrets = new Set<string>();
 
   function resolve(name: string): string {
@@ -208,6 +276,7 @@ export function createCredentialResolver(
       tried.push(describeSource(source, read));
       if (read.kind === "resolved") {
         resolved.set(name, read.token);
+        resolvedFrom.set(name, source);
         if (read.token.length >= REDACTION_MIN_LENGTH) secrets.add(read.token);
         return read.token;
       }
@@ -224,5 +293,9 @@ export function createCredentialResolver(
     return scrubbed;
   }
 
-  return { resolve, redact };
+  return {
+    resolve,
+    resolvedSource: (name: string): UsageCredentialSource | undefined => resolvedFrom.get(name),
+    redact,
+  };
 }

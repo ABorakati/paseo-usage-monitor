@@ -1,4 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
+import type { PaseoAgentListOptions, PaseoAgentListResult } from "@getpaseo/client";
+import type { SessionOutboundMessage } from "@getpaseo/protocol/messages";
 import {
   type PluginButtonContentProps,
   type PluginButtonIconProps,
@@ -977,6 +979,14 @@ interface AgentRemoval {
   agentId: string;
 }
 type AgentUpdate = AgentUpsert | AgentRemoval;
+type AgentDirectory = PaseoAgentListResult;
+type AgentObservation = {
+  subscribe(observer: {
+    snapshot(directory: AgentDirectory): void;
+    update(message: SessionOutboundMessage): void;
+  }): () => void;
+  release(): Promise<void>;
+};
 
 function registrationKey(agentId: string, providerId: string): string {
   return `${agentId}\u0000${providerId}`;
@@ -1007,6 +1017,13 @@ export function contributeComposerPills(client: PluginClientContext): () => void
   let providers: readonly UsageProviderSnapshot[] = [];
   let live = false;
   let stopped = false;
+  const lifetime = new AbortController();
+  function releaseObservation(handle: AgentObservation): void {
+    void handle.release().catch((error: unknown) => {
+      console.warn("[usage-monitor] agent observation release failed", error);
+    });
+  }
+  let observation: AgentObservation | undefined;
 
   function sync(): void {
     if (stopped) {
@@ -1125,17 +1142,60 @@ export function contributeComposerPills(client: PluginClientContext): () => void
     });
   }
 
-  const unsubscribe: () => void = client.paseo.agents.subscribe((update: AgentUpdate) => {
+  function onAgentUpdate(update: AgentUpdate): void {
     if (update.kind === "remove") {
-      if (selectionByAgent.delete(update.agentId)) {
-        sync();
-      }
+      if (selectionByAgent.delete(update.agentId)) sync();
       return;
     }
-    if (trackAgent(update.agent)) {
-      sync();
-    }
-  });
+    if (trackAgent(update.agent)) sync();
+  }
+
+  // Older hosts broadcast updates to local listeners. Since 0.9, each
+  // plugin owns an observation instead of borrowing the app's stream.
+  const ownsObservation =
+    "observeEvents" in client.paseo && typeof client.paseo.observeEvents === "function";
+  const unsubscribe = ownsObservation ? undefined : client.paseo.agents.subscribe(onAgentUpdate);
+  if (ownsObservation) {
+    void (
+      client.paseo.agents.list({
+        subscribe: {},
+        signal: lifetime.signal,
+      } as PaseoAgentListOptions & { signal: AbortSignal }) as Promise<
+        AgentDirectory & { subscription: AgentObservation }
+      >
+    )
+      .then((directory) => {
+        const handle = directory.subscription;
+        if (stopped) {
+          releaseObservation(handle);
+          return undefined;
+        }
+        observation = handle;
+        handle.subscribe({
+          snapshot(snapshot) {
+            if (stopped) return;
+            // A redelivered snapshot is the whole directory again: an agent
+            // that vanished while the subscription was down is gone, not idle.
+            // `refresh()` must not do this — its plain list can be one page.
+            const present = new Set(snapshot.entries.map((entry) => entry.agent.id));
+            for (const agentId of selectionByAgent.keys()) {
+              if (!present.has(agentId)) selectionByAgent.delete(agentId);
+            }
+            for (const entry of snapshot.entries) {
+              trackAgent(entry.agent);
+            }
+            sync();
+          },
+          update(message) {
+            if (message.type === "agent_update") onAgentUpdate(message.payload);
+          },
+        });
+        return undefined;
+      })
+      .catch((error: unknown) => {
+        if (!stopped) console.warn("[usage-monitor] agent observation failed", error);
+      });
+  }
 
   refreshQuietly();
   // Re-armed rather than fixed, so a watched file source gets the shorter poll
@@ -1154,8 +1214,10 @@ export function contributeComposerPills(client: PluginClientContext): () => void
 
   return () => {
     stopped = true;
+    lifetime.abort();
+    if (observation) releaseObservation(observation);
     clearTimeout(timer);
-    unsubscribe();
+    unsubscribe?.();
     for (const registration of registrations.values()) {
       registration.handle.remove();
     }

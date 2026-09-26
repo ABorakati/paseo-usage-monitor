@@ -1,6 +1,11 @@
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, test } from "vitest";
 import {
   createCredentialResolver,
+  createNodeCredentialAdapters,
   expandPath,
   type CredentialAdapters,
 } from "./credentials.server";
@@ -28,11 +33,13 @@ interface StubAdapters extends CredentialAdapters {
 interface StubAdaptersInput {
   env?: NodeJS.ProcessEnv;
   files?: Record<string, string | undefined>;
+  sqlite?: Record<string, Record<string, string | null | undefined>>;
   now?: Date;
 }
 
 function createStubAdapters(input: StubAdaptersInput): StubAdapters {
   const files = input.files ?? {};
+  const sqlite = input.sqlite ?? {};
   const reads: string[] = [];
   return {
     env: input.env ?? {},
@@ -44,6 +51,10 @@ function createStubAdapters(input: StubAdaptersInput): StubAdapters {
     readTextFile(path: string): string | null {
       reads.push(path);
       return files[path] ?? null;
+    },
+    readSqliteQuery(path: string, query: string): string | null {
+      reads.push(`${path}?query=${query}`);
+      return sqlite[path]?.[query] ?? null;
     },
   };
 }
@@ -610,5 +621,159 @@ describe("UsageCredentialResolver.redact", () => {
     expect(resolver.redact("invalid header value: sk-ant-oat01-abcdefgh")).toBe(
       "invalid header value: <redacted>",
     );
+  });
+});
+describe("sqlite credentials", () => {
+  const DB_PATH = `${HOME_DIR}/.omp/agent/agent.db`;
+  const QUERY = "SELECT data FROM auth_credentials WHERE provider = 'anthropic'";
+
+  test("resolves a token directly from a scalar query", () => {
+    const adapters = createStubAdapters({
+      sqlite: {
+        [DB_PATH]: {
+          "SELECT token FROM auth": "sk-secret-from-db",
+        },
+      },
+    });
+    const resolver = createCredentialResolver(
+      {
+        DB_TOKEN: [
+          {
+            kind: "sqlite",
+            file: "~/.omp/agent/agent.db",
+            query: "SELECT token FROM auth",
+          },
+        ],
+      },
+      adapters,
+    );
+    expect(resolver.resolve("DB_TOKEN")).toBe("sk-secret-from-db");
+  });
+
+  test("resolves a token from a JSON string using path", () => {
+    const adapters = createStubAdapters({
+      sqlite: {
+        [DB_PATH]: {
+          [QUERY]: JSON.stringify({ access: "sk-access-from-json" }),
+        },
+      },
+    });
+    const resolver = createCredentialResolver(
+      {
+        ANTHROPIC_TOKEN: [
+          {
+            kind: "sqlite",
+            file: "~/.omp/agent/agent.db",
+            query: QUERY,
+            path: "access",
+          },
+        ],
+      },
+      adapters,
+    );
+    expect(resolver.resolve("ANTHROPIC_TOKEN")).toBe("sk-access-from-json");
+  });
+
+  test("skips an expired sqlite token and falls through to next source", () => {
+    const adapters = createStubAdapters({
+      sqlite: {
+        [DB_PATH]: {
+          [QUERY]: JSON.stringify({
+            access: "stale-token",
+            expires: new Date(NOW_MS - HOUR_MS).toISOString(),
+          }),
+        },
+      },
+      env: { FALLBACK_TOKEN: "valid-fallback" },
+    });
+    const resolver = createCredentialResolver(
+      {
+        TOKEN: [
+          {
+            kind: "sqlite",
+            file: "~/.omp/agent/agent.db",
+            query: QUERY,
+            path: "access",
+            expiresAtPath: "expires",
+          },
+          {
+            kind: "env",
+            variable: "FALLBACK_TOKEN",
+          },
+        ],
+      },
+      adapters,
+    );
+    expect(resolver.resolve("TOKEN")).toBe("valid-fallback");
+  });
+
+  test("redacts a token resolved out of sqlite", () => {
+    const adapters = createStubAdapters({
+      sqlite: {
+        [DB_PATH]: {
+          "SELECT token FROM auth": "sk-secret-from-db",
+        },
+      },
+    });
+    const resolver = createCredentialResolver(
+      {
+        DB_TOKEN: [
+          {
+            kind: "sqlite",
+            file: "~/.omp/agent/agent.db",
+            query: "SELECT token FROM auth",
+          },
+        ],
+      },
+      adapters,
+    );
+    resolver.resolve("DB_TOKEN");
+    expect(resolver.redact("Bearer sk-secret-from-db")).toBe("Bearer <redacted>");
+  });
+});
+
+describe("resolvedSource", () => {
+  test("names the source that produced the value, not the first in the chain", () => {
+    const adapters = createStubAdapters({ env: { ANTHROPIC_API_KEY: "env-value" } });
+    const resolver = createCredentialResolver(CHAINED_CREDENTIALS, adapters);
+    expect(resolver.resolvedSource("CLAUDE_TOKEN")).toBeUndefined();
+    expect(resolver.resolve("CLAUDE_TOKEN")).toBe("env-value");
+    // The file source came first but resolved nothing, so the remedy must not
+    // name it: the environment variable is what actually held the token.
+    expect(resolver.resolvedSource("CLAUDE_TOKEN")).toEqual({
+      kind: "env",
+      variable: "ANTHROPIC_API_KEY",
+    });
+  });
+
+  test("stays undefined for a name whose whole chain fails", () => {
+    const adapters = createStubAdapters({});
+    const resolver = createCredentialResolver(CHAINED_CREDENTIALS, adapters);
+    expect(() => resolver.resolve("CLAUDE_TOKEN")).toThrow(UsageCredentialMissingError);
+    expect(resolver.resolvedSource("CLAUDE_TOKEN")).toBeUndefined();
+  });
+});
+
+describe("the real sqlite adapter", () => {
+  test("reads a selected value but never executes a write statement", () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-credentials-sqlite-"));
+    try {
+      const dbPath = join(dir, "auth.db");
+      const dumpPath = join(dir, "dump.db");
+      const writer = new DatabaseSync(dbPath);
+      writer.exec("CREATE TABLE auth (token TEXT)");
+      writer.exec("INSERT INTO auth (token) VALUES ('sk-sqlite-value')");
+      writer.close();
+
+      const readSqliteQuery = createNodeCredentialAdapters().readSqliteQuery;
+      if (typeof readSqliteQuery !== "function") {
+        throw new Error("the node adapter must offer readSqliteQuery");
+      }
+      expect(readSqliteQuery(dbPath, "SELECT token FROM auth")).toBe("sk-sqlite-value");
+      expect(readSqliteQuery(dbPath, `VACUUM INTO '${dumpPath}'`)).toBeNull();
+      expect(existsSync(dumpPath)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

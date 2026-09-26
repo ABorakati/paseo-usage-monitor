@@ -60,6 +60,8 @@ Then map each field with dot and bracket syntax, remembering array indices (`bal
 
 **A config edit did nothing.** `usage-limits.json` is read per request, but a provider's result is cached for `refreshIntervalMs`. Use the surface's refresh action to bypass the cache instead of waiting. Note that `paseo plugin reload usage-limits` reloads plugin _code_, not provider config.
 
+**A composer pill does not follow a model change.** The pill follows an existing agent's saved model. The model picker for a new agent changes only a draft, so the pill appears after creation. After updating plugin code, run `paseo plugin reload usage-monitor` to load the new client contribution.
+
 **History is empty or short.** Only files modified inside the window are read. A range longer than your retained transcripts shows only what exists. Check that the CLI you expect writes where the reader looks — if you set `CLAUDE_CONFIG_DIR` or `CODEX_HOME` for the CLI, the daemon needs the same value in its environment, since the reader resolves those from the daemon's environment.
 
 **History reads low.** Check `scanErrors` first — it names every directory and file the scan could not read, so a permissions problem inside the transcript tree points at itself (see [Scan failures](HISTORY.md#scan-failures)). If `scanErrors` is empty, the scan read everything it could find, and the shortfall is real: either the window is longer than your retained transcripts, or the CLI writes somewhere the reader is not looking.

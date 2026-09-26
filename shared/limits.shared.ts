@@ -52,9 +52,24 @@ export const UsageJsonFileCredentialSchema = z.object({
   refreshedBy: z.string().min(1).optional(),
 });
 
+export const UsageSqliteCredentialSchema = z.object({
+  kind: z.literal("sqlite"),
+  /** `~` and `${VAR}` expand before the read. */
+  file: z.string().min(1),
+  /** SQL query that selects a string column or JSON blob. */
+  query: z.string().min(1),
+  /** Optional JSON path to the secret inside that string. */
+  path: z.string().min(1).optional(),
+  /** When the stored token stops working, so an expired one is skipped. */
+  expiresAtPath: z.string().min(1).optional(),
+  /** The command that rewrites this database. */
+  refreshedBy: z.string().min(1).optional(),
+});
+
 export const UsageCredentialSourceSchema = z.discriminatedUnion("kind", [
   UsageEnvCredentialSchema,
   UsageJsonFileCredentialSchema,
+  UsageSqliteCredentialSchema,
 ]);
 
 /**
