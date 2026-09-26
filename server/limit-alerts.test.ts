@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { PaseoApi } from "@getpaseo/client";
 import type { LimitAlert } from "../shared/limit-alerts.shared";
 import { UsageSnapshotSchema, type UsageSnapshot } from "../shared/limits.shared";
 import {
@@ -7,6 +6,7 @@ import {
   type LimitAlertAdapters,
   type LimitAlertService,
   type LimitAlertTurnEvent,
+  type PaseoApi,
 } from "./limit-alerts.server";
 
 const HOME = "/home/tester";

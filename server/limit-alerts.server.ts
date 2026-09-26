@@ -5,7 +5,7 @@ import type { PluginHandlerContext, PluginLifecycleEvents } from "@getpaseo/plug
 
 // Derived rather than imported: `PaseoApi` lives in `@getpaseo/client`, and the
 // compiler rejects a plugin server bundle that imports that specifier directly.
-type PaseoApi = PluginHandlerContext["paseo"];
+export type PaseoApi = PluginHandlerContext["paseo"];
 import {
   LimitAlertSchema,
   LimitAlertSettingsSchema,
