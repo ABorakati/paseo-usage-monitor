@@ -133,13 +133,12 @@ interface CredentialRemedy {
 
 /**
  * The source that actually produced the value wins over a walk of the whole
- * chain: an earlier source may declare `refreshedBy` yet never have resolved,
- * and naming its CLI would send the user to refresh a credential that was not
- * used. The walk below remains only for a failure where nothing resolved.
+ * chain. A candidate that never resolved cannot tell the user what to refresh.
  */
 function credentialRemedy(
   credentials: UsageCredentials,
   resolver: UsageCredentialResolver,
+  keychainAvailable: boolean,
 ): CredentialRemedy {
   const resolved = Object.keys(credentials)
     .map((name) => resolver.resolvedSource(name))
@@ -150,6 +149,21 @@ function credentialRemedy(
     if (source.kind === "env") {
       variable ??= source.variable;
       continue;
+    }
+    if (source.kind === "keychain") {
+      // Only a host with a Keychain can act on this; elsewhere the file
+      // sources further down the chain carry the remedy.
+      if (!keychainAvailable) continue;
+      if (source.refreshedBy !== undefined) {
+        return {
+          text: `Run \`${source.refreshedBy}\` so it refreshes the Keychain item "${source.service}".`,
+          command: source.refreshedBy,
+        };
+      }
+      return {
+        text: `Run the CLI that owns the Keychain item "${source.service}" so it refreshes the stored token.`,
+        command: null,
+      };
     }
     if (source.file.endsWith(SECRETS_FILE_NAME)) {
       return { text: "Replace the stored key from the Usage providers screen.", command: null };
@@ -270,6 +284,7 @@ function earliestFutureReset(snapshot: UsageProviderSnapshot, fetchedAtMs: numbe
 
 export function createUsageService(input: UsageServiceInput): UsageService {
   const { entries, configPath, adapters } = input;
+  const keychainAvailable = adapters.credentials.readKeychainItem !== undefined;
   const cache = new Map<string, CacheEntry>();
   const inFlight = new Map<string, Promise<UsageProviderSnapshot>>();
   const backoff = new Map<string, BackoffState>();
@@ -393,7 +408,7 @@ export function createUsageService(input: UsageServiceInput): UsageService {
     now: Date,
     resolver: UsageCredentialResolver,
   ): UsageProviderSnapshot {
-    const remedy = credentialRemedy(provider.credentials, resolver);
+    const remedy = credentialRemedy(provider.credentials, resolver, keychainAvailable);
     const stored = storedFallback(id);
     if (!stored) {
       return {
@@ -439,7 +454,9 @@ export function createUsageService(input: UsageServiceInput): UsageService {
         return authRejectedSnapshot(id, provider, authStatus, timestamp, resolver);
       const detail = resolver.redact(error instanceof Error ? error.message : String(error));
       const credentialFailure = error instanceof UsageCredentialMissingError;
-      const remedy = credentialFailure ? credentialRemedy(provider.credentials, resolver) : null;
+      const remedy = credentialFailure
+        ? credentialRemedy(provider.credentials, resolver, keychainAvailable)
+        : null;
       const message = remedy !== null ? `${detail}. ${remedy.text}` : detail;
       const stored = storedFallback(id);
       if (stored) {

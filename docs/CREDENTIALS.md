@@ -13,11 +13,14 @@ Secrets are never written in `usage-limits.json`. Instead a provider **declares*
 }
 ```
 
-| Source kind | Fields                                                  | Reads                                                                             |
-| ----------- | ------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `env`       | `variable`                                              | An environment variable of the **daemon** process.                                |
-| `jsonFile`  | `file`, `path`, `expiresAtPath`                         | A JSON path inside a file on the daemon machine.                                  |
-| `sqlite`    | `file`, `query`, `path`, `expiresAtPath`, `refreshedBy` | A scalar value or JSON string extracted via SQL query on a local SQLite database. |
+| Source kind | Fields                                                  | Reads                                                                                                                                 |
+| ----------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `env`       | `variable`                                              | An environment variable of the **daemon** process.                                                                                    |
+| `jsonFile`  | `file`, `path`, `expiresAtPath`                         | A JSON path inside a file on the daemon machine.                                                                                      |
+| `keychain`  | `service`, `path`, `expiresAtPath`                      | A JSON path inside a macOS Keychain generic password, read with `security find-generic-password -s <service> -a <macOS username> -w`. |
+| `sqlite`    | `file`, `query`, `path`, `expiresAtPath`, `refreshedBy` | A scalar value or JSON string extracted via SQL query on a local SQLite database.                                                     |
+
+A `keychain` source applies only where the daemon runs on macOS. Elsewhere it is skipped like a missing file, and a chain that fails reports it as `(no Keychain on this host)`. The `claude` preset declares it first because Claude Code on macOS keeps its OAuth pair in `Claude Code-credentials` and only writes `~/.claude/.credentials.json` when the Keychain is unavailable. The file can remain stale while the Keychain item stays fresh.
 
 Both `jsonFile` and `sqlite` expand a leading `~` to the home directory and `${VAR}` from the daemon environment. That is path expansion, and it is the one place `${...}` means an environment variable rather than a declared credential. An unset variable inside a path is an error rather than a silently mangled path.
 
@@ -67,14 +70,14 @@ Measured on this machine: the token sat **34 hours past its expiry**. Every refr
 
 ### Which presets declare it
 
-| Preset    | `expiresAtPath`                                           | On                                                        |
-| --------- | --------------------------------------------------------- | --------------------------------------------------------- |
-| `claude`  | `claudeAiOauth.expiresAt`, `anthropic.expires`, `expires` | `.credentials.json`, OpenCode `auth.json`, OMP `agent.db` |
-| `codex`   | `openai.expires`, `expires`                               | OpenCode `auth.json`, OMP `agent.db`                      |
-| `kimi`    | `expires_at`                                              | All three `kimi-code.json` sources                        |
-| `minimax` | `expires_at`, `oauth.expires_at`                          | `~/.mmx/credentials.json`, `~/.mmx/config.json` oauth     |
-| `cursor`  | `expires`                                                 | OMP `agent.db` OAuth                                      |
-| `grok`    | `expires`                                                 | OMP `agent.db` OAuth                                      |
+| Preset    | `expiresAtPath`                                           | On                                                                      |
+| --------- | --------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `claude`  | `claudeAiOauth.expiresAt`, `anthropic.expires`, `expires` | The Keychain, `.credentials.json`, OpenCode `auth.json`, OMP `agent.db` |
+| `codex`   | `openai.expires`, `expires`                               | OpenCode `auth.json`, OMP `agent.db`                                    |
+| `kimi`    | `expires_at`                                              | All three `kimi-code.json` sources                                      |
+| `minimax` | `expires_at`, `oauth.expires_at`                          | `~/.mmx/credentials.json`, `~/.mmx/config.json` oauth                   |
+| `cursor`  | `expires`                                                 | OMP `agent.db` OAuth                                                    |
+| `grok`    | `expires`                                                 | OMP `agent.db` OAuth                                                    |
 
 `codex`'s local CLI file `~/.codex/auth.json` carries `last_refresh` rather than an expiry timestamp, so direct CLI sources declare no expiry. OpenCode and OMP codex credentials declare `expiresAtPath` because those harnesses store token expiration timestamps. The `~/.mmx/config.json` `api_key` source declares none for the same class of reason: a plain API key has no expiry to read.
 

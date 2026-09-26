@@ -105,6 +105,7 @@ export function usageSecretsPath(adapters: ConfigAdapters): string {
   return path.join(path.dirname(usageConfigPath(adapters)), "usage-limits.secrets.json");
 }
 
+
 function describeEndpoint(source: UsageSource | undefined): string | null {
   if (source === undefined || source.kind === "command") return null;
   if (source.kind === "http") return source.url;
@@ -219,6 +220,9 @@ function isSameSource(left: UsageCredentialSource, right: UsageCredentialSource)
   if (left.kind === "env" && right.kind === "env") return left.variable === right.variable;
   if (left.kind === "jsonFile" && right.kind === "jsonFile") {
     return left.file === right.file && left.path === right.path;
+  }
+  if (left.kind === "keychain" && right.kind === "keychain") {
+    return left.service === right.service && left.path === right.path;
   }
   if (left.kind === "sqlite" && right.kind === "sqlite") {
     return left.file === right.file && left.query === right.query && left.path === right.path;

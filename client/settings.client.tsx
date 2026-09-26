@@ -1770,8 +1770,23 @@ function CredentialField({ name, editor, presetId, dispatch, styles }: Credentia
         </View>
       )}
       {sources
-        .filter((source) => source.kind === "jsonFile" || source.kind === "sqlite")
+        .filter((source) => source.kind !== "env")
         .map((source) => {
+          if (source.kind === "keychain") {
+            return (
+              <Text key={`keychain:${source.service}#${source.path}`} style={styles.muted}>
+                {`Also checks the macOS Keychain item "${source.service}"#${source.path}`}
+              </Text>
+            );
+          }
+          if (source.kind === "sqlite") {
+            const suffix = source.path === undefined ? "" : `#${source.path}`;
+            return (
+              <Text key={`${source.file}#${source.query}${suffix}`} style={styles.muted}>
+                {`Also checks ${source.file} (${source.query})${suffix}`}
+              </Text>
+            );
+          }
           if (source.kind === "jsonFile") {
             return (
               <Text key={`${source.file}#${source.path}`} style={styles.muted}>
@@ -1779,14 +1794,7 @@ function CredentialField({ name, editor, presetId, dispatch, styles }: Credentia
               </Text>
             );
           }
-          // Two sqlite sources can share file and query and still differ by
-          // `path`, so the path is part of both the key and the shown line.
-          const suffix = source.path === undefined ? "" : `#${source.path}`;
-          return (
-            <Text key={`${source.file}#${source.query}${suffix}`} style={styles.muted}>
-              {`Also checks ${source.file} (${source.query})${suffix}`}
-            </Text>
-          );
+          return null;
         })}
       {stored && !replacing ? (
         <ActionButton label="Replace stored value" onPress={replace} styles={styles} />

@@ -1,16 +1,19 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   createCredentialResolver,
   createNodeCredentialAdapters,
   expandPath,
   type CredentialAdapters,
+  readMacKeychainItem,
 } from "./credentials.server";
 import { UsageCredentialMissingError, UsageInterpolationError } from "./errors.server";
 import type { UsageCredentials, UsageCredentialSource } from "../shared/limits.shared";
+vi.mock("node:child_process", () => ({ execFileSync: vi.fn() }));
 
 const HOME_DIR = "/home/tester";
 
@@ -33,6 +36,8 @@ interface StubAdapters extends CredentialAdapters {
 interface StubAdaptersInput {
   env?: NodeJS.ProcessEnv;
   files?: Record<string, string | undefined>;
+  /** Present only on a host with a Keychain, as the node adapters are. */
+  keychain?: Record<string, string | undefined>;
   sqlite?: Record<string, Record<string, string | null | undefined>>;
   now?: Date;
 }
@@ -41,6 +46,7 @@ function createStubAdapters(input: StubAdaptersInput): StubAdapters {
   const files = input.files ?? {};
   const sqlite = input.sqlite ?? {};
   const reads: string[] = [];
+  const keychain = input.keychain;
   return {
     env: input.env ?? {},
     homeDir: HOME_DIR,
@@ -52,6 +58,13 @@ function createStubAdapters(input: StubAdaptersInput): StubAdapters {
       reads.push(path);
       return files[path] ?? null;
     },
+    readKeychainItem:
+      keychain === undefined
+        ? undefined
+        : (service: string): string | null => {
+            reads.push(`keychain:${service}`);
+            return keychain[service] ?? null;
+          },
     readSqliteQuery(path: string, query: string): string | null {
       reads.push(`${path}?query=${query}`);
       return sqlite[path]?.[query] ?? null;
@@ -621,6 +634,136 @@ describe("UsageCredentialResolver.redact", () => {
     expect(resolver.redact("invalid header value: sk-ant-oat01-abcdefgh")).toBe(
       "invalid header value: <redacted>",
     );
+  });
+});
+
+describe("a credential kept in the macOS Keychain", () => {
+  const KEYCHAIN_SERVICE = "Claude Code-credentials";
+
+  const CLAUDE_KEYCHAIN_SOURCE: UsageCredentialSource = {
+    kind: "keychain",
+    service: KEYCHAIN_SERVICE,
+    path: "claudeAiOauth.accessToken",
+    expiresAtPath: "claudeAiOauth.expiresAt",
+  };
+
+  const CLAUDE_KEYCHAIN_DESCRIPTION = `keychain "${KEYCHAIN_SERVICE}"#claudeAiOauth.accessToken`;
+
+  test("passes the macOS username as the Keychain account", () => {
+    const command = vi.mocked(execFileSync);
+    command.mockReturnValueOnce(ACCESS_TOKEN as never);
+
+    expect(readMacKeychainItem(KEYCHAIN_SERVICE)).toBe(ACCESS_TOKEN);
+    expect(command).toHaveBeenCalledWith(
+      "security",
+      ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", userInfo().username, "-w"],
+      expect.objectContaining({ encoding: "utf8", timeout: 5_000 }),
+    );
+  });
+
+  test.skipIf(process.platform === "darwin")(
+    "does not expose a Keychain adapter on non-macOS hosts",
+    () => {
+      expect(createNodeCredentialAdapters().readKeychainItem).toBeUndefined();
+    },
+  );
+
+  test("falls back to the credential file when the account-matched Keychain item is absent", () => {
+    const adapters = createStubAdapters({
+      files: { [CLAUDE_CREDENTIALS_PATH]: claudeCredentialsFile(NOW_MS + HOUR_MS) },
+      keychain: {},
+    });
+    const credentials: UsageCredentials = {
+      CLAUDE_TOKEN: [
+        CLAUDE_KEYCHAIN_SOURCE,
+        {
+          kind: "jsonFile",
+          file: "~/.claude/.credentials.json",
+          path: "claudeAiOauth.accessToken",
+          expiresAtPath: "claudeAiOauth.expiresAt",
+        },
+      ],
+    };
+
+    expect(createCredentialResolver(credentials, adapters).resolve("CLAUDE_TOKEN")).toBe(
+      ACCESS_TOKEN,
+    );
+    expect(adapters.reads).toEqual([`keychain:${KEYCHAIN_SERVICE}`, CLAUDE_CREDENTIALS_PATH]);
+  });
+
+  test("reads the token out of the item's json, the same way as a file", () => {
+    const adapters = createStubAdapters({
+      keychain: { [KEYCHAIN_SERVICE]: claudeCredentialsFile(NOW_MS + HOUR_MS) },
+    });
+    expect(
+      createCredentialResolver({ CLAUDE_TOKEN: [CLAUDE_KEYCHAIN_SOURCE] }, adapters).resolve(
+        "CLAUDE_TOKEN",
+      ),
+    ).toBe(ACCESS_TOKEN);
+    expect(adapters.reads).toEqual([`keychain:${KEYCHAIN_SERVICE}`]);
+  });
+
+  test("wins over a stale credential file that sits earlier in the chain", () => {
+    // Claude Code on macOS stops writing the file once it has a Keychain, so
+    // the file lingers with a token that expired weeks ago.
+    const adapters = createStubAdapters({
+      files: { [CLAUDE_CREDENTIALS_PATH]: claudeCredentialsFile(NOW_MS - 14 * 24 * HOUR_MS) },
+      keychain: { [KEYCHAIN_SERVICE]: claudeCredentialsFile(NOW_MS + HOUR_MS) },
+    });
+    const credentials: UsageCredentials = {
+      CLAUDE_TOKEN: [CLAUDE_EXPIRING_SOURCE, CLAUDE_KEYCHAIN_SOURCE],
+    };
+    expect(createCredentialResolver(credentials, adapters).resolve("CLAUDE_TOKEN")).toBe(
+      ACCESS_TOKEN,
+    );
+  });
+
+  test("is skipped on a host without a Keychain and says so", () => {
+    const adapters = createStubAdapters({ env: { ANTHROPIC_API_KEY: "env-value" } });
+    const credentials: UsageCredentials = {
+      CLAUDE_TOKEN: [CLAUDE_KEYCHAIN_SOURCE, { kind: "env", variable: "ANTHROPIC_API_KEY" }],
+    };
+    expect(createCredentialResolver(credentials, adapters).resolve("CLAUDE_TOKEN")).toBe(
+      "env-value",
+    );
+    const error = captureError(UsageCredentialMissingError, () => {
+      createCredentialResolver({ CLAUDE_TOKEN: [CLAUDE_KEYCHAIN_SOURCE] }, adapters).resolve(
+        "CLAUDE_TOKEN",
+      );
+    });
+    expect(error.tried).toEqual([`${CLAUDE_KEYCHAIN_DESCRIPTION} (no Keychain on this host)`]);
+  });
+
+  test("an item that is missing reads as unavailable, not as signed out", () => {
+    const adapters = createStubAdapters({ keychain: {} });
+    const error = captureError(UsageCredentialMissingError, () => {
+      createCredentialResolver({ CLAUDE_TOKEN: [CLAUDE_KEYCHAIN_SOURCE] }, adapters).resolve(
+        "CLAUDE_TOKEN",
+      );
+    });
+    expect(error.tried).toEqual([CLAUDE_KEYCHAIN_DESCRIPTION]);
+  });
+
+  test("an expired item names itself with its age and never its value", () => {
+    const adapters = createStubAdapters({
+      keychain: { [KEYCHAIN_SERVICE]: claudeCredentialsFile(NOW_MS - 5 * HOUR_MS) },
+    });
+    const error = captureError(UsageCredentialMissingError, () => {
+      createCredentialResolver({ CLAUDE_TOKEN: [CLAUDE_KEYCHAIN_SOURCE] }, adapters).resolve(
+        "CLAUDE_TOKEN",
+      );
+    });
+    expect(error.tried).toEqual([`${CLAUDE_KEYCHAIN_DESCRIPTION} (expired 5h ago)`]);
+    expect(error.message).not.toContain(ACCESS_TOKEN);
+  });
+
+  test("an item that is not json is skipped", () => {
+    const adapters = createStubAdapters({ keychain: { [KEYCHAIN_SERVICE]: "not json" } });
+    expect(() =>
+      createCredentialResolver({ CLAUDE_TOKEN: [CLAUDE_KEYCHAIN_SOURCE] }, adapters).resolve(
+        "CLAUDE_TOKEN",
+      ),
+    ).toThrow(UsageCredentialMissingError);
   });
 });
 describe("sqlite credentials", () => {

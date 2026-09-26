@@ -52,6 +52,23 @@ export const UsageJsonFileCredentialSchema = z.object({
   refreshedBy: z.string().min(1).optional(),
 });
 
+/**
+ * A generic password in the macOS Keychain whose value is a json document,
+ * read through `security find-generic-password -w`. Claude Code keeps its
+ * OAuth pair there and only falls back to `.credentials.json` when the
+ * Keychain is unavailable, so on a Mac the file goes stale while the item
+ * stays fresh. `path` and `expiresAtPath` address the item's json exactly as
+ * they address a file's.
+ */
+export const UsageKeychainCredentialSchema = z.object({
+  kind: z.literal("keychain"),
+  /** The item's service name, `-s` to `security`. */
+  service: z.string().min(1),
+  path: z.string().min(1),
+  expiresAtPath: z.string().min(1).optional(),
+  refreshedBy: z.string().min(1).optional(),
+});
+
 export const UsageSqliteCredentialSchema = z.object({
   kind: z.literal("sqlite"),
   /** `~` and `${VAR}` expand before the read. */
@@ -69,6 +86,7 @@ export const UsageSqliteCredentialSchema = z.object({
 export const UsageCredentialSourceSchema = z.discriminatedUnion("kind", [
   UsageEnvCredentialSchema,
   UsageJsonFileCredentialSchema,
+  UsageKeychainCredentialSchema,
   UsageSqliteCredentialSchema,
 ]);
 
