@@ -71,8 +71,9 @@ const CODEX_PROVIDER_ID = "codex";
  */
 const OMP_PROVIDER_PREFIX = "omp-";
 const OMP_LABEL_SUFFIX = " (omp)";
+const PI_PROVIDER_PREFIX = "pi-";
+const PI_LABEL_SUFFIX = " (pi)";
 const UNKNOWN_VENDOR = "unknown";
-const OMP_UNKNOWN_PROVIDER_ID = `${OMP_PROVIDER_PREFIX}${UNKNOWN_VENDOR}`;
 
 const PROVIDER_LABELS: Record<string, string> = {
   [CLAUDE_PROVIDER_ID]: "Claude Code",
@@ -100,6 +101,9 @@ const OMP_XDG_APP_DIR = "omp";
 const OMP_AGENT_DIR = "agent";
 const OMP_PROFILES_DIR = "profiles";
 const OMP_SESSIONS_DIR = "sessions";
+const PI_DEFAULT_CONFIG_DIR = ".pi";
+const PI_AGENT_DIR = "agent";
+const PI_SESSIONS_DIR = "sessions";
 const UNKNOWN_MODEL = "unknown";
 const JSONL_SUFFIX = ".jsonl";
 const UNREADABLE_MESSAGE = "Could not read transcript file";
@@ -182,6 +186,8 @@ const OmpLineSchema = z.object({
   id: OptionalText,
   timestamp: OptionalText,
   model: OptionalText,
+  provider: OptionalText,
+  modelId: OptionalText,
   message: z
     .object({
       model: OptionalText,
@@ -192,6 +198,7 @@ const OmpLineSchema = z.object({
           cacheRead: OptionalNumber,
           cacheWrite: OptionalNumber,
           reasoningTokens: OptionalNumber,
+          reasoning: OptionalNumber,
           cost: z.object({ total: OptionalNumber }).nullish(),
         })
         .nullish(),
@@ -274,7 +281,12 @@ export async function readUsageHistorySnapshot(
   const from = to - window.windowMs;
   const cache = createScanCache(adapters);
   const context: ScanContext = { adapters, from, scanErrors: [], cache };
-  const rows = [...scanClaude(context), ...scanCodex(context), ...scanOmp(context)];
+  const rows = [
+    ...scanClaude(context),
+    ...scanCodex(context),
+    ...scanOmp(context),
+    ...scanPi(context),
+  ];
   cache.flush();
   return buildSnapshot({
     query,
@@ -312,7 +324,12 @@ export function readAgentProviderWindows(
   const widest = windowsMs.reduce((longest, span) => Math.max(longest, span), 0);
   const cache = createScanCache(adapters);
   const context: ScanContext = { adapters, from: to - widest, scanErrors: [], cache };
-  const rows = scanOmp(context).filter((row) => row.providerId === providerId);
+  const candidateRows = providerId.startsWith(PI_PROVIDER_PREFIX)
+    ? scanPi(context)
+    : providerId.startsWith(OMP_PROVIDER_PREFIX)
+      ? scanOmp(context)
+      : [...scanOmp(context), ...scanPi(context)];
+  const rows = candidateRows.filter((row) => row.providerId === providerId);
   cache.flush();
   return windowsMs.map((windowMs) => {
     const window: AgentProviderWindow = { windowMs, requests: 0, tokens: 0, costUsd: 0 };
@@ -345,6 +362,9 @@ function scanCodex(context: ScanContext): UsageRow[] {
 
 function scanOmp(context: ScanContext): UsageRow[] {
   return scanFirstWins(ompTranscripts(context), context, collectOmpRows);
+}
+function scanPi(context: ScanContext): UsageRow[] {
+  return scanFirstWins(piTranscripts(context), context, collectPiRows);
 }
 
 /** Codex and omp both re-emit an identical line, and the first one wins. */
@@ -445,6 +465,33 @@ function ompSessionRoots(adapters: HistoryAdapters): string[] {
     roots.push(join(dataHome, OMP_XDG_APP_DIR, ...suffix, OMP_SESSIONS_DIR));
   }
   return roots;
+}
+function piTranscripts(context: ScanContext): string[] {
+  const files: string[] = [];
+  for (const root of new Set(piSessionRoots(context.adapters))) {
+    files.push(...listJsonlFiles(root, context));
+  }
+  return [...new Set(files)];
+}
+
+function resolveHomePath(value: string, homeDir: string): string {
+  if (value === "~") return homeDir;
+  if (value.startsWith("~/") || value.startsWith("~\\")) {
+    return join(homeDir, value.slice(2));
+  }
+  return value;
+}
+
+function piSessionRoots(adapters: HistoryAdapters): string[] {
+  const sessionDir = nonEmpty(adapters.env.PI_CODING_AGENT_SESSION_DIR);
+  if (sessionDir !== null) {
+    return [resolveHomePath(sessionDir, adapters.homeDir)];
+  }
+  const agentDir = nonEmpty(adapters.env.PI_CODING_AGENT_DIR);
+  if (agentDir !== null) {
+    return [join(resolveHomePath(agentDir, adapters.homeDir), PI_SESSIONS_DIR)];
+  }
+  return [join(adapters.homeDir, PI_DEFAULT_CONFIG_DIR, PI_AGENT_DIR, PI_SESSIONS_DIR)];
 }
 
 function listJsonlFiles(directory: string, context: ScanContext): string[] {
@@ -680,6 +727,14 @@ function codexRow(record: CodexLine, model: string): UsageRow | null {
 }
 
 function collectOmpRows(text: string): UsageRow[] {
+  return collectHarnessRows(text, OMP_PROVIDER_PREFIX);
+}
+
+function collectPiRows(text: string): UsageRow[] {
+  return collectHarnessRows(text, PI_PROVIDER_PREFIX);
+}
+
+function collectHarnessRows(text: string, prefix: string): UsageRow[] {
   const rows: UsageRow[] = [];
   let qualified: string | null = null;
   for (const line of text.split("\n")) {
@@ -687,10 +742,23 @@ function collectOmpRows(text: string): UsageRow[] {
     const parsed = OmpLineSchema.safeParse(parseJson(line));
     if (!parsed.success) continue;
     if (parsed.data.type === OMP_MODEL_CHANGE_TYPE) {
-      qualified = nonEmpty(parsed.data.model) ?? qualified;
+      const isPiChange =
+        nonEmpty(parsed.data.provider) !== null && nonEmpty(parsed.data.modelId) !== null;
+      const isOmpChange = nonEmpty(parsed.data.model) !== null;
+      if (prefix === PI_PROVIDER_PREFIX && isOmpChange && !isPiChange) {
+        return [];
+      }
+      if (prefix === OMP_PROVIDER_PREFIX && isPiChange && !isOmpChange) {
+        return [];
+      }
+      if (isPiChange) {
+        qualified = `${nonEmpty(parsed.data.provider)}/${nonEmpty(parsed.data.modelId)}`;
+      } else if (isOmpChange) {
+        qualified = nonEmpty(parsed.data.model) ?? qualified;
+      }
       continue;
     }
-    const row = ompRow(parsed.data, qualified);
+    const row = harnessRow(parsed.data, qualified, prefix);
     if (row !== null) rows.push(row);
   }
   return rows;
@@ -701,14 +769,14 @@ function collectOmpRows(text: string): UsageRow[] {
  * breakdown of `cacheWrite`, so only the four are read; adding any of the rest
  * double counts the turn.
  */
-function ompRow(record: OmpLine, qualified: string | null): UsageRow | null {
+function harnessRow(record: OmpLine, qualified: string | null, prefix: string): UsageRow | null {
   const usage = record.message?.usage;
   if (usage === null || usage === undefined) return null;
   const stamp = nonEmpty(record.timestamp);
   if (stamp === null) return null;
   const timestampMs = Date.parse(stamp);
   if (Number.isNaN(timestampMs)) return null;
-  const attribution = ompAttribution(qualified, record.message?.model);
+  const attribution = harnessAttribution(prefix, qualified, record.message?.model);
   const cacheRead = usage.cacheRead ?? 0;
   const cacheWrite = usage.cacheWrite ?? 0;
   const lineId = nonEmpty(record.id);
@@ -730,28 +798,33 @@ function ompRow(record: OmpLine, qualified: string | null): UsageRow | null {
       uncachedInputTokens: usage.input ?? 0,
       cachedInputTokens: cacheRead,
       cacheCreationTokens: cacheWrite,
-      /** omp passes no cache TTL split through, so none is guessed. */
+      /** omp and pi pass no cache TTL split through, so none is guessed. */
       cacheCreationLongTtlTokens: 0,
       outputTokens: usage.output ?? 0,
-      reasoningTokens: usage.reasoningTokens ?? 0,
+      reasoningTokens: usage.reasoningTokens ?? usage.reasoning ?? 0,
       reportedCostUsd: usage.cost?.total ?? null,
     }),
   };
 }
 
-interface OmpAttribution {
+interface HarnessAttribution {
   providerId: string;
   model: string;
 }
 
-function ompAttribution(qualified: string | null, bare: string | null | undefined): OmpAttribution {
+function harnessAttribution(
+  prefix: string,
+  qualified: string | null,
+  bare: string | null | undefined,
+): HarnessAttribution {
+  const unknownProviderId = `${prefix}${UNKNOWN_VENDOR}`;
   if (qualified === null) {
-    return { providerId: OMP_UNKNOWN_PROVIDER_ID, model: nonEmpty(bare) ?? UNKNOWN_MODEL };
+    return { providerId: unknownProviderId, model: nonEmpty(bare) ?? UNKNOWN_MODEL };
   }
   const slash = qualified.indexOf("/");
-  if (slash <= 0) return { providerId: OMP_UNKNOWN_PROVIDER_ID, model: qualified };
+  if (slash <= 0) return { providerId: unknownProviderId, model: qualified };
   return {
-    providerId: `${OMP_PROVIDER_PREFIX}${qualified.slice(0, slash)}`,
+    providerId: `${prefix}${qualified.slice(0, slash)}`,
     model: qualified.slice(slash + 1),
   };
 }
@@ -942,9 +1015,15 @@ function rowKeys(row: UsageRow, byModel: boolean): RowKeys {
 function providerLabel(providerId: string): string {
   const known = PROVIDER_LABELS[providerId];
   if (known !== undefined) return known;
-  if (!providerId.startsWith(OMP_PROVIDER_PREFIX)) return providerId;
-  const vendor = providerId.slice(OMP_PROVIDER_PREFIX.length);
-  return `${OMP_VENDOR_LABELS[vendor] ?? vendorSlugLabel(vendor)}${OMP_LABEL_SUFFIX}`;
+  if (providerId.startsWith(OMP_PROVIDER_PREFIX)) {
+    const vendor = providerId.slice(OMP_PROVIDER_PREFIX.length);
+    return `${OMP_VENDOR_LABELS[vendor] ?? vendorSlugLabel(vendor)}${OMP_LABEL_SUFFIX}`;
+  }
+  if (providerId.startsWith(PI_PROVIDER_PREFIX)) {
+    const vendor = providerId.slice(PI_PROVIDER_PREFIX.length);
+    return `${OMP_VENDOR_LABELS[vendor] ?? vendorSlugLabel(vendor)}${PI_LABEL_SUFFIX}`;
+  }
+  return providerId;
 }
 
 function vendorSlugLabel(vendor: string): string {

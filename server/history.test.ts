@@ -19,6 +19,7 @@ const HOME = "/home/tester";
 const CLAUDE_DIR = `${HOME}/.claude/projects/proj`;
 const CODEX_DIR = `${HOME}/.codex/sessions/2026/08/26`;
 const OMP_DIR = `${HOME}/.omp/agent/sessions/-proj`;
+const PI_DIR = `${HOME}/.pi/agent/sessions/-proj`;
 const SCAN_CACHE_PATH = `${HOME}/.paseo/usage-limits/scan-cache.json`;
 const NOW = "2026-08-26T12:30:00.000Z";
 const OMP_REPORTED_COST = 0.422;
@@ -307,6 +308,9 @@ function ompUsageLine(fields: OmpUsageFields): string {
 
 function ompModelChangeLine(timestamp: string, model: string): string {
   return JSON.stringify({ type: "model_change", timestamp, model });
+}
+function piModelChangeLine(timestamp: string, provider: string, modelId: string): string {
+  return JSON.stringify({ type: "model_change", timestamp, provider, modelId });
 }
 
 function bucketAt(snapshot: UsageHistorySnapshot, start: string): UsageHistoryBucket {
@@ -886,6 +890,191 @@ describe("readUsageHistorySnapshot: omp sessions", () => {
     const snapshot = await readUsageHistorySnapshot(PROVIDER_QUERY, harness.adapters);
 
     expect(snapshot.totals.tokens).toBe(8);
+  });
+});
+describe("readUsageHistorySnapshot: pi sessions", () => {
+  test("attributes a usage line to the vendor from provider and modelId in model_change", async () => {
+    const harness = createHarness({
+      files: {
+        [`${PI_DIR}/a.jsonl`]: [
+          piModelChangeLine("2026-08-26T12:00:00.000Z", "deepseek", "deepseek-v4-pro"),
+          ompUsageLine({
+            timestamp: "2026-08-26T12:13:09.875Z",
+            model: "deepseek-v4-pro",
+            input: 100,
+            output: 20,
+            costTotal: 0.002,
+          }),
+        ].join("\n"),
+      },
+    });
+
+    const snapshot = await readUsageHistorySnapshot(PROVIDER_QUERY, harness.adapters);
+    const split = breakdown({
+      uncachedInputTokens: 100,
+      outputTokens: 20,
+      costUsd: 0.002,
+    });
+
+    expect(snapshot.series).toEqual([
+      {
+        key: "pi-deepseek",
+        label: "Deepseek (pi)",
+        ...split,
+        children: [{ key: "pi-deepseek:deepseek-v4-pro", label: "deepseek-v4-pro", ...split }],
+      },
+    ]);
+  });
+
+  test("re-attributes later rows after a mid-file model_change with provider and modelId", async () => {
+    const harness = createHarness({
+      files: {
+        [`${PI_DIR}/a.jsonl`]: [
+          piModelChangeLine("2026-08-26T12:00:00.000Z", "anthropic", "claude-opus-4-8"),
+          ompUsageLine({
+            timestamp: "2026-08-26T12:05:00.000Z",
+            model: "claude-opus-4-8",
+            id: "pi-line-1",
+            input: 10,
+            output: 0,
+          }),
+          piModelChangeLine("2026-08-26T12:10:00.000Z", "google-antigravity", "gemini-3.5-flash"),
+          ompUsageLine({
+            timestamp: "2026-08-26T12:15:00.000Z",
+            model: "gemini-3.5-flash",
+            id: "pi-line-2",
+            input: 20,
+            output: 0,
+          }),
+        ].join("\n"),
+      },
+    });
+
+    const snapshot = await readUsageHistorySnapshot(PROVIDER_QUERY, harness.adapters);
+    expect(snapshot.series.map((entry) => [entry.key, entry.label, entry.tokens])).toEqual([
+      ["pi-google-antigravity", "Google Antigravity (pi)", 20],
+      ["pi-anthropic", "Anthropic (pi)", 10],
+    ]);
+  });
+
+  test("reads the PI_CODING_AGENT_SESSION_DIR sessions tree instead of the home default", async () => {
+    const harness = createHarness({
+      env: { PI_CODING_AGENT_SESSION_DIR: "/srv/pi-sessions" },
+      files: {
+        [`${PI_DIR}/ignored.jsonl`]: [
+          piModelChangeLine("2026-08-26T12:00:00.000Z", "deepseek", "deepseek-v4-pro"),
+          ompUsageLine({
+            timestamp: "2026-08-26T12:13:09.875Z",
+            model: "deepseek-v4-pro",
+            id: "ignored",
+            input: 999,
+            output: 999,
+          }),
+        ].join("\n"),
+        "/srv/pi-sessions/-proj/a.jsonl": [
+          piModelChangeLine("2026-08-26T12:00:00.000Z", "deepseek", "deepseek-v4-flash"),
+          ompUsageLine({
+            timestamp: "2026-08-26T12:13:09.875Z",
+            model: "deepseek-v4-flash",
+            id: "kept",
+            input: 4,
+            output: 1,
+          }),
+        ].join("\n"),
+      },
+    });
+
+    const snapshot = await readUsageHistorySnapshot(PROVIDER_QUERY, harness.adapters);
+    expect(snapshot.totals.tokens).toBe(5);
+    expect(snapshot.series[0]?.key).toBe("pi-deepseek");
+  });
+
+  test("reads the PI_CODING_AGENT_DIR sessions tree instead of the home default", async () => {
+    const harness = createHarness({
+      env: { PI_CODING_AGENT_DIR: "/srv/pi-agent" },
+      files: {
+        [`${PI_DIR}/ignored.jsonl`]: [
+          piModelChangeLine("2026-08-26T12:00:00.000Z", "deepseek", "deepseek-v4-pro"),
+          ompUsageLine({
+            timestamp: "2026-08-26T12:13:09.875Z",
+            model: "deepseek-v4-pro",
+            id: "ignored",
+            input: 999,
+            output: 999,
+          }),
+        ].join("\n"),
+        "/srv/pi-agent/sessions/-proj/a.jsonl": [
+          piModelChangeLine("2026-08-26T12:00:00.000Z", "deepseek", "deepseek-v4-flash"),
+          ompUsageLine({
+            timestamp: "2026-08-26T12:13:09.875Z",
+            model: "deepseek-v4-flash",
+            id: "kept",
+            input: 4,
+            output: 1,
+          }),
+        ].join("\n"),
+      },
+    });
+
+    const snapshot = await readUsageHistorySnapshot(PROVIDER_QUERY, harness.adapters);
+    expect(snapshot.totals.tokens).toBe(5);
+    expect(snapshot.series[0]?.key).toBe("pi-deepseek");
+  });
+
+  test("counts a line id repeated across an append-only re-scan in pi sessions once", async () => {
+    const line = ompUsageLine({
+      timestamp: "2026-08-26T12:13:09.875Z",
+      model: "deepseek-v4-pro",
+      id: "pi_c771e912",
+      input: 100,
+      output: 20,
+    });
+    const change = piModelChangeLine("2026-08-26T12:00:00.000Z", "deepseek", "deepseek-v4-pro");
+    const harness = createHarness({
+      files: {
+        [`${PI_DIR}/a.jsonl`]: [change, line, line].join("\n"),
+        [`${PI_DIR}/copy.jsonl`]: [change, line].join("\n"),
+      },
+    });
+
+    const snapshot = await readUsageHistorySnapshot(PROVIDER_QUERY, harness.adapters);
+
+    expect(snapshot.totals.tokens).toBe(120);
+    expect(snapshot.series[0]?.key).toBe("pi-deepseek");
+  });
+
+  test("readAgentProviderWindows counts only the pi provider asked for", () => {
+    const harness = createHarness({
+      files: {
+        [`${PI_DIR}/a.jsonl`]: [
+          piModelChangeLine("2026-08-26T10:00:00.000Z", "deepseek", "deepseek-v4-pro"),
+          ompUsageLine({
+            timestamp: "2026-08-26T10:00:00.000Z",
+            model: "deepseek-v4-pro",
+            id: "pi_deepseek",
+            input: 10,
+            output: 0,
+          }),
+          piModelChangeLine("2026-08-26T11:30:00.000Z", "anthropic", "claude-opus-4-8"),
+          ompUsageLine({
+            timestamp: "2026-08-26T11:30:00.000Z",
+            model: "claude-opus-4-8",
+            id: "pi_anthropic",
+            input: 50,
+            output: 0,
+          }),
+        ].join("\n"),
+      },
+    });
+
+    const [window] = readAgentProviderWindows("pi-deepseek", [5 * 3_600_000], harness.adapters);
+
+    expect(window).toEqual({
+      windowMs: 5 * 3_600_000,
+      requests: 1,
+      tokens: 10,
+      costUsd: OMP_REPORTED_COST,
+    });
   });
 });
 
