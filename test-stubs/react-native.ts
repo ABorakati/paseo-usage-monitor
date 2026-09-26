@@ -21,6 +21,11 @@ export function Pressable(_props: Record<string, unknown>): React.ReactElement |
   return null;
 }
 
+/** Opening a vendor's usage page is a side effect no unit test should perform. */
+export const Linking = {
+  openURL: async (_url: string): Promise<void> => {},
+};
+
 export type TextStyle = Record<string, unknown>;
 export type ViewStyle = Record<string, unknown>;
 export type LayoutChangeEvent = { nativeEvent: { layout: { width: number; height: number } } };

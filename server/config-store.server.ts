@@ -8,7 +8,11 @@ import {
   loadUsageConfig,
   usageConfigPath,
 } from "./config.server";
-import { createNodeCredentialAdapters, type CredentialAdapters } from "./credentials.server";
+import {
+  createNodeCredentialAdapters,
+  describeCredentialPlace,
+  type CredentialAdapters,
+} from "./credentials.server";
 import { UsageConfigError } from "./errors.server";
 import { redactSecrets } from "./redact.server";
 import type {
@@ -101,11 +105,6 @@ export function usageSecretsPath(adapters: ConfigAdapters): string {
   return path.join(path.dirname(usageConfigPath(adapters)), "usage-limits.secrets.json");
 }
 
-function describeCredentialSource(source: UsageCredentialSource): string {
-  if (source.kind === "env") return `env ${source.variable}`;
-  if (source.kind === "keychain") return `keychain "${source.service}"#${source.path}`;
-  return `file ${source.file}#${source.path}`;
-}
 
 function describeEndpoint(source: UsageSource | undefined): string | null {
   if (source === undefined || source.kind === "command") return null;
@@ -130,7 +129,7 @@ export function listUsagePresetSummaries(): UsagePresetSummary[] {
     );
     const credentialNames = editableCredentials.map(([name]) => name);
     const credentialHints = editableCredentials.flatMap(([, sources]) =>
-      sources.map(describeCredentialSource),
+      sources.map(describeCredentialPlace),
     );
     const endpoint = describeEndpoint(preset.source);
     return {
@@ -224,6 +223,9 @@ function isSameSource(left: UsageCredentialSource, right: UsageCredentialSource)
   }
   if (left.kind === "keychain" && right.kind === "keychain") {
     return left.service === right.service && left.path === right.path;
+  }
+  if (left.kind === "sqlite" && right.kind === "sqlite") {
+    return left.file === right.file && left.query === right.query && left.path === right.path;
   }
   return false;
 }

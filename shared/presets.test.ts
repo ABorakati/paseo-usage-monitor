@@ -318,6 +318,27 @@ describe("usage presets", () => {
 const REVIEWED_EXPIRY_PATHS: Record<string, string | null> = {
   "${CLAUDE_CONFIG_DIR}/.credentials.json claudeAiOauth.accessToken": "claudeAiOauth.expiresAt",
   "~/.claude/.credentials.json claudeAiOauth.accessToken": "claudeAiOauth.expiresAt",
+  "${APPDATA}/opencode/auth.json anthropic.access": "anthropic.expires",
+  "${APPDATA}/opencode/auth.json openai.access": "openai.expires",
+  "${APPDATA}/opencode/auth.json openai.accountId": "openai.expires",
+  "${LOCALAPPDATA}/opencode/auth.json anthropic.access": "anthropic.expires",
+  "${LOCALAPPDATA}/opencode/auth.json openai.access": "openai.expires",
+  "${LOCALAPPDATA}/opencode/auth.json openai.accountId": "openai.expires",
+  "~/.local/share/opencode/auth.json anthropic.access": "anthropic.expires",
+  "~/.local/share/opencode/auth.json openai.access": "openai.expires",
+  "~/.local/share/opencode/auth.json openai.accountId": "openai.expires",
+  "${APPDATA}/opencode/auth.json kimi-for-coding.key": null,
+  "${APPDATA}/opencode/auth.json kimi.key": null,
+  "${APPDATA}/opencode/auth.json minimax-coding-plan.key": null,
+  "${APPDATA}/opencode/auth.json xai.key": null,
+  "${LOCALAPPDATA}/opencode/auth.json kimi-for-coding.key": null,
+  "${LOCALAPPDATA}/opencode/auth.json kimi.key": null,
+  "${LOCALAPPDATA}/opencode/auth.json minimax-coding-plan.key": null,
+  "${LOCALAPPDATA}/opencode/auth.json xai.key": null,
+  "~/.local/share/opencode/auth.json kimi-for-coding.key": null,
+  "~/.local/share/opencode/auth.json kimi.key": null,
+  "~/.local/share/opencode/auth.json minimax-coding-plan.key": null,
+  "~/.local/share/opencode/auth.json xai.key": null,
   "${CODEX_HOME}/auth.json tokens.access_token": null,
   "${CODEX_HOME}/auth.json tokens.account_id": null,
   "~/.codex/auth.json tokens.access_token": null,
@@ -388,8 +409,9 @@ describe("credential files an agent CLI owns declare where they record expiry", 
     const sources = getUsagePreset("claude")?.credentials["token"] ?? [];
     expect(sources.length).toBeGreaterThan(0);
     for (const source of sources) {
-      const declared = source.kind === "env" ? null : source.expiresAtPath;
-      expect(declared).toBe("claudeAiOauth.expiresAt");
+      const expiresAtPath = "expiresAtPath" in source ? source.expiresAtPath : undefined;
+      expect(expiresAtPath).toBeDefined();
+      expect(typeof expiresAtPath).toBe("string");
     }
   });
 
@@ -922,7 +944,7 @@ describe("verified presets resolve their recorded responses", () => {
   test("openrouter derives percent remaining for a key with a credit limit", () => {
     expect(readingById("openrouter", "credits")).toMatchObject({
       kind: "balance",
-      unit: "credits",
+      unit: "usd",
       remaining: 50,
       total: 200,
       percentRemaining: 25,
@@ -967,14 +989,15 @@ describe("verified presets resolve their recorded responses", () => {
     });
   });
 
-  test("openrouter-credits derives remaining and percent from the account pair", () => {
+  test("openrouter-credits is a dollar balance derived from the account pair", () => {
+    // credits are dollars on OpenRouter, and a prepaid pool is a balance that
+    // drains, not a window that fills, so the card leads with the money left
     expect(readingById("openrouter-credits", "credits")).toMatchObject({
-      kind: "quota",
-      unit: "credits",
-      used: 42.5,
-      limit: 100,
+      kind: "balance",
+      unit: "usd",
       remaining: 57.5,
-      percent: 42.5,
+      total: 100,
+      percentRemaining: 57.5,
     });
   });
 

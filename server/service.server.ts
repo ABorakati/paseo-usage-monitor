@@ -14,6 +14,7 @@ import { interpolateSource } from "./interpolate.server";
 import { readAtPath, readNumberAtPath, readStringAtPath } from "./json-path.server";
 import type {
   UsageCredentials,
+  UsageCredentialSource,
   UsageHttpFailure,
   UsageProvider,
   UsageProviderSnapshot,
@@ -44,6 +45,12 @@ export interface UsageServiceInput {
 
 export interface UsageService {
   read(options: { refresh: boolean }): Promise<UsageSnapshot>;
+  /**
+   * Drops cached readings for the named providers. A watched file source calls
+   * this when its writer lands a new document, so the next read re-projects it
+   * instead of serving the reading taken before the change.
+   */
+  invalidate(providerIds: readonly string[]): void;
 }
 
 interface CacheEntry {
@@ -124,12 +131,21 @@ interface CredentialRemedy {
   command: string | null;
 }
 
+/**
+ * The source that actually produced the value wins over a walk of the whole
+ * chain. A candidate that never resolved cannot tell the user what to refresh.
+ */
 function credentialRemedy(
   credentials: UsageCredentials,
+  resolver: UsageCredentialResolver,
   keychainAvailable: boolean,
 ): CredentialRemedy {
+  const resolved = Object.keys(credentials)
+    .map((name) => resolver.resolvedSource(name))
+    .filter((source): source is UsageCredentialSource => source !== undefined);
+  const chain = resolved.length > 0 ? resolved : Object.values(credentials).flat();
   let variable: string | null = null;
-  for (const source of Object.values(credentials).flat()) {
+  for (const source of chain) {
     if (source.kind === "env") {
       variable ??= source.variable;
       continue;
@@ -233,6 +249,7 @@ function baseSnapshot(id: string, provider: UsageProvider): UsageProviderSnapsho
     label: provider.label,
     description: provider.description ?? null,
     unverified: provider.unverified,
+    live: provider.source?.kind === "file",
     ...(provider.supportsBankedReset ? { supportsBankedReset: true } : {}),
     status: "ok",
     readings: [],
@@ -389,8 +406,9 @@ export function createUsageService(input: UsageServiceInput): UsageService {
     provider: UsageProvider,
     status: string,
     now: Date,
+    resolver: UsageCredentialResolver,
   ): UsageProviderSnapshot {
-    const remedy = credentialRemedy(provider.credentials, keychainAvailable);
+    const remedy = credentialRemedy(provider.credentials, resolver, keychainAvailable);
     const stored = storedFallback(id);
     if (!stored) {
       return {
@@ -432,11 +450,12 @@ export function createUsageService(input: UsageServiceInput): UsageService {
         return vendorRefusedSnapshot(id, provider, error, timestamp);
       }
       const authStatus = authFailureStatus(error);
-      if (authStatus !== null) return authRejectedSnapshot(id, provider, authStatus, timestamp);
+      if (authStatus !== null)
+        return authRejectedSnapshot(id, provider, authStatus, timestamp, resolver);
       const detail = resolver.redact(error instanceof Error ? error.message : String(error));
       const credentialFailure = error instanceof UsageCredentialMissingError;
       const remedy = credentialFailure
-        ? credentialRemedy(provider.credentials, keychainAvailable)
+        ? credentialRemedy(provider.credentials, resolver, keychainAvailable)
         : null;
       const message = remedy !== null ? `${detail}. ${remedy.text}` : detail;
       const stored = storedFallback(id);
@@ -510,6 +529,7 @@ export function createUsageService(input: UsageServiceInput): UsageService {
         label: entry.id,
         description: null,
         unverified: false,
+        live: false,
         status: "error",
         readings: [],
         error: entry.error,
@@ -532,6 +552,10 @@ export function createUsageService(input: UsageServiceInput): UsageService {
         entries.map((entry) => entrySnapshot(entry, options.refresh)),
       );
       return { configPath, providers };
+    },
+
+    invalidate(providerIds) {
+      for (const providerId of providerIds) cache.delete(providerId);
     },
   };
 }

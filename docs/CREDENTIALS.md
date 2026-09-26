@@ -13,15 +13,16 @@ Secrets are never written in `usage-limits.json`. Instead a provider **declares*
 }
 ```
 
-| Source kind | Fields                             | Reads                                                                                                             |
-| ----------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `env`       | `variable`                         | An environment variable of the **daemon** process.                                                                |
-| `jsonFile`  | `file`, `path`, `expiresAtPath`    | A JSON path inside a file on the daemon machine.                                                                  |
-| `keychain`  | `service`, `path`, `expiresAtPath` | A JSON path inside a macOS Keychain generic password, read with `security find-generic-password -s <service> -w`. |
+| Source kind | Fields                                                  | Reads                                                                                                                                 |
+| ----------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `env`       | `variable`                                              | An environment variable of the **daemon** process.                                                                                    |
+| `jsonFile`  | `file`, `path`, `expiresAtPath`                         | A JSON path inside a file on the daemon machine.                                                                                      |
+| `keychain`  | `service`, `path`, `expiresAtPath`                      | A JSON path inside a macOS Keychain generic password, read with `security find-generic-password -s <service> -a <macOS username> -w`. |
+| `sqlite`    | `file`, `query`, `path`, `expiresAtPath`, `refreshedBy` | A scalar value or JSON string extracted via SQL query on a local SQLite database.                                                     |
 
-A `keychain` source applies only where the daemon runs on macOS. Elsewhere it is skipped like a missing file, and a chain that fails reports it as `(no Keychain on this host)` rather than pointing at an item that could never exist. The `claude` preset declares one first, because Claude Code on macOS keeps its OAuth pair in the Keychain item `Claude Code-credentials` and writes `~/.claude/.credentials.json` only when the Keychain is unavailable — so on a Mac that file is a leftover that goes stale while the item stays fresh, and `claude` refreshes the item, not the file.
+A `keychain` source applies only where the daemon runs on macOS. Elsewhere it is skipped like a missing file, and a chain that fails reports it as `(no Keychain on this host)`. The `claude` preset declares it first because Claude Code on macOS keeps its OAuth pair in `Claude Code-credentials` and only writes `~/.claude/.credentials.json` when the Keychain is unavailable. The file can remain stale while the Keychain item stays fresh.
 
-A `jsonFile`'s `file` expands a leading `~` to the home directory and `${VAR}` from the daemon environment. That is path expansion, and it is the one place `${...}` means an environment variable rather than a declared credential. An unset variable inside a path is an error rather than a silently mangled path.
+Both `jsonFile` and `sqlite` expand a leading `~` to the home directory and `${VAR}` from the daemon environment. That is path expansion, and it is the one place `${...}` means an environment variable rather than a declared credential. An unset variable inside a path is an error rather than a silently mangled path.
 
 Resolution rules:
 
@@ -69,14 +70,16 @@ Measured on this machine: the token sat **34 hours past its expiry**. Every refr
 
 ### Which presets declare it
 
-| Preset    | `expiresAtPath`                  | On                                                       |
-| --------- | -------------------------------- | -------------------------------------------------------- |
-| `claude`  | `claudeAiOauth.expiresAt`        | The Keychain source and both `.credentials.json` sources |
-| `kimi`    | `expires_at`                     | All three `kimi-code.json` sources                       |
-| `minimax` | `expires_at`, `oauth.expires_at` | `~/.mmx/credentials.json`, `~/.mmx/config.json` oauth    |
-| `codex`   | None, deliberately               | —                                                        |
+| Preset    | `expiresAtPath`                                           | On                                                                      |
+| --------- | --------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `claude`  | `claudeAiOauth.expiresAt`, `anthropic.expires`, `expires` | The Keychain, `.credentials.json`, OpenCode `auth.json`, OMP `agent.db` |
+| `codex`   | `openai.expires`, `expires`                               | OpenCode `auth.json`, OMP `agent.db`                                    |
+| `kimi`    | `expires_at`                                              | All three `kimi-code.json` sources                                      |
+| `minimax` | `expires_at`, `oauth.expires_at`                          | `~/.mmx/credentials.json`, `~/.mmx/config.json` oauth                   |
+| `cursor`  | `expires`                                                 | OMP `agent.db` OAuth                                                    |
+| `grok`    | `expires`                                                 | OMP `agent.db` OAuth                                                    |
 
-`codex` is the interesting absence. `~/.codex/auth.json` carries `last_refresh`, which records when the token was last refreshed rather than when it dies, so no path in that file can honestly answer the question. A guessed expiry would skip a credential that works, so all three `codex` sources stay two-field. The `~/.mmx/config.json` `api_key` source declares none for the same class of reason: a plain API key has no expiry to read. The `github-copilot` probe reads its own credential file and is in the same position: `hosts.json` records the OAuth token and the login it belongs to, and nothing about when it dies.
+`codex`'s local CLI file `~/.codex/auth.json` carries `last_refresh` rather than an expiry timestamp, so direct CLI sources declare no expiry. OpenCode and OMP codex credentials declare `expiresAtPath` because those harnesses store token expiration timestamps. The `~/.mmx/config.json` `api_key` source declares none for the same class of reason: a plain API key has no expiry to read.
 
 ### What you see
 
@@ -118,18 +121,25 @@ What this buys, over the endpoint preset:
 
 What it costs: **two readings instead of three.** The CLI sends no per-model limits to a statusline, so the `scoped` per-model bucket the endpoint preset reports has no equivalent here. The numbers also only move while Claude Code runs — which is when your quota moves anyway.
 
-Install `statusline-hook.sh`, shipped at the plugin root beside `README.md`, then register it:
+Install it from **Usage provider settings → Claude Code status line**. The press does three things:
 
-```bash
-cp statusline-hook.sh ~/.claude/statusline-hook.sh
-chmod +x ~/.claude/statusline-hook.sh
-```
+1. writes `~/.claude/paseo-statusline.mjs` (or `$CLAUDE_CONFIG_DIR`);
+2. sets `statusLine.command` to `node "<that path>"`;
+3. records whatever command held the slot in `~/.claude/paseo-statusline-wrap.json`, which the hook runs with the same payload and forwards the output of.
+
+Step 3 is what makes the press safe over an existing status line: **whatever that command printed is still what you see.** Removal puts it back and deletes the files the hook added. Claude Code's settings file is copied to `settings.json.paseo-usage-monitor.bak` once before the first write.
+
+The hook is Node, not bash, because Claude Code on Windows runs a statusline command through `cmd.exe`, where a `.sh` script and a hardcoded `python3` do not work. The install refuses if `node` is not on PATH, and says so.
+
+Installing the hook does not change which readings the `claude` card shows. Press **Use live readings** in the same section to repoint the `claude` provider at the statusline preset. The OAuth preset keeps its per-model and extra-usage rows, which a statusline payload does not carry.
+
+To install by hand instead, copy `statusline-hook.mjs` from the plugin root and register it:
 
 ```json
-{ "statusLine": { "type": "command", "command": "~/.claude/statusline-hook.sh" } }
+{ "statusLine": { "type": "command", "command": "node ~/.claude/paseo-statusline.mjs" } }
 ```
 
-in `~/.claude/settings.json`. **Whatever a statusline command prints becomes your status line**, so the shipped script prints one — model, directory, and both windows — rather than blanking it:
+in `~/.claude/settings.json`. With no wrap file the hook prints its own line, because **whatever a statusline command prints becomes your status line**:
 
 ```
 Opus 5 · paseo-plugins · 5h 42% · 7d 18%
@@ -138,6 +148,8 @@ Opus 5 · paseo-plugins · 5h 42% · 7d 18%
 It writes `${CLAUDE_CONFIG_DIR:-~/.claude}/paseo-rate-limits.json` through a temporary file and a rename, so the plugin never reads half a document, and it writes the `rate_limits` object **through unchanged**: the preset's reading paths are Claude Code's own field names, `five_hour.utilization` and `five_hour.resets_at`, the same paths the endpoint preset uses. Nothing reshapes or renames anything, which is why a reshaping script that guesses a field name is worse than none — it writes a plausible zero forever.
 
 A session that has no plan quota — an API key, Bedrock or Vertex — sends `rate_limits: null`. The script then leaves the last good file alone, because a quota that does not apply to this session is not news that the quota changed.
+
+The daemon watches the directory that file lives in and drops its cached reading the moment the hook renames a new one into place, so the card catches up on the next poll. A live provider polls every fifteen seconds rather than on its own refresh interval — the same floor Orca uses for this feed.
 
 Until the hook is registered the card says so, naming both paths it looked in. That is the [`file` source](CONFIGURATION.md#kind-file) error, verbatim.
 

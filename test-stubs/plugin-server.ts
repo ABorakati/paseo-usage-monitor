@@ -1,6 +1,6 @@
 /**
- * Paseo supplies runtime entries at runtime and paseo-plugin.d.ts
- * supplies their types. Vitest aliases specifiers here.
+ * Paseo supplies the runtime entries and `@getpaseo/plugin` supplies their
+ * types. Vitest aliases specifiers here.
  */
 
 export function defineRpc<Definition>(definition: Definition): Definition {
