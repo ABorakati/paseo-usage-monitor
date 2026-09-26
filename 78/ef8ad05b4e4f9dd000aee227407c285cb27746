@@ -1,0 +1,22 @@
+README.md
+  h_0ae9538d78aa59 60
+docs/CREDENTIALS.md
+  h_0ae9538d78aa59 16-20,22,70-77,79
+package-lock.json
+  h_0ae9538d78aa59 3,9,12-14,967-969,972-973,978-980,987-988,1000-1002,1010-1012,6363-6365
+package.json
+  h_0ae9538d78aa59 3,28-30
+test-stubs/plugin-client.ts
+  h_0ae9538d78aa59 133-136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "78ef8ad05b4e4f9dd000aee227407c285cb27746",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
