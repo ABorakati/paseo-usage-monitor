@@ -140,7 +140,6 @@ describe("contributeComposerPills client lifecycle", () => {
     ]);
 
     const client = createMockClientContext(providers);
-    const stop = contributeComposerPills(client);
 
     // 1. Add agent with matching model
     client.simulateAgentAdded({
@@ -149,6 +148,7 @@ describe("contributeComposerPills client lifecycle", () => {
       provider: "omp",
       model: "openai/gpt-4o",
     });
+    const stop = contributeComposerPills(client);
 
     await vi.waitFor(() => {
       expect(client.registeredPills.map((p) => p.id)).toEqual(["usage-openai-pill"]);
@@ -163,9 +163,7 @@ describe("contributeComposerPills client lifecycle", () => {
       model: "google/gemini-2.5",
     });
 
-    await vi.waitFor(() => {
-      expect(client.registeredPills.length).toBe(0);
-    });
+    expect(client.registeredPills.length).toBe(0);
 
     // 3. Switch back to matching model
     client.simulateAgentAdded({
@@ -175,16 +173,96 @@ describe("contributeComposerPills client lifecycle", () => {
       model: "openai/gpt-5-mini",
     });
 
-    await vi.waitFor(() => {
-      expect(client.registeredPills.map((p) => p.id)).toEqual(["usage-openai-pill"]);
-    });
+    expect(client.registeredPills.map((p) => p.id)).toEqual(["usage-openai-pill"]);
 
     // 4. Remove agent entirely
     client.simulateAgentRemoved("agent-live");
-    await vi.waitFor(() => {
-      expect(client.registeredPills.length).toBe(0);
+    expect(client.registeredPills.length).toBe(0);
+
+    stop();
+  });
+
+  test("a redelivered snapshot drops agents that vanished while disconnected", async () => {
+    const providers = mockSnapshot([
+      {
+        providerId: "always-pill",
+        label: "Always Usage",
+        display: {
+          pill: pill({ enabled: true, visibility: "always" }),
+        },
+      },
+    ]);
+
+    const client = createMockClientContext(providers);
+    client.simulateAgentAdded({
+      id: "agent-a",
+      workspaceId: "wks-1",
+      provider: "omp",
+      model: "openai/gpt-5",
+    });
+    client.simulateAgentAdded({
+      id: "agent-b",
+      workspaceId: "wks-2",
+      provider: "omp",
+      model: "openai/gpt-5",
     });
 
+    const stop = contributeComposerPills(client);
+
+    // The first snapshot carries both agents.
+    await vi.waitFor(() => {
+      expect(client.registeredPills.map((p) => p.agentId).sort()).toEqual(["agent-a", "agent-b"]);
+    });
+    // Hold until the observation's own observer is up, so the redelivery below
+    // cannot race the subscribe-time snapshot.
+    await vi.waitFor(() => {
+      expect(client.simulateObservationSnapshot()).toBe(true);
+    });
+
+    // agent-b is gone while the subscription is down, so no update reaches us.
+    client.simulateAgentLost("agent-b");
+
+    // Reconnect: the subscription redelivers the whole directory, minus b.
+    client.simulateObservationSnapshot();
+
+    await vi.waitFor(() => {
+      expect(client.registeredPills.map((p) => p.agentId)).toEqual(["agent-a"]);
+    });
+
+    stop();
+    expect(client.registeredPills.length).toBe(0);
+  });
+
+  test("legacy hosts still switch pills from the agent update listener", async () => {
+    const client = createMockClientContext(
+      mockSnapshot([
+        {
+          display: {
+            pill: pill({
+              visibility: "matching",
+              matchRules: [{ harness: "omp", provider: "openai" }],
+            }),
+          },
+        },
+      ]),
+      true,
+    );
+    client.simulateAgentAdded({
+      id: "agent-legacy",
+      workspaceId: "wks-1",
+      provider: "omp",
+      model: "openai/gpt-5",
+    });
+    const stop = contributeComposerPills(client);
+    await vi.waitFor(() => expect(client.registeredPills.length).toBe(1));
+
+    client.simulateAgentAdded({
+      id: "agent-legacy",
+      workspaceId: "wks-1",
+      provider: "omp",
+      model: "google/gemini-2.5",
+    });
+    expect(client.registeredPills.length).toBe(0);
     stop();
   });
 

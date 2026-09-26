@@ -1204,6 +1204,54 @@ describe("usage service credential rejection", () => {
     expect(rejected.authRefreshCommand).toBe("claude");
   });
 
+  test("the remedy names the source that produced the token, not the chain's first", async () => {
+    const source = createFakeSource({
+      http: async () => {
+        throw transportError(401);
+      },
+    });
+    const service = createService({
+      source,
+      files: CREDENTIAL_FILES,
+      overrides: {
+        claude: {
+          label: "Claude",
+          refreshIntervalMs: 300_000,
+          credentials: {
+            TOKEN: [
+              {
+                kind: "jsonFile",
+                file: "~/.other-tool/.credentials.json",
+                path: "claudeAiOauth.accessToken",
+                refreshedBy: "claude",
+              },
+              {
+                kind: "jsonFile",
+                file: "~/.claude/.credentials.json",
+                path: "claudeAiOauth.accessToken",
+                refreshedBy: "omp",
+              },
+            ],
+          },
+          source: {
+            kind: "http",
+            url: "https://example.test/usage",
+            headers: { Authorization: "Bearer ${TOKEN}" },
+          },
+          readings: COUNTER_READINGS,
+        },
+      },
+    });
+
+    const rejected = only((await service.read({ refresh: false })).providers, "provider");
+
+    // The first source declares a refresh command but resolved nothing: the
+    // token came from the later source, so its command is the remedy.
+    expect(rejected.authRefreshCommand).toBe("omp");
+    expect(rejected.error).toContain("Run `omp` so it refreshes ~/.claude/.credentials.json.");
+    expect(rejected.error).not.toContain("Run `claude`");
+  });
+
   test("seeds a first-ever rejected read from the persisted file", async () => {
     const yesterday = FIXED_NOW - 24 * 60 * 60 * 1000;
     const stored = {

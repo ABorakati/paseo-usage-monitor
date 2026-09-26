@@ -164,8 +164,11 @@ function projectBalance(
   identity: ReadingIdentity,
 ): UsageBalanceReading {
   const scale = mapping.scale ?? 1;
-  const remaining = readScaledAmount(document, mapping.remainingPath, scale);
   const total = readScaledAmount(document, mapping.totalPath, scale);
+  const used = readScaledAmount(document, mapping.usedPath, scale);
+  const remaining =
+    readScaledAmount(document, mapping.remainingPath, scale) ??
+    (total !== null && used !== null ? Math.max(0, total - used) : null);
   const explicit = readPercent(document, mapping.percentRemainingPath);
   const derived =
     remaining !== null && total !== null && total > 0

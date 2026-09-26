@@ -115,6 +115,36 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           expiresAtPath: "claudeAiOauth.expiresAt",
           refreshedBy: "claude",
         },
+        {
+          kind: "jsonFile",
+          file: "~/.local/share/opencode/auth.json",
+          path: "anthropic.access",
+          expiresAtPath: "anthropic.expires",
+          refreshedBy: "opencode",
+        },
+        {
+          kind: "jsonFile",
+          file: "${LOCALAPPDATA}/opencode/auth.json",
+          path: "anthropic.access",
+          expiresAtPath: "anthropic.expires",
+          refreshedBy: "opencode",
+        },
+        {
+          kind: "jsonFile",
+          file: "${APPDATA}/opencode/auth.json",
+          path: "anthropic.access",
+          expiresAtPath: "anthropic.expires",
+          refreshedBy: "opencode",
+        },
+        {
+          kind: "sqlite",
+          file: "~/.omp/agent/agent.db",
+          query:
+            "SELECT data FROM auth_credentials WHERE provider = 'anthropic' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+          path: "access",
+          expiresAtPath: "expires",
+          refreshedBy: "omp",
+        },
       ],
     },
     source: {
@@ -295,6 +325,36 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           path: "tokens.access_token",
           refreshedBy: "codex",
         },
+        {
+          kind: "jsonFile",
+          file: "~/.local/share/opencode/auth.json",
+          path: "openai.access",
+          expiresAtPath: "openai.expires",
+          refreshedBy: "opencode",
+        },
+        {
+          kind: "jsonFile",
+          file: "${LOCALAPPDATA}/opencode/auth.json",
+          path: "openai.access",
+          expiresAtPath: "openai.expires",
+          refreshedBy: "opencode",
+        },
+        {
+          kind: "jsonFile",
+          file: "${APPDATA}/opencode/auth.json",
+          path: "openai.access",
+          expiresAtPath: "openai.expires",
+          refreshedBy: "opencode",
+        },
+        {
+          kind: "sqlite",
+          file: "~/.omp/agent/agent.db",
+          query:
+            "SELECT data FROM auth_credentials WHERE provider = 'openai-codex' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+          path: "access",
+          expiresAtPath: "expires",
+          refreshedBy: "omp",
+        },
       ],
       accountId: [
         {
@@ -311,6 +371,33 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           kind: "jsonFile",
           file: "~/.config/codex/auth.json",
           path: "tokens.account_id",
+        },
+        {
+          kind: "jsonFile",
+          file: "~/.local/share/opencode/auth.json",
+          path: "openai.accountId",
+          expiresAtPath: "openai.expires",
+        },
+        {
+          kind: "jsonFile",
+          file: "${LOCALAPPDATA}/opencode/auth.json",
+          path: "openai.accountId",
+          expiresAtPath: "openai.expires",
+        },
+        {
+          kind: "jsonFile",
+          file: "${APPDATA}/opencode/auth.json",
+          path: "openai.accountId",
+          expiresAtPath: "openai.expires",
+        },
+        {
+          kind: "sqlite",
+          file: "~/.omp/agent/agent.db",
+          query:
+            "SELECT data FROM auth_credentials WHERE provider = 'openai-codex' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+          path: "accountId",
+          expiresAtPath: "expires",
+          refreshedBy: "omp",
         },
       ],
     },
@@ -403,6 +490,33 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         { kind: "jsonFile", file: "${CURSOR_HOME}/auth.json", path: "accessToken" },
         { kind: "jsonFile", file: "~/.config/cursor/auth.json", path: "accessToken" },
         { kind: "jsonFile", file: "~/.cursor/auth.json", path: "accessToken" },
+        {
+          kind: "sqlite",
+          file: "${APPDATA}/Cursor/User/globalStorage/state.vscdb",
+          query: "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'",
+          refreshedBy: "cursor",
+        },
+        {
+          kind: "sqlite",
+          file: "~/Library/Application Support/Cursor/User/globalStorage/state.vscdb",
+          query: "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'",
+          refreshedBy: "cursor",
+        },
+        {
+          kind: "sqlite",
+          file: "~/.config/Cursor/User/globalStorage/state.vscdb",
+          query: "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'",
+          refreshedBy: "cursor",
+        },
+        {
+          kind: "sqlite",
+          file: "~/.omp/agent/agent.db",
+          query:
+            "SELECT data FROM auth_credentials WHERE provider = 'cursor' AND credential_type = 'oauth' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+          path: "access",
+          expiresAtPath: "expires",
+          refreshedBy: "omp",
+        },
       ],
     },
     source: {
@@ -445,6 +559,27 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         { kind: "jsonFile", file: "${GROK_HOME}/auth.json", path: "access_token" },
         { kind: "jsonFile", file: "~/.grok/auth.json", path: "access_token" },
         { kind: "jsonFile", file: "~/.config/grok/auth.json", path: "access_token" },
+        { kind: "env", variable: "XAI_API_KEY" },
+        { kind: "jsonFile", file: "~/.local/share/opencode/auth.json", path: "xai.key" },
+        { kind: "jsonFile", file: "${LOCALAPPDATA}/opencode/auth.json", path: "xai.key" },
+        { kind: "jsonFile", file: "${APPDATA}/opencode/auth.json", path: "xai.key" },
+        {
+          kind: "sqlite",
+          file: "~/.omp/agent/agent.db",
+          query:
+            "SELECT data FROM auth_credentials WHERE provider IN ('xai', 'xai-oauth', 'grok') AND credential_type = 'oauth' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+          path: "access",
+          expiresAtPath: "expires",
+          refreshedBy: "omp",
+        },
+        {
+          kind: "sqlite",
+          file: "~/.omp/agent/agent.db",
+          query:
+            "SELECT data FROM auth_credentials WHERE provider IN ('xai', 'xai-oauth', 'grok') AND credential_type = 'api_key' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+          path: "key",
+          refreshedBy: "omp",
+        },
       ],
     },
     source: {
@@ -551,7 +686,8 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         kind: "balance",
         id: "credits",
         label: "Key credits",
-        unit: "credits",
+        // openrouter prices credits at one dollar each and reports them as such
+        unit: "usd",
         remainingPath: "data.limit_remaining",
         totalPath: "data.limit",
       },
@@ -574,12 +710,14 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     },
     readings: [
       {
-        kind: "quota",
+        // a prepaid pool drains, so it is a balance: the card leads with the
+        // dollars left rather than a percentage of everything ever bought
+        kind: "balance",
         id: "credits",
         label: "Account credits",
-        unit: "credits",
+        unit: "usd",
         usedPath: "data.total_usage",
-        limitPath: "data.total_credits",
+        totalPath: "data.total_credits",
       },
     ],
   }),
@@ -854,6 +992,29 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           path: "access_token",
           expiresAtPath: "expires_at",
         },
+        { kind: "env", variable: "MOONSHOT_API_KEY" },
+        {
+          kind: "jsonFile",
+          file: "~/.local/share/opencode/auth.json",
+          path: "kimi-for-coding.key",
+        },
+        {
+          kind: "jsonFile",
+          file: "${LOCALAPPDATA}/opencode/auth.json",
+          path: "kimi-for-coding.key",
+        },
+        { kind: "jsonFile", file: "${APPDATA}/opencode/auth.json", path: "kimi-for-coding.key" },
+        { kind: "jsonFile", file: "~/.local/share/opencode/auth.json", path: "kimi.key" },
+        { kind: "jsonFile", file: "${LOCALAPPDATA}/opencode/auth.json", path: "kimi.key" },
+        { kind: "jsonFile", file: "${APPDATA}/opencode/auth.json", path: "kimi.key" },
+        {
+          kind: "sqlite",
+          file: "~/.omp/agent/agent.db",
+          query:
+            "SELECT data FROM auth_credentials WHERE provider IN ('moonshot', 'kimi') AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+          path: "key",
+          refreshedBy: "omp",
+        },
       ],
     },
     source: {
@@ -887,6 +1048,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     credentials: {
       token: [
         { kind: "env", variable: "MINIMAX_API_KEY" },
+        { kind: "env", variable: "MINIMAX_CODING_PLAN_API_KEY" },
         {
           kind: "jsonFile",
           file: "~/.mmx/credentials.json",
@@ -900,6 +1062,21 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           file: "~/.mmx/config.json",
           path: "oauth.access_token",
           expiresAtPath: "oauth.expires_at",
+        },
+        {
+          kind: "jsonFile",
+          file: "~/.local/share/opencode/auth.json",
+          path: "minimax-coding-plan.key",
+        },
+        {
+          kind: "jsonFile",
+          file: "${LOCALAPPDATA}/opencode/auth.json",
+          path: "minimax-coding-plan.key",
+        },
+        {
+          kind: "jsonFile",
+          file: "${APPDATA}/opencode/auth.json",
+          path: "minimax-coding-plan.key",
         },
       ],
     },

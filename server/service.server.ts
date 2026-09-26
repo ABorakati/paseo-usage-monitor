@@ -14,6 +14,7 @@ import { interpolateSource } from "./interpolate.server";
 import { readAtPath, readNumberAtPath, readStringAtPath } from "./json-path.server";
 import type {
   UsageCredentials,
+  UsageCredentialSource,
   UsageHttpFailure,
   UsageProvider,
   UsageProviderSnapshot,
@@ -130,10 +131,23 @@ interface CredentialRemedy {
   command: string | null;
 }
 
-function credentialRemedy(credentials: UsageCredentials): CredentialRemedy {
+/**
+ * The source that actually produced the value wins over a walk of the whole
+ * chain: an earlier source may declare `refreshedBy` yet never have resolved,
+ * and naming its CLI would send the user to refresh a credential that was not
+ * used. The walk below remains only for a failure where nothing resolved.
+ */
+function credentialRemedy(
+  credentials: UsageCredentials,
+  resolver: UsageCredentialResolver,
+): CredentialRemedy {
+  const resolved = Object.keys(credentials)
+    .map((name) => resolver.resolvedSource(name))
+    .filter((source): source is UsageCredentialSource => source !== undefined);
+  const chain = resolved.length > 0 ? resolved : Object.values(credentials).flat();
   let variable: string | null = null;
-  for (const source of Object.values(credentials).flat()) {
-    if (source.kind !== "jsonFile") {
+  for (const source of chain) {
+    if (source.kind === "env") {
       variable ??= source.variable;
       continue;
     }
@@ -377,8 +391,9 @@ export function createUsageService(input: UsageServiceInput): UsageService {
     provider: UsageProvider,
     status: string,
     now: Date,
+    resolver: UsageCredentialResolver,
   ): UsageProviderSnapshot {
-    const remedy = credentialRemedy(provider.credentials);
+    const remedy = credentialRemedy(provider.credentials, resolver);
     const stored = storedFallback(id);
     if (!stored) {
       return {
@@ -420,10 +435,11 @@ export function createUsageService(input: UsageServiceInput): UsageService {
         return vendorRefusedSnapshot(id, provider, error, timestamp);
       }
       const authStatus = authFailureStatus(error);
-      if (authStatus !== null) return authRejectedSnapshot(id, provider, authStatus, timestamp);
+      if (authStatus !== null)
+        return authRejectedSnapshot(id, provider, authStatus, timestamp, resolver);
       const detail = resolver.redact(error instanceof Error ? error.message : String(error));
       const credentialFailure = error instanceof UsageCredentialMissingError;
-      const remedy = credentialFailure ? credentialRemedy(provider.credentials) : null;
+      const remedy = credentialFailure ? credentialRemedy(provider.credentials, resolver) : null;
       const message = remedy !== null ? `${detail}. ${remedy.text}` : detail;
       const stored = storedFallback(id);
       if (stored) {

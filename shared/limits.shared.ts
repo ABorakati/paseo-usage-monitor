@@ -52,9 +52,24 @@ export const UsageJsonFileCredentialSchema = z.object({
   refreshedBy: z.string().min(1).optional(),
 });
 
+export const UsageSqliteCredentialSchema = z.object({
+  kind: z.literal("sqlite"),
+  /** `~` and `${VAR}` expand before the read. */
+  file: z.string().min(1),
+  /** SQL query that selects a string column or JSON blob. */
+  query: z.string().min(1),
+  /** Optional JSON path to the secret inside that string. */
+  path: z.string().min(1).optional(),
+  /** When the stored token stops working, so an expired one is skipped. */
+  expiresAtPath: z.string().min(1).optional(),
+  /** The command that rewrites this database. */
+  refreshedBy: z.string().min(1).optional(),
+});
+
 export const UsageCredentialSourceSchema = z.discriminatedUnion("kind", [
   UsageEnvCredentialSchema,
   UsageJsonFileCredentialSchema,
+  UsageSqliteCredentialSchema,
 ]);
 
 /**
@@ -254,6 +269,12 @@ export const UsageBalanceMappingSchema = UsageReadingCommonSchema.extend({
   each: UsageEachMappingSchema.optional(),
   scale: UsageAmountScaleSchema.optional(),
   remainingPath: z.string().min(1).optional(),
+  /**
+   * What has been drawn from the pool, for a vendor that reports bought and
+   * used but never the difference. With `totalPath` it yields `remaining`
+   * (floored at zero) when `remainingPath` is absent or resolves to nothing.
+   */
+  usedPath: z.string().min(1).optional(),
   /** Starting balance, so a percentage remaining can be shown. */
   totalPath: z.string().min(1).optional(),
   percentRemainingPath: z.string().min(1).optional(),

@@ -1770,12 +1770,24 @@ function CredentialField({ name, editor, presetId, dispatch, styles }: Credentia
         </View>
       )}
       {sources
-        .filter((source) => source.kind === "jsonFile")
-        .map((source) => (
-          <Text key={`${source.file}#${source.path}`} style={styles.muted}>
-            {`Also checks ${source.file}#${source.path}`}
-          </Text>
-        ))}
+        .filter((source) => source.kind === "jsonFile" || source.kind === "sqlite")
+        .map((source) => {
+          if (source.kind === "jsonFile") {
+            return (
+              <Text key={`${source.file}#${source.path}`} style={styles.muted}>
+                {`Also checks ${source.file}#${source.path}`}
+              </Text>
+            );
+          }
+          // Two sqlite sources can share file and query and still differ by
+          // `path`, so the path is part of both the key and the shown line.
+          const suffix = source.path === undefined ? "" : `#${source.path}`;
+          return (
+            <Text key={`${source.file}#${source.query}${suffix}`} style={styles.muted}>
+              {`Also checks ${source.file} (${source.query})${suffix}`}
+            </Text>
+          );
+        })}
       {stored && !replacing ? (
         <ActionButton label="Replace stored value" onPress={replace} styles={styles} />
       ) : null}
