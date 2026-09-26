@@ -1,0 +1,42 @@
+client/pills.client.test.ts
+  h_0ae9538d78aa59 151,166,176,180-212,214-254,256-257,259-265
+client/pills.client.tsx
+  h_0ae9538d78aa59 2-3,982-989,1020-1026,1145,1147,1150-1198,1217-1218,1220
+client/settings.client.tsx
+  h_0ae9538d78aa59 1773-1790
+docs/TROUBLESHOOTING.md
+  h_0ae9538d78aa59 63-64
+server/codex-reset.server.ts
+  h_0ae9538d78aa59 52-75,93-94,98-99
+server/codex-reset.test.ts
+  h_0ae9538d78aa59 17,37-39,144-186
+server/config-store.server.ts
+  h_0ae9538d78aa59 11-15,131,223-225
+server/credentials.server.ts
+  h_0ae9538d78aa59 3,29,35,54-73,120-133,135,161,207-230,234,248-254,267,279,296-300
+server/credentials.test.ts
+  h_0ae9538d78aa59 1-4,8,36,42,55-58,626-779
+server/service.server.ts
+  h_0ae9538d78aa59 17,134-147,149-150,394,396,438-439,442
+server/service.test.ts
+  h_0ae9538d78aa59 1207-1254
+shared/limits.shared.ts
+  h_0ae9538d78aa59 55-68,72
+shared/presets.shared.ts
+  h_0ae9538d78aa59 118-147,328-357,375-401,493-519,562-582,992-1014,1048,1063-1077
+shared/presets.test.ts
+  h_0ae9538d78aa59 321-341,412-414
+test-stubs/plugin-client.ts
+  h_0ae9538d78aa59 4-10,61-62,64-65,68-71,76-88,133,140-168,176,196-200,206-210,214-221,225-234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e23e8e60461593eb3e05321ee9c7fb7b72ffb36f",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
