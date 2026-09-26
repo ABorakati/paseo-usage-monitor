@@ -31,6 +31,16 @@ describe("index.server v0.8 entry point", () => {
       "usage.config.test-provider",
       "usage.codex.banked-reset.read",
       "usage.codex.banked-reset.consume",
+      "usage.claude-statusline.read",
+      "usage.claude-statusline.install",
+      "usage.claude-statusline.uninstall",
+      "usage.limit-alerts.read",
+      "usage.limit-alerts.dismiss",
+      "usage.limit-alerts.settings.read",
+      "usage.limit-alerts.settings.write",
+      "usage.limit-alerts.resume.schedule",
+      "usage.limit-alerts.resume.cancel",
+      "usage.limit-alerts.handoff",
     ]);
 
     // v0.8 Lifecycle hook

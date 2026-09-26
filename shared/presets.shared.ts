@@ -20,6 +20,22 @@ function definePreset(definition: z.input<typeof UsageProviderSchema>): UsagePro
 
 const FIVE_HOURS_MS = 18_000_000;
 const SEVEN_DAYS_MS = 604_800_000;
+// Resolve explicit-agent, configured-home, then default database paths.
+// Each query selects the newest updated enabled API-key row.
+function ompApiKeySources(providers: readonly string[]) {
+  const providerList = providers.map((provider) => `'${provider}'`).join(", ");
+  return [
+    "${PI_CODING_AGENT_DIR}/agent.db",
+    "~/${PI_CONFIG_DIR}/agent/agent.db",
+    "~/.omp/agent/agent.db",
+  ].map((file) => ({
+    kind: "sqlite" as const,
+    file,
+    query: `SELECT data FROM auth_credentials WHERE provider IN (${providerList}) AND credential_type = 'api_key' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1`,
+    path: "key",
+    refreshedBy: "omp" as const,
+  }));
+}
 
 /**
  * Shared by the two GLM Coding Plan hosts, which answer the same document.
@@ -124,6 +140,36 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           path: "claudeAiOauth.accessToken",
           expiresAtPath: "claudeAiOauth.expiresAt",
           refreshedBy: "claude",
+        },
+        {
+          kind: "jsonFile",
+          file: "~/.local/share/opencode/auth.json",
+          path: "anthropic.access",
+          expiresAtPath: "anthropic.expires",
+          refreshedBy: "opencode",
+        },
+        {
+          kind: "jsonFile",
+          file: "${LOCALAPPDATA}/opencode/auth.json",
+          path: "anthropic.access",
+          expiresAtPath: "anthropic.expires",
+          refreshedBy: "opencode",
+        },
+        {
+          kind: "jsonFile",
+          file: "${APPDATA}/opencode/auth.json",
+          path: "anthropic.access",
+          expiresAtPath: "anthropic.expires",
+          refreshedBy: "opencode",
+        },
+        {
+          kind: "sqlite",
+          file: "~/.omp/agent/agent.db",
+          query:
+            "SELECT data FROM auth_credentials WHERE provider = 'anthropic' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+          path: "access",
+          expiresAtPath: "expires",
+          refreshedBy: "omp",
         },
       ],
     },
@@ -232,15 +278,16 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
    * preset reports two readings where `claude` reports three.
    *
    * It carries no credential at all. What it needs instead is the hook
-   * installed, which `statusline-hook.sh` and the README cover; until then the
+   * installed, which the Usage provider settings surface does; until then the
    * card says which paths it looked in.
    */
   "claude-statusline": definePreset({
     label: "Claude",
     icon: { kind: "monogram", text: "Cl", color: "#D97706" },
     description: "Claude Code session and weekly limits, read from its own statusline output",
-    // A local file costs a read, so this refreshes as often as the panel asks
-    // rather than on the endpoint's thirty-minute budget.
+    // The daemon watches this file and drops the cached reading when the hook
+    // rewrites it, and the panel polls a live provider every fifteen seconds,
+    // so this interval is only the backstop for a file that stops changing.
     refreshIntervalMs: 60_000,
     source: {
       kind: "file",
@@ -304,6 +351,36 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           path: "tokens.access_token",
           refreshedBy: "codex",
         },
+        {
+          kind: "jsonFile",
+          file: "~/.local/share/opencode/auth.json",
+          path: "openai.access",
+          expiresAtPath: "openai.expires",
+          refreshedBy: "opencode",
+        },
+        {
+          kind: "jsonFile",
+          file: "${LOCALAPPDATA}/opencode/auth.json",
+          path: "openai.access",
+          expiresAtPath: "openai.expires",
+          refreshedBy: "opencode",
+        },
+        {
+          kind: "jsonFile",
+          file: "${APPDATA}/opencode/auth.json",
+          path: "openai.access",
+          expiresAtPath: "openai.expires",
+          refreshedBy: "opencode",
+        },
+        {
+          kind: "sqlite",
+          file: "~/.omp/agent/agent.db",
+          query:
+            "SELECT data FROM auth_credentials WHERE provider = 'openai-codex' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+          path: "access",
+          expiresAtPath: "expires",
+          refreshedBy: "omp",
+        },
       ],
       accountId: [
         {
@@ -320,6 +397,33 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           kind: "jsonFile",
           file: "~/.config/codex/auth.json",
           path: "tokens.account_id",
+        },
+        {
+          kind: "jsonFile",
+          file: "~/.local/share/opencode/auth.json",
+          path: "openai.accountId",
+          expiresAtPath: "openai.expires",
+        },
+        {
+          kind: "jsonFile",
+          file: "${LOCALAPPDATA}/opencode/auth.json",
+          path: "openai.accountId",
+          expiresAtPath: "openai.expires",
+        },
+        {
+          kind: "jsonFile",
+          file: "${APPDATA}/opencode/auth.json",
+          path: "openai.accountId",
+          expiresAtPath: "openai.expires",
+        },
+        {
+          kind: "sqlite",
+          file: "~/.omp/agent/agent.db",
+          query:
+            "SELECT data FROM auth_credentials WHERE provider = 'openai-codex' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+          path: "accountId",
+          expiresAtPath: "expires",
+          refreshedBy: "omp",
         },
       ],
     },
@@ -412,6 +516,33 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         { kind: "jsonFile", file: "${CURSOR_HOME}/auth.json", path: "accessToken" },
         { kind: "jsonFile", file: "~/.config/cursor/auth.json", path: "accessToken" },
         { kind: "jsonFile", file: "~/.cursor/auth.json", path: "accessToken" },
+        {
+          kind: "sqlite",
+          file: "${APPDATA}/Cursor/User/globalStorage/state.vscdb",
+          query: "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'",
+          refreshedBy: "cursor",
+        },
+        {
+          kind: "sqlite",
+          file: "~/Library/Application Support/Cursor/User/globalStorage/state.vscdb",
+          query: "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'",
+          refreshedBy: "cursor",
+        },
+        {
+          kind: "sqlite",
+          file: "~/.config/Cursor/User/globalStorage/state.vscdb",
+          query: "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'",
+          refreshedBy: "cursor",
+        },
+        {
+          kind: "sqlite",
+          file: "~/.omp/agent/agent.db",
+          query:
+            "SELECT data FROM auth_credentials WHERE provider = 'cursor' AND credential_type = 'oauth' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+          path: "access",
+          expiresAtPath: "expires",
+          refreshedBy: "omp",
+        },
       ],
     },
     source: {
@@ -454,6 +585,27 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         { kind: "jsonFile", file: "${GROK_HOME}/auth.json", path: "access_token" },
         { kind: "jsonFile", file: "~/.grok/auth.json", path: "access_token" },
         { kind: "jsonFile", file: "~/.config/grok/auth.json", path: "access_token" },
+        { kind: "env", variable: "XAI_API_KEY" },
+        { kind: "jsonFile", file: "~/.local/share/opencode/auth.json", path: "xai.key" },
+        { kind: "jsonFile", file: "${LOCALAPPDATA}/opencode/auth.json", path: "xai.key" },
+        { kind: "jsonFile", file: "${APPDATA}/opencode/auth.json", path: "xai.key" },
+        {
+          kind: "sqlite",
+          file: "~/.omp/agent/agent.db",
+          query:
+            "SELECT data FROM auth_credentials WHERE provider IN ('xai', 'xai-oauth', 'grok') AND credential_type = 'oauth' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+          path: "access",
+          expiresAtPath: "expires",
+          refreshedBy: "omp",
+        },
+        {
+          kind: "sqlite",
+          file: "~/.omp/agent/agent.db",
+          query:
+            "SELECT data FROM auth_credentials WHERE provider IN ('xai', 'xai-oauth', 'grok') AND credential_type = 'api_key' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+          path: "key",
+          refreshedBy: "omp",
+        },
       ],
     },
     source: {
@@ -483,10 +635,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     icon: { kind: "monogram", text: "DS", color: "#3B82F6" },
     description: "Prepaid API balance",
     credentials: {
-      apiKey: [
-        { kind: "env", variable: "DEEPSEEK_API_KEY" },
-        { kind: "omp", provider: "deepseek", path: "key" },
-      ],
+      apiKey: [{ kind: "env", variable: "DEEPSEEK_API_KEY" }, ...ompApiKeySources(["deepseek"])],
     },
     source: {
       kind: "http",
@@ -552,7 +701,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     credentials: {
       apiKey: [
         { kind: "env", variable: "OPENROUTER_API_KEY" },
-        { kind: "omp", provider: "openrouter", path: "key" },
+        ...ompApiKeySources(["openrouter"]),
       ],
     },
     source: {
@@ -566,7 +715,8 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         kind: "balance",
         id: "credits",
         label: "Key credits",
-        unit: "credits",
+        // openrouter prices credits at one dollar each and reports them as such
+        unit: "usd",
         remainingPath: "data.limit_remaining",
         totalPath: "data.limit",
       },
@@ -581,7 +731,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     credentials: {
       apiKey: [
         { kind: "env", variable: "OPENROUTER_API_KEY" },
-        { kind: "omp", provider: "openrouter", path: "key" },
+        ...ompApiKeySources(["openrouter"]),
       ],
     },
     source: {
@@ -592,12 +742,14 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     },
     readings: [
       {
-        kind: "quota",
+        // a prepaid pool drains, so it is a balance: the card leads with the
+        // dollars left rather than a percentage of everything ever bought
+        kind: "balance",
         id: "credits",
         label: "Account credits",
-        unit: "credits",
+        unit: "usd",
         usedPath: "data.total_usage",
-        limitPath: "data.total_credits",
+        totalPath: "data.total_credits",
       },
     ],
   }),
@@ -607,10 +759,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     icon: { kind: "monogram", text: "Nv", color: "#06B6D4" },
     description: "Prepaid balance against the account's credit limit, billed in USD",
     credentials: {
-      apiKey: [
-        { kind: "env", variable: "NOVITA_API_KEY" },
-        { kind: "omp", provider: "novita", path: "key" },
-      ],
+      apiKey: [{ kind: "env", variable: "NOVITA_API_KEY" }, ...ompApiKeySources(["novita"])],
     },
     source: {
       kind: "http",
@@ -641,10 +790,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     icon: { kind: "monogram", text: "DI", color: "#F59E0B" },
     description: "Prepaid balance, reported by the vendor as a negative number",
     credentials: {
-      apiKey: [
-        { kind: "env", variable: "DEEPINFRA_API_KEY" },
-        { kind: "omp", provider: "deepinfra", path: "key" },
-      ],
+      apiKey: [{ kind: "env", variable: "DEEPINFRA_API_KEY" }, ...ompApiKeySources(["deepinfra"])],
     },
     source: {
       kind: "http",
@@ -677,7 +823,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     credentials: {
       apiKey: [
         { kind: "env", variable: "SILICONFLOW_API_KEY" },
-        { kind: "omp", provider: "siliconflow", path: "key" },
+        ...ompApiKeySources(["siliconflow"]),
       ],
     },
     source: {
@@ -755,7 +901,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     credentials: {
       apiKey: [
         { kind: "env", variable: "SILICONFLOW_API_KEY" },
-        { kind: "omp", provider: "siliconflow-cn", path: "key" },
+        ...ompApiKeySources(["siliconflow-cn"]),
       ],
     },
     source: {
@@ -781,10 +927,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     description:
       "Moonshot platform balance in USD on the international host; this is the platform key, not the coding-plan key the kimi preset uses, and a domestic .cn key returns 401 here",
     credentials: {
-      apiKey: [
-        { kind: "env", variable: "MOONSHOT_API_KEY" },
-        { kind: "omp", provider: "moonshot", path: "key" },
-      ],
+      apiKey: [{ kind: "env", variable: "MOONSHOT_API_KEY" }, ...ompApiKeySources(["moonshot"])],
     },
     source: {
       kind: "http",
@@ -809,10 +952,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     description:
       "Moonshot platform balance on the domestic host, which an international key cannot read and vice versa; the amount is shown unitless because the domestic account is understood to bill in CNY and no source confirms the currency the field carries",
     credentials: {
-      apiKey: [
-        { kind: "env", variable: "MOONSHOT_API_KEY" },
-        { kind: "omp", provider: "moonshot", path: "key" },
-      ],
+      apiKey: [{ kind: "env", variable: "MOONSHOT_API_KEY" }, ...ompApiKeySources(["moonshot"])],
     },
     source: {
       kind: "http",
@@ -837,10 +977,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     description:
       "DIEM allowance for the current epoch and any USD balance; which one bills depends on the account's consumption currency, so both are shown",
     credentials: {
-      apiKey: [
-        { kind: "env", variable: "VENICE_API_KEY" },
-        { kind: "omp", provider: "venice", path: "key" },
-      ],
+      apiKey: [{ kind: "env", variable: "VENICE_API_KEY" }, ...ompApiKeySources(["venice"])],
     },
     source: {
       kind: "http",
@@ -893,7 +1030,22 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           path: "access_token",
           expiresAtPath: "expires_at",
         },
-        { kind: "omp", provider: "kimi-code", path: "key" },
+        { kind: "env", variable: "MOONSHOT_API_KEY" },
+        {
+          kind: "jsonFile",
+          file: "~/.local/share/opencode/auth.json",
+          path: "kimi-for-coding.key",
+        },
+        {
+          kind: "jsonFile",
+          file: "${LOCALAPPDATA}/opencode/auth.json",
+          path: "kimi-for-coding.key",
+        },
+        { kind: "jsonFile", file: "${APPDATA}/opencode/auth.json", path: "kimi-for-coding.key" },
+        { kind: "jsonFile", file: "~/.local/share/opencode/auth.json", path: "kimi.key" },
+        { kind: "jsonFile", file: "${LOCALAPPDATA}/opencode/auth.json", path: "kimi.key" },
+        { kind: "jsonFile", file: "${APPDATA}/opencode/auth.json", path: "kimi.key" },
+        ...ompApiKeySources(["moonshot", "kimi", "kimi-code"]),
       ],
     },
     source: {
@@ -927,6 +1079,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     credentials: {
       token: [
         { kind: "env", variable: "MINIMAX_API_KEY" },
+        { kind: "env", variable: "MINIMAX_CODING_PLAN_API_KEY" },
         {
           kind: "jsonFile",
           file: "~/.mmx/credentials.json",
@@ -941,7 +1094,22 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           path: "oauth.access_token",
           expiresAtPath: "oauth.expires_at",
         },
-        { kind: "omp", provider: "minimax", path: "key" },
+        {
+          kind: "jsonFile",
+          file: "~/.local/share/opencode/auth.json",
+          path: "minimax-coding-plan.key",
+        },
+        {
+          kind: "jsonFile",
+          file: "${LOCALAPPDATA}/opencode/auth.json",
+          path: "minimax-coding-plan.key",
+        },
+        {
+          kind: "jsonFile",
+          file: "${APPDATA}/opencode/auth.json",
+          path: "minimax-coding-plan.key",
+        },
+        ...ompApiKeySources(["minimax"]),
       ],
     },
     source: {
@@ -1007,7 +1175,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
       token: [
         { kind: "env", variable: "MINIMAX_CN_API_KEY" },
         { kind: "env", variable: "MINIMAX_API_KEY" },
-        { kind: "omp", provider: "minimax", path: "key" },
+        ...ompApiKeySources(["minimax"]),
       ],
     },
     source: {
@@ -1078,7 +1246,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         { kind: "env", variable: "Z_AI_API_KEY" },
         { kind: "env", variable: "ZAI_API_KEY" },
         { kind: "env", variable: "GLM_API_KEY" },
-        { kind: "omp", provider: "zai", path: "key" },
+        ...ompApiKeySources(["zai"]),
       ],
     },
     source: {
@@ -1113,7 +1281,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         { kind: "env", variable: "Z_AI_API_KEY" },
         { kind: "env", variable: "ZAI_API_KEY" },
         { kind: "env", variable: "GLM_API_KEY" },
-        { kind: "omp", provider: "zai", path: "key" },
+        ...ompApiKeySources(["zai"]),
       ],
     },
     source: {
@@ -1148,7 +1316,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         { kind: "env", variable: "ZHIPU_API_KEY" },
         { kind: "env", variable: "ZHIPUAI_API_KEY" },
         { kind: "env", variable: "BIGMODEL_API_KEY" },
-        { kind: "omp", provider: "zhipu-coding-plan", path: "key" },
+        ...ompApiKeySources(["zhipu-coding-plan"]),
       ],
     },
     source: {
@@ -1210,7 +1378,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
       apiKey: [
         { kind: "env", variable: "AI_GATEWAY_API_KEY" },
         { kind: "env", variable: "VERCEL_AI_GATEWAY_API_KEY" },
-        { kind: "omp", provider: "vercel-ai-gateway", path: "key" },
+        ...ompApiKeySources(["vercel-ai-gateway"]),
       ],
     },
     source: {

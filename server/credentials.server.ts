@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { homedir, userInfo } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { UsageCredentialMissingError, UsageInterpolationError } from "./errors.server";
 import { interpolate } from "./interpolate.server";
 import { readStringAtPath, readTimestampAtPath } from "./json-path.server";
@@ -27,10 +27,9 @@ import type { UsageCredentials, UsageCredentialSource } from "../shared/limits.s
  */
 
 type UsageJsonFileCredential = Extract<UsageCredentialSource, { kind: "jsonFile" }>;
+type UsageSqliteCredential = Extract<UsageCredentialSource, { kind: "sqlite" }>;
 
 type UsageKeychainCredential = Extract<UsageCredentialSource, { kind: "keychain" }>;
-
-type UsageOmpCredential = Extract<UsageCredentialSource, { kind: "omp" }>;
 
 /** The fields a json-bearing source shares, whether the json came from a file or a Keychain item. */
 type UsageJsonCredential = Pick<UsageJsonFileCredential, "path" | "expiresAtPath">;
@@ -45,14 +44,9 @@ export interface CredentialAdapters {
    * failure says so rather than hinting at an item that could never exist.
    */
   readKeychainItem?: (service: string) => string | null;
-  /**
-   * The `data` json of the first enabled row omp stores for a provider, or
-   * null when omp is not installed, has no vault, or has no row for it.
-   */
-  readOmpCredential?: (provider: string) => string | null;
+  readSqliteQuery?(path: string, query: string): string | null;
   now(): Date;
 }
-
 export function createNodeCredentialAdapters(): CredentialAdapters {
   return {
     env: process.env,
@@ -69,52 +63,44 @@ export function createNodeCredentialAdapters(): CredentialAdapters {
         return null;
       }
     },
-    readKeychainItem: process.platform === "darwin" ? readMacKeychainItem : undefined,
-    readOmpCredential(provider: string): string | null {
-      return readOmpVaultRow(ompAgentDbPath(process.env, homedir()), provider);
+    readKeychainItem:
+      process.platform === "darwin" ? (service) => readMacKeychainItem(service) : undefined,
+    readSqliteQuery(dbPath: string, query: string): string | null {
+      try {
+        const db = new DatabaseSync(dbPath, { readOnly: true });
+        try {
+          const stmt = db.prepare(query);
+          // A statement with no result columns is a write (`VACUUM INTO`,
+          // `PRAGMA`, DML). Stepping it would execute it against a database
+          // this plugin only reads, so only a row-returning statement runs.
+          if (stmt.columns().length === 0) return null;
+          const row = stmt.get() as Record<string, unknown> | undefined;
+          if (!row) return null;
+          const firstVal = Object.values(row)[0];
+          return typeof firstVal === "string" ? firstVal : null;
+        } finally {
+          db.close();
+        }
+      } catch {
+        return null;
+      }
     },
   };
 }
 
-/** omp's agent directory, mirroring its own `PI_CONFIG_DIR` / `PI_CODING_AGENT_DIR` rules. */
-export function ompAgentDbPath(env: NodeJS.ProcessEnv, homeDir: string): string {
-  const agentDir =
-    env.PI_CODING_AGENT_DIR !== undefined && env.PI_CODING_AGENT_DIR !== ""
-      ? env.PI_CODING_AGENT_DIR
-      : join(homeDir, env.PI_CONFIG_DIR ?? ".omp", "agent");
-  return join(agentDir, "agent.db");
-}
-
-function readOmpVaultRow(dbPath: string, provider: string): string | null {
-  if (!existsSync(dbPath)) return null;
-  // the provider id is schema-validated to [a-z0-9._-], so quoting it is
-  // enough; the CLI has no parameter binding to lean on
-  const sql = `SELECT data FROM auth_credentials WHERE provider = '${provider}' AND disabled_cause IS NULL ORDER BY id ASC LIMIT 1;`;
-  let out: string;
+export function readMacKeychainItem(service: string): string | null {
   try {
-    out = execFileSync("sqlite3", ["-readonly", "-json", dbPath, sql], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 5_000,
-    });
-  } catch {
-    // no sqlite3 on PATH, a locked database, or a vault older than the
-    // auth_credentials table all mean this source does not apply
-    return null;
-  }
-  const rows = parseJsonDocument(out.trim() === "" ? "[]" : out);
-  if (!Array.isArray(rows) || rows.length === 0) return null;
-  const data = (rows[0] as { data?: unknown }).data;
-  return typeof data === "string" ? data : null;
-}
-
-function readMacKeychainItem(service: string): string | null {
-  try {
-    return execFileSync("security", ["find-generic-password", "-s", service, "-w"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 5_000,
-    });
+    // Issue #2 identifies the Keychain account as the macOS username. Query it
+    // explicitly so a same-service item for another account cannot win.
+    return execFileSync(
+      "security",
+      ["find-generic-password", "-s", service, "-a", userInfo().username, "-w"],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 5_000,
+      },
+    );
   } catch {
     // `security` exits non-zero when no item matches or the Keychain is
     // locked, and either way this source does not apply.
@@ -167,21 +153,27 @@ function formatAge(ageMs: number): string {
   return `${Math.floor(ageMs / DAY_MS)}d`;
 }
 
-function describePlace(source: UsageCredentialSource): string {
+/**
+ * One line naming where a credential lives, shared by failure messages and
+ * preset hints so each source kind has one stable description.
+ */
+export function describeCredentialPlace(source: UsageCredentialSource): string {
   switch (source.kind) {
     case "env":
       return `env ${source.variable}`;
     case "jsonFile":
       return `file ${source.file}#${source.path}`;
+    case "sqlite": {
+      const path = source.path === undefined ? "" : `#${source.path}`;
+      return `sqlite ${source.file} (${source.query})${path}`;
+    }
     case "keychain":
       return `keychain "${source.service}"#${source.path}`;
-    case "omp":
-      return `omp "${source.provider}"#${source.path}`;
   }
 }
 
 function describeSource(source: UsageCredentialSource, read: SourceRead): string {
-  const place = describePlace(source);
+  const place = describeCredentialPlace(source);
   if (read.kind === "expired") return `${place} (expired ${formatAge(read.ageMs)} ago)`;
   if (read.kind === "unsupported") return `${place} (no Keychain on this host)`;
   // A path built from an unset variable never existed, so saying only that the
@@ -208,7 +200,7 @@ function parseJsonDocument(text: string): unknown {
  * not be locked out of a token that still works.
  */
 function readExpiredAge(
-  source: UsageJsonCredential,
+  source: { expiresAtPath?: string },
   document: unknown,
   adapters: CredentialAdapters,
 ): number | null {
@@ -257,12 +249,6 @@ function readKeychainCredential(
   return readJsonCredential(source, text, adapters);
 }
 
-function readOmpCredential(source: UsageOmpCredential, adapters: CredentialAdapters): SourceRead {
-  const text = adapters.readOmpCredential?.(source.provider) ?? null;
-  if (text === null) return UNAVAILABLE;
-  return readJsonCredential(source, text, adapters);
-}
-
 function expandCredentialPath(
   raw: string,
   adapters: CredentialAdapters,
@@ -278,11 +264,35 @@ function expandCredentialPath(
     throw error;
   }
 }
+function readSqliteCredential(
+  source: UsageSqliteCredential,
+  adapters: CredentialAdapters,
+): SourceRead {
+  if (typeof adapters.readSqliteQuery !== "function") return UNAVAILABLE;
+  const expanded = expandCredentialPath(source.file, adapters);
+  if (expanded.kind === "unset") return expanded;
+  const rawValue = adapters.readSqliteQuery(expanded.path, source.query);
+  if (rawValue === null) return UNAVAILABLE;
+  if (source.path === undefined) {
+    const token = rawValue.trim();
+    if (token === "") return EMPTY;
+    return { kind: "resolved", token };
+  }
+  const document = parseJsonDocument(rawValue);
+  if (document === null) return UNAVAILABLE;
+  const value = readStringAtPath(document, source.path);
+  if (value === null) return UNAVAILABLE;
+  const token = value.trim();
+  if (token === "") return EMPTY;
+  const ageMs = readExpiredAge(source, document, adapters);
+  if (ageMs !== null) return { kind: "expired", ageMs };
+  return { kind: "resolved", token };
+}
 
 function readSource(source: UsageCredentialSource, adapters: CredentialAdapters): SourceRead {
   if (source.kind === "jsonFile") return readJsonFileCredential(source, adapters);
   if (source.kind === "keychain") return readKeychainCredential(source, adapters);
-  if (source.kind === "omp") return readOmpCredential(source, adapters);
+  if (source.kind === "sqlite") return readSqliteCredential(source, adapters);
   const value = adapters.env[source.variable];
   if (value === undefined) return UNAVAILABLE;
   const token = value.trim();
@@ -297,6 +307,13 @@ const REDACTED = "<redacted>";
 export interface UsageCredentialResolver {
   resolve(name: string): string;
   /**
+   * The source that produced the value for `name`, once one resolved. Lets a
+   * remedy name the file or database that actually held the rejected token
+   * instead of the first candidate in the chain. Undefined until `resolve`
+   * succeeds, and forever for a name whose chain produced nothing.
+   */
+  resolvedSource(name: string): UsageCredentialSource | undefined;
+  /**
    * Replaces every value this resolver has handed out with "<redacted>".
    * Longest first, so a value containing another is not partially replaced.
    */
@@ -308,6 +325,7 @@ export function createCredentialResolver(
   adapters: CredentialAdapters,
 ): UsageCredentialResolver {
   const resolved = new Map<string, string>();
+  const resolvedFrom = new Map<string, UsageCredentialSource>();
   const secrets = new Set<string>();
 
   function resolve(name: string): string {
@@ -319,6 +337,7 @@ export function createCredentialResolver(
       tried.push(describeSource(source, read));
       if (read.kind === "resolved") {
         resolved.set(name, read.token);
+        resolvedFrom.set(name, source);
         if (read.token.length >= REDACTION_MIN_LENGTH) secrets.add(read.token);
         return read.token;
       }
@@ -335,5 +354,9 @@ export function createCredentialResolver(
     return scrubbed;
   }
 
-  return { resolve, redact };
+  return {
+    resolve,
+    resolvedSource: (name: string): UsageCredentialSource | undefined => resolvedFrom.get(name),
+    redact,
+  };
 }

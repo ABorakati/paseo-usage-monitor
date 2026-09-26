@@ -1,11 +1,20 @@
-import { describe, expect, test } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir, userInfo } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { describe, expect, test, vi } from "vitest";
+import { getUsagePreset } from "../shared/presets.shared";
 import {
   createCredentialResolver,
+  createNodeCredentialAdapters,
   expandPath,
   type CredentialAdapters,
+  readMacKeychainItem,
 } from "./credentials.server";
 import { UsageCredentialMissingError, UsageInterpolationError } from "./errors.server";
 import type { UsageCredentials, UsageCredentialSource } from "../shared/limits.shared";
+vi.mock("node:child_process", () => ({ execFileSync: vi.fn() }));
 
 const HOME_DIR = "/home/tester";
 
@@ -30,13 +39,13 @@ interface StubAdaptersInput {
   files?: Record<string, string | undefined>;
   /** Present only on a host with a Keychain, as the node adapters are. */
   keychain?: Record<string, string | undefined>;
-  /** omp's credential vault, keyed by omp provider id; the row's `data` json. */
-  omp?: Record<string, string | undefined>;
+  sqlite?: Record<string, Record<string, string | null | undefined>>;
   now?: Date;
 }
 
 function createStubAdapters(input: StubAdaptersInput): StubAdapters {
   const files = input.files ?? {};
+  const sqlite = input.sqlite ?? {};
   const reads: string[] = [];
   const keychain = input.keychain;
   return {
@@ -57,9 +66,9 @@ function createStubAdapters(input: StubAdaptersInput): StubAdapters {
             reads.push(`keychain:${service}`);
             return keychain[service] ?? null;
           },
-    readOmpCredential(provider: string): string | null {
-      reads.push(`omp:${provider}`);
-      return input.omp?.[provider] ?? null;
+    readSqliteQuery(path: string, query: string): string | null {
+      reads.push(`${path}?query=${query}`);
+      return sqlite[path]?.[query] ?? null;
     },
   };
 }
@@ -641,6 +650,47 @@ describe("a credential kept in the macOS Keychain", () => {
 
   const CLAUDE_KEYCHAIN_DESCRIPTION = `keychain "${KEYCHAIN_SERVICE}"#claudeAiOauth.accessToken`;
 
+  test("passes the macOS username as the Keychain account", () => {
+    const command = vi.mocked(execFileSync);
+    command.mockReturnValueOnce(ACCESS_TOKEN as never);
+
+    expect(readMacKeychainItem(KEYCHAIN_SERVICE)).toBe(ACCESS_TOKEN);
+    expect(command).toHaveBeenCalledWith(
+      "security",
+      ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", userInfo().username, "-w"],
+      expect.objectContaining({ encoding: "utf8", timeout: 5_000 }),
+    );
+  });
+
+  test.skipIf(process.platform === "darwin")(
+    "does not expose a Keychain adapter on non-macOS hosts",
+    () => {
+      expect(createNodeCredentialAdapters().readKeychainItem).toBeUndefined();
+    },
+  );
+
+  test("falls back to the credential file when the account-matched Keychain item is absent", () => {
+    const adapters = createStubAdapters({
+      files: { [CLAUDE_CREDENTIALS_PATH]: claudeCredentialsFile(NOW_MS + HOUR_MS) },
+      keychain: {},
+    });
+    const credentials: UsageCredentials = {
+      CLAUDE_TOKEN: [
+        CLAUDE_KEYCHAIN_SOURCE,
+        {
+          kind: "jsonFile",
+          file: "~/.claude/.credentials.json",
+          path: "claudeAiOauth.accessToken",
+          expiresAtPath: "claudeAiOauth.expiresAt",
+        },
+      ],
+    };
+
+    expect(createCredentialResolver(credentials, adapters).resolve("CLAUDE_TOKEN")).toBe(
+      ACCESS_TOKEN,
+    );
+    expect(adapters.reads).toEqual([`keychain:${KEYCHAIN_SERVICE}`, CLAUDE_CREDENTIALS_PATH]);
+  });
   test("reads the token out of the item's json, the same way as a file", () => {
     const adapters = createStubAdapters({
       keychain: { [KEYCHAIN_SERVICE]: claudeCredentialsFile(NOW_MS + HOUR_MS) },
@@ -716,56 +766,281 @@ describe("a credential kept in the macOS Keychain", () => {
     ).toThrow(UsageCredentialMissingError);
   });
 });
+describe("sqlite credentials", () => {
+  const DB_PATH = `${HOME_DIR}/.omp/agent/agent.db`;
+  const QUERY = "SELECT data FROM auth_credentials WHERE provider = 'anthropic'";
 
-describe("a credential kept in omp's vault", () => {
-  const OMP_SOURCE: UsageCredentialSource = { kind: "omp", provider: "openrouter", path: "key" };
-
-  const OMP_DESCRIPTION = 'omp "openrouter"#key';
-
-  test("reads the api key out of the stored row", () => {
+  test("resolves a token directly from a scalar query", () => {
     const adapters = createStubAdapters({
-      omp: { openrouter: JSON.stringify({ key: ACCESS_TOKEN, source: "login" }) },
+      sqlite: {
+        [DB_PATH]: {
+          "SELECT token FROM auth": "sk-secret-from-db",
+        },
+      },
     });
-    expect(createCredentialResolver({ apiKey: [OMP_SOURCE] }, adapters).resolve("apiKey")).toBe(
-      ACCESS_TOKEN,
+    const resolver = createCredentialResolver(
+      {
+        DB_TOKEN: [
+          {
+            kind: "sqlite",
+            file: "~/.omp/agent/agent.db",
+            query: "SELECT token FROM auth",
+          },
+        ],
+      },
+      adapters,
     );
-    expect(adapters.reads).toEqual(["omp:openrouter"]);
+    expect(resolver.resolve("DB_TOKEN")).toBe("sk-secret-from-db");
   });
 
-  test("comes after the environment so an exported key still wins", () => {
+  test("resolves a token from a JSON string using path", () => {
     const adapters = createStubAdapters({
-      env: { OPENROUTER_API_KEY: "env-value" },
-      omp: { openrouter: JSON.stringify({ key: ACCESS_TOKEN }) },
+      sqlite: {
+        [DB_PATH]: {
+          [QUERY]: JSON.stringify({ access: "sk-access-from-json" }),
+        },
+      },
     });
-    const credentials: UsageCredentials = {
-      apiKey: [{ kind: "env", variable: "OPENROUTER_API_KEY" }, OMP_SOURCE],
-    };
-    expect(createCredentialResolver(credentials, adapters).resolve("apiKey")).toBe("env-value");
-    expect(adapters.reads).toEqual([]);
+    const resolver = createCredentialResolver(
+      {
+        ANTHROPIC_TOKEN: [
+          {
+            kind: "sqlite",
+            file: "~/.omp/agent/agent.db",
+            query: QUERY,
+            path: "access",
+          },
+        ],
+      },
+      adapters,
+    );
+    expect(resolver.resolve("ANTHROPIC_TOKEN")).toBe("sk-access-from-json");
   });
 
-  test("a provider omp has no row for is unavailable, and the failure names the vault", () => {
-    const adapters = createStubAdapters({ omp: {} });
-    const error = captureError(UsageCredentialMissingError, () => {
-      createCredentialResolver({ apiKey: [OMP_SOURCE] }, adapters).resolve("apiKey");
-    });
-    expect(error.tried).toEqual([OMP_DESCRIPTION]);
-  });
-
-  test("an oauth row can be read through its own path and expiry", () => {
-    const source: UsageCredentialSource = {
-      kind: "omp",
-      provider: "kimi-code",
-      path: "access",
-      expiresAtPath: "expires",
-    };
+  test("skips an expired sqlite token and falls through to next source", () => {
     const adapters = createStubAdapters({
-      omp: { "kimi-code": JSON.stringify({ access: ACCESS_TOKEN, expires: NOW_MS - HOUR_MS }) },
+      sqlite: {
+        [DB_PATH]: {
+          [QUERY]: JSON.stringify({
+            access: "stale-token",
+            expires: new Date(NOW_MS - HOUR_MS).toISOString(),
+          }),
+        },
+      },
+      env: { FALLBACK_TOKEN: "valid-fallback" },
     });
-    const error = captureError(UsageCredentialMissingError, () => {
-      createCredentialResolver({ token: [source] }, adapters).resolve("token");
+    const resolver = createCredentialResolver(
+      {
+        TOKEN: [
+          {
+            kind: "sqlite",
+            file: "~/.omp/agent/agent.db",
+            query: QUERY,
+            path: "access",
+            expiresAtPath: "expires",
+          },
+          {
+            kind: "env",
+            variable: "FALLBACK_TOKEN",
+          },
+        ],
+      },
+      adapters,
+    );
+    expect(resolver.resolve("TOKEN")).toBe("valid-fallback");
+  });
+
+  test("redacts a token resolved out of sqlite", () => {
+    const adapters = createStubAdapters({
+      sqlite: {
+        [DB_PATH]: {
+          "SELECT token FROM auth": "sk-secret-from-db",
+        },
+      },
     });
-    expect(error.tried).toEqual(['omp "kimi-code"#access (expired 1h ago)']);
-    expect(error.message).not.toContain(ACCESS_TOKEN);
+    const resolver = createCredentialResolver(
+      {
+        DB_TOKEN: [
+          {
+            kind: "sqlite",
+            file: "~/.omp/agent/agent.db",
+            query: "SELECT token FROM auth",
+          },
+        ],
+      },
+      adapters,
+    );
+    resolver.resolve("DB_TOKEN");
+    expect(resolver.redact("Bearer sk-secret-from-db")).toBe("Bearer <redacted>");
+  });
+});
+
+describe("resolvedSource", () => {
+  test("names the source that produced the value, not the first in the chain", () => {
+    const adapters = createStubAdapters({ env: { ANTHROPIC_API_KEY: "env-value" } });
+    const resolver = createCredentialResolver(CHAINED_CREDENTIALS, adapters);
+    expect(resolver.resolvedSource("CLAUDE_TOKEN")).toBeUndefined();
+    expect(resolver.resolve("CLAUDE_TOKEN")).toBe("env-value");
+    // The file source came first but resolved nothing, so the remedy must not
+    // name it: the environment variable is what actually held the token.
+    expect(resolver.resolvedSource("CLAUDE_TOKEN")).toEqual({
+      kind: "env",
+      variable: "ANTHROPIC_API_KEY",
+    });
+  });
+
+  test("stays undefined for a name whose whole chain fails", () => {
+    const adapters = createStubAdapters({});
+    const resolver = createCredentialResolver(CHAINED_CREDENTIALS, adapters);
+    expect(() => resolver.resolve("CLAUDE_TOKEN")).toThrow(UsageCredentialMissingError);
+    expect(resolver.resolvedSource("CLAUDE_TOKEN")).toBeUndefined();
+  });
+});
+
+describe("the real sqlite adapter", () => {
+  test("reads a selected value but never executes a write statement", () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-credentials-sqlite-"));
+    try {
+      const dbPath = join(dir, "auth.db");
+      const dumpPath = join(dir, "dump.db");
+      const writer = new DatabaseSync(dbPath);
+      writer.exec("CREATE TABLE auth (token TEXT)");
+      writer.exec("INSERT INTO auth (token) VALUES ('sk-sqlite-value')");
+      writer.close();
+
+      const readSqliteQuery = createNodeCredentialAdapters().readSqliteQuery;
+      if (typeof readSqliteQuery !== "function") {
+        throw new Error("the node adapter must offer readSqliteQuery");
+      }
+      expect(readSqliteQuery(dbPath, "SELECT token FROM auth")).toBe("sk-sqlite-value");
+      expect(readSqliteQuery(dbPath, `VACUUM INTO '${dumpPath}'`)).toBeNull();
+      expect(existsSync(dumpPath)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  test("prefers the explicit OMP agent directory over the configured home directory", () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-credentials-path-precedence-"));
+    try {
+      const explicitDir = join(dir, "explicit-agent");
+      const homeDir = join(dir, "home");
+      const configuredDbPath = join(homeDir, "configured", "agent", "agent.db");
+      const explicitDbPath = join(explicitDir, "agent.db");
+      mkdirSync(explicitDir, { recursive: true });
+      mkdirSync(join(homeDir, "configured", "agent"), { recursive: true });
+
+      const createVault = (dbPath: string, key: string) => {
+        const writer = new DatabaseSync(dbPath);
+        writer.exec(
+          "CREATE TABLE auth_credentials (provider TEXT, credential_type TEXT, disabled_cause TEXT, updated_at TEXT, data TEXT)",
+        );
+        writer
+          .prepare(
+            "INSERT INTO auth_credentials VALUES ('deepseek', 'api_key', NULL, '2026-09-20T00:00:00Z', ?)",
+          )
+          .run(JSON.stringify({ key }));
+        writer.close();
+      };
+      createVault(explicitDbPath, "explicit-agent-key");
+      createVault(configuredDbPath, "configured-home-key");
+
+      const preset = getUsagePreset("deepseek");
+      if (preset === null) throw new Error("DeepSeek preset must exist");
+      const adapters = createNodeCredentialAdapters();
+      const readSqliteQuery = vi.spyOn(adapters, "readSqliteQuery");
+      const resolver = createCredentialResolver(preset.credentials, {
+        ...adapters,
+        env: {
+          DEEPSEEK_API_KEY: "",
+          PI_CODING_AGENT_DIR: explicitDir,
+          PI_CONFIG_DIR: "configured",
+        },
+        homeDir,
+      });
+
+      expect(resolver.resolve("apiKey")).toBe("explicit-agent-key");
+      expect(readSqliteQuery).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("prefers the environment credential over an OMP SQLite file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-credentials-precedence-"));
+    try {
+      const dbPath = join(dir, "agent.db");
+      const writer = new DatabaseSync(dbPath);
+      writer.exec("CREATE TABLE auth_credentials (data TEXT)");
+      writer.exec(`INSERT INTO auth_credentials VALUES ('{"key":"vault-key"}')`);
+      writer.close();
+
+      const adapters = createNodeCredentialAdapters();
+      const readSqliteQuery = vi.spyOn(adapters, "readSqliteQuery");
+      const resolver = createCredentialResolver(
+        {
+          apiKey: [
+            { kind: "env", variable: "DEEPSEEK_API_KEY" },
+            {
+              kind: "sqlite",
+              file: dbPath,
+              query: "SELECT data FROM auth_credentials",
+              path: "key",
+              refreshedBy: "omp",
+            },
+          ],
+        },
+        { ...adapters, env: { DEEPSEEK_API_KEY: "explicit-key" } },
+      );
+
+      expect(resolver.resolve("apiKey")).toBe("explicit-key");
+      expect(readSqliteQuery).not.toHaveBeenCalled();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("selects the newest enabled API-key row from the OMP SQLite database", () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-credentials-current-row-"));
+    try {
+      const dbPath = join(dir, "agent.db");
+      const writer = new DatabaseSync(dbPath);
+      writer.exec(
+        "CREATE TABLE auth_credentials (id INTEGER PRIMARY KEY, provider TEXT, credential_type TEXT, disabled_cause TEXT, updated_at TEXT, data TEXT)",
+      );
+      const insert = writer.prepare(
+        "INSERT INTO auth_credentials (provider, credential_type, disabled_cause, updated_at, data) VALUES (?, ?, ?, ?, ?)",
+      );
+      insert.run("deepseek", "api_key", null, "2026-01-01T00:00:00Z", '{"key":"old-key"}');
+      insert.run(
+        "deepseek",
+        "api_key",
+        "revoked",
+        "2026-09-20T00:00:00Z",
+        '{"key":"disabled-key"}',
+      );
+      insert.run("deepseek", "oauth", null, "2026-09-19T00:00:00Z", '{"access":"oauth-token"}');
+      insert.run("deepseek", "api_key", null, "2026-09-18T00:00:00Z", '{"key":"newest-key"}');
+      writer.close();
+
+      const resolver = createCredentialResolver(
+        {
+          apiKey: [
+            {
+              kind: "sqlite",
+              file: dbPath,
+              query:
+                "SELECT data FROM auth_credentials WHERE provider = 'deepseek' AND credential_type = 'api_key' AND disabled_cause IS NULL ORDER BY updated_at DESC LIMIT 1",
+              path: "key",
+              refreshedBy: "omp",
+            },
+          ],
+        },
+        createNodeCredentialAdapters(),
+      );
+
+      expect(resolver.resolve("apiKey")).toBe("newest-key");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

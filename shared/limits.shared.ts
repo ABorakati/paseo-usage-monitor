@@ -69,27 +69,25 @@ export const UsageKeychainCredentialSchema = z.object({
   refreshedBy: z.string().min(1).optional(),
 });
 
-/**
- * A row in omp's credential vault, the SQLite store `omp` fills through
- * `/login` and `omp auth-broker`. The row's `data` column is a json document:
- * `{ "key": "..." }` for an API key, the token fields for an OAuth login. It
- * is read through the `sqlite3` CLI, read-only, so the plugin never holds the
- * database open against omp's own writes.
- */
-export const UsageOmpCredentialSchema = z.object({
-  kind: z.literal("omp"),
-  /** omp's provider id, as `/login <provider>` names it. */
-  provider: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),
-  /** JSON path inside the row's `data`; `key` for an API key row. */
-  path: z.string().min(1),
+export const UsageSqliteCredentialSchema = z.object({
+  kind: z.literal("sqlite"),
+  /** `~` and `${VAR}` expand before the read. */
+  file: z.string().min(1),
+  /** SQL query that selects a string column or JSON blob. */
+  query: z.string().min(1),
+  /** Optional JSON path to the secret inside that string. */
+  path: z.string().min(1).optional(),
+  /** When the stored token stops working, so an expired one is skipped. */
   expiresAtPath: z.string().min(1).optional(),
+  /** The command that rewrites this database. */
+  refreshedBy: z.string().min(1).optional(),
 });
 
 export const UsageCredentialSourceSchema = z.discriminatedUnion("kind", [
   UsageEnvCredentialSchema,
   UsageJsonFileCredentialSchema,
   UsageKeychainCredentialSchema,
-  UsageOmpCredentialSchema,
+  UsageSqliteCredentialSchema,
 ]);
 
 /**
@@ -289,6 +287,12 @@ export const UsageBalanceMappingSchema = UsageReadingCommonSchema.extend({
   each: UsageEachMappingSchema.optional(),
   scale: UsageAmountScaleSchema.optional(),
   remainingPath: z.string().min(1).optional(),
+  /**
+   * What has been drawn from the pool, for a vendor that reports bought and
+   * used but never the difference. With `totalPath` it yields `remaining`
+   * (floored at zero) when `remainingPath` is absent or resolves to nothing.
+   */
+  usedPath: z.string().min(1).optional(),
   /** Starting balance, so a percentage remaining can be shown. */
   totalPath: z.string().min(1).optional(),
   percentRemainingPath: z.string().min(1).optional(),
@@ -553,6 +557,12 @@ export const UsageProviderSnapshotSchema = z.object({
   label: z.string(),
   description: z.string().nullable(),
   unverified: z.boolean(),
+  /**
+   * True when the readings come from a local file the daemon watches, so the
+   * writer's next change lands without waiting out the refresh interval. The
+   * surface polls such a provider faster for the same reason.
+   */
+  live: z.boolean(),
   /** True only for the built-in Codex preset, never inferred from a reading id. */
   supportsBankedReset: z.boolean().optional(),
   status: UsageProviderStatusSchema,

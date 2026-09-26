@@ -234,6 +234,7 @@ describe("usage service", () => {
           label: "Antigravity",
           description: null,
           unverified: false,
+          live: false,
           status: "ok",
           error: null,
           notice: null,
@@ -504,6 +505,7 @@ describe("usage service", () => {
         label: "mystery",
         description: null,
         unverified: false,
+        live: false,
         status: "error",
         readings: [],
         error: 'Unknown preset "does-not-exist"',
@@ -573,6 +575,37 @@ describe("usage service", () => {
 
     expect(calls).toBe(1);
     expect(only(second.providers, "provider")).toEqual(only(first.providers, "provider"));
+  });
+
+  test("drops a cached reading when a watched file changes", async () => {
+    let calls = 0;
+    const source = createFakeSource({
+      http: async () => {
+        calls += 1;
+        return { used: calls };
+      },
+    });
+    const clock = createClock();
+    const service = createService({
+      source,
+      now: clock.now,
+      overrides: {
+        counter: {
+          label: "Counter",
+          refreshIntervalMs: 60_000,
+          source: HTTP_SOURCE,
+          readings: COUNTER_READINGS,
+        },
+      },
+    });
+
+    await service.read({ refresh: false });
+    clock.advance(1_000);
+    service.invalidate(["counter"]);
+    const after = await service.read({ refresh: false });
+
+    expect(calls).toBe(2);
+    expect(only(after.providers, "provider").readings).toMatchObject([{ used: 2 }]);
   });
 
   test("refetches once the provider's refresh interval has elapsed", async () => {
@@ -1169,6 +1202,54 @@ describe("usage service credential rejection", () => {
     const rejected = only((await service.read({ refresh: false })).providers, "provider");
 
     expect(rejected.authRefreshCommand).toBe("claude");
+  });
+
+  test("the remedy names the source that produced the token, not the chain's first", async () => {
+    const source = createFakeSource({
+      http: async () => {
+        throw transportError(401);
+      },
+    });
+    const service = createService({
+      source,
+      files: CREDENTIAL_FILES,
+      overrides: {
+        claude: {
+          label: "Claude",
+          refreshIntervalMs: 300_000,
+          credentials: {
+            TOKEN: [
+              {
+                kind: "jsonFile",
+                file: "~/.other-tool/.credentials.json",
+                path: "claudeAiOauth.accessToken",
+                refreshedBy: "claude",
+              },
+              {
+                kind: "jsonFile",
+                file: "~/.claude/.credentials.json",
+                path: "claudeAiOauth.accessToken",
+                refreshedBy: "omp",
+              },
+            ],
+          },
+          source: {
+            kind: "http",
+            url: "https://example.test/usage",
+            headers: { Authorization: "Bearer ${TOKEN}" },
+          },
+          readings: COUNTER_READINGS,
+        },
+      },
+    });
+
+    const rejected = only((await service.read({ refresh: false })).providers, "provider");
+
+    // The first source declares a refresh command but resolved nothing: the
+    // token came from the later source, so its command is the remedy.
+    expect(rejected.authRefreshCommand).toBe("omp");
+    expect(rejected.error).toContain("Run `omp` so it refreshes ~/.claude/.credentials.json.");
+    expect(rejected.error).not.toContain("Run `claude`");
   });
 
   test("seeds a first-ever rejected read from the persisted file", async () => {

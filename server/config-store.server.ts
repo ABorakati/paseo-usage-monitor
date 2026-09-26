@@ -8,7 +8,11 @@ import {
   loadUsageConfig,
   usageConfigPath,
 } from "./config.server";
-import { createNodeCredentialAdapters, type CredentialAdapters } from "./credentials.server";
+import {
+  createNodeCredentialAdapters,
+  describeCredentialPlace,
+  type CredentialAdapters,
+} from "./credentials.server";
 import { UsageConfigError } from "./errors.server";
 import { redactSecrets } from "./redact.server";
 import type {
@@ -101,13 +105,6 @@ export function usageSecretsPath(adapters: ConfigAdapters): string {
   return path.join(path.dirname(usageConfigPath(adapters)), "usage-limits.secrets.json");
 }
 
-function describeCredentialSource(source: UsageCredentialSource): string {
-  if (source.kind === "env") return `env ${source.variable}`;
-  if (source.kind === "keychain") return `keychain "${source.service}"#${source.path}`;
-  if (source.kind === "omp") return `omp "${source.provider}"#${source.path}`;
-  return `file ${source.file}#${source.path}`;
-}
-
 function describeEndpoint(source: UsageSource | undefined): string | null {
   if (source === undefined || source.kind === "command") return null;
   if (source.kind === "http") return source.url;
@@ -131,7 +128,7 @@ export function listUsagePresetSummaries(): UsagePresetSummary[] {
     );
     const credentialNames = editableCredentials.map(([name]) => name);
     const credentialHints = editableCredentials.flatMap(([, sources]) =>
-      sources.map(describeCredentialSource),
+      sources.map(describeCredentialPlace),
     );
     const endpoint = describeEndpoint(preset.source);
     return {
@@ -226,8 +223,8 @@ function isSameSource(left: UsageCredentialSource, right: UsageCredentialSource)
   if (left.kind === "keychain" && right.kind === "keychain") {
     return left.service === right.service && left.path === right.path;
   }
-  if (left.kind === "omp" && right.kind === "omp") {
-    return left.provider === right.provider && left.path === right.path;
+  if (left.kind === "sqlite" && right.kind === "sqlite") {
+    return left.file === right.file && left.query === right.query && left.path === right.path;
   }
   return false;
 }
@@ -281,9 +278,13 @@ function withSecretSources(
       (source) => source.kind === "env",
     );
     const remaining = withoutSource(effective, stored);
-    // a key the user pasted outranks one the plugin finds in omp's vault by itself
-    const vault = remaining.filter((source) => source.kind === "omp");
-    const explicit = remaining.filter((source) => source.kind !== "omp");
+    // Keep a typed secret ahead of credentials discovered in OMP's SQLite vault.
+    const vault = remaining.filter(
+      (source) => source.kind === "sqlite" && source.refreshedBy === "omp",
+    );
+    const explicit = remaining.filter(
+      (source) => source.kind !== "sqlite" || source.refreshedBy !== "omp",
+    );
     credentials[name] = uniqueSources([...presetEnvironment, ...explicit, stored, ...vault]);
   }
 

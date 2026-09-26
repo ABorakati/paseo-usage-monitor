@@ -1,5 +1,6 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { UsageHistoryPanel, UsageHistorySurface } from "./client/history.client";
+import { contributeLimitAlerts } from "./client/limit-alerts.client";
 import { UsageLimitsPanel, UsageLimitsSurface } from "./client/limits.client";
 import { contributeComposerPills } from "./client/pills.client";
 import { UsageSettingsSurface } from "./client/settings.client";
@@ -112,8 +113,10 @@ export default function contribute(client: PluginClientContext) {
   });
 
   const removePills = contributeComposerPills(client);
+  const removeLimitAlerts = contributeLimitAlerts(client);
 
   return () => {
     removePills();
+    removeLimitAlerts();
   };
 }

@@ -487,6 +487,37 @@ describe("projectReadings scale", () => {
     expect(project([deepinfra], { stripe_balance: -42.5 })[0]).toMatchObject({ remaining: 42.5 });
   });
 
+  test("derives a balance's remaining from what was bought minus what was used", () => {
+    // OpenRouter's credits endpoint reports the pair, never the difference
+    const mapping: UsageBalanceMapping = {
+      kind: "balance",
+      id: "credits",
+      label: "Credits",
+      unit: "usd",
+      usedPath: "data.total_usage",
+      totalPath: "data.total_credits",
+    };
+
+    expect(
+      project([mapping], { data: { total_credits: 100, total_usage: 42.5 } })[0],
+    ).toMatchObject({ remaining: 57.5, total: 100, percentRemaining: 57.5 });
+    // a pool spent past what was bought reads as nothing left, not a negative balance
+    expect(project([mapping], { data: { total_credits: 10, total_usage: 12 } })[0]).toMatchObject({
+      remaining: 0,
+      percentRemaining: 0,
+    });
+    // an explicit remaining still wins over the derivation
+    const explicit: UsageBalanceMapping = { ...mapping, remainingPath: "data.left" };
+    expect(
+      project([explicit], { data: { total_credits: 100, total_usage: 42.5, left: 30 } })[0],
+    ).toMatchObject({ remaining: 30 });
+    // usedPath alone, with no total, yields no remaining because there is nothing to subtract from
+    expect(project([mapping], { data: { total_usage: 42.5 } })[0]).toMatchObject({
+      remaining: null,
+      total: null,
+    });
+  });
+
   test("scales a balance total and keeps an explicit percentRemaining unscaled", () => {
     const mapping: UsageBalanceMapping = {
       kind: "balance",

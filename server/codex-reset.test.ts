@@ -14,6 +14,7 @@ function createService(options: {
   response: unknown;
   preset?: string;
   requests?: UsageHttpRequest[];
+  token?: string;
 }) {
   const requests = options.requests ?? [];
   const entries = buildProviderRegistry(
@@ -33,7 +34,9 @@ function createService(options: {
       homeDir: HOME_DIR,
       readTextFile(path) {
         return path === AUTH_PATH
-          ? JSON.stringify({ tokens: { access_token: TOKEN, account_id: ACCOUNT_ID } })
+          ? JSON.stringify({
+              tokens: { access_token: options.token ?? TOKEN, account_id: ACCOUNT_ID },
+            })
           : null;
       },
       now: () => new Date("2026-09-08T10:00:00Z"),
@@ -137,5 +140,48 @@ describe("Codex banked reset service", () => {
         redeemRequestId: REDEEM_REQUEST_ID,
       }),
     ).rejects.toThrow("Codex returned an invalid banked reset result");
+  });
+
+  /** A structurally valid JWT whose signature segment is deliberately junk. */
+  function chatGptJwt(accountId: string): string {
+    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+    const header = encode({ alg: "none", typ: "JWT" });
+    const payload = encode({ "https://api.openai.com/auth": { chatgpt_account_id: accountId } });
+    return `${header}.${payload}.not-a-signature`;
+  }
+
+  test("the account id claimed inside the token wins over a different resolved one", async () => {
+    const requests: UsageHttpRequest[] = [];
+    const jwt = chatGptJwt("account-from-jwt");
+    const service = createService({
+      requests,
+      token: jwt,
+      response: { available_count: 0, credits: [] },
+    });
+
+    await service.read("codex");
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.headers).toMatchObject({
+      Authorization: `Bearer ${jwt}`,
+      "ChatGPT-Account-Id": "account-from-jwt",
+    });
+  });
+
+  test("a malformed token falls back to the resolved account id", async () => {
+    const requests: UsageHttpRequest[] = [];
+    const service = createService({
+      requests,
+      token: "not.a-jwt",
+      response: { available_count: 0, credits: [] },
+    });
+
+    await service.read("codex");
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.headers).toMatchObject({
+      Authorization: "Bearer not.a-jwt",
+      "ChatGPT-Account-Id": ACCOUNT_ID,
+    });
   });
 });

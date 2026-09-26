@@ -404,6 +404,7 @@ function snapshot(overrides: Partial<UsageProviderSnapshot> = {}): UsageProvider
     label: "Claude",
     description: null,
     unverified: false,
+    live: false,
     status: "ok",
     readings: [quota()],
     error: null,
