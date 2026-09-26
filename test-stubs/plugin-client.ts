@@ -130,7 +130,10 @@ export function createMockClientContext(
       ({ providers: currentProviders }) as unknown as ZodOutput<OutputSchema>,
 
     paseo: {
-      ...(!legacy && { observeEvents: () => {} }),
+      dispose: async () => {},
+      ...(!legacy && {
+        observeEvents: (() => {}) as unknown as PluginClientContext["paseo"]["observeEvents"],
+      }),
       workspaces: {} as unknown as PluginClientContext["paseo"]["workspaces"],
       terminals: {} as unknown as PluginClientContext["paseo"]["terminals"],
       projects: {} as unknown as PluginClientContext["paseo"]["projects"],

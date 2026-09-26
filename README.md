@@ -57,7 +57,7 @@ Once running, the plugin shows up in:
 - **Composer rail** — per-provider usage pills pinned above the chat prompt input.
 - **Workspace tabs** — both panels can still be opened as full workspace tabs whenever you want via the command palette.
 - **Command palette** — `Open Usage Monitor` and `Open usage history` (open in Explorer), plus `Open Usage Monitor as workspace tab` and `Open usage history as workspace tab`.
-  The dashboard reads Claude Code and Codex out of the box with no configuration, using the credentials those CLIs already store. Adding anything else is done from the settings icon in the top right of the Usage Monitor surface; see [Editing providers from the app](#editing-providers-from-the-app).
+  The dashboard reads Claude Code, Codex, OpenCode, Oh My Pi, and Cursor out of the box with no configuration, discovering credentials already stored on device across JSON files and local SQLite databases. Adding anything else is done from the settings icon in the top right of the Usage Monitor surface; see [Editing providers from the app](#editing-providers-from-the-app).
 
 ### Install from source (development)
 

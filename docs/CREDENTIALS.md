@@ -13,12 +13,13 @@ Secrets are never written in `usage-limits.json`. Instead a provider **declares*
 }
 ```
 
-| Source kind | Fields                          | Reads                                              |
-| ----------- | ------------------------------- | -------------------------------------------------- |
-| `env`       | `variable`                      | An environment variable of the **daemon** process. |
-| `jsonFile`  | `file`, `path`, `expiresAtPath` | A JSON path inside a file on the daemon machine.   |
+| Source kind | Fields                                                  | Reads                                                                             |
+| ----------- | ------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `env`       | `variable`                                              | An environment variable of the **daemon** process.                                |
+| `jsonFile`  | `file`, `path`, `expiresAtPath`                         | A JSON path inside a file on the daemon machine.                                  |
+| `sqlite`    | `file`, `query`, `path`, `expiresAtPath`, `refreshedBy` | A scalar value or JSON string extracted via SQL query on a local SQLite database. |
 
-A `jsonFile`'s `file` expands a leading `~` to the home directory and `${VAR}` from the daemon environment. That is path expansion, and it is the one place `${...}` means an environment variable rather than a declared credential. An unset variable inside a path is an error rather than a silently mangled path.
+Both `jsonFile` and `sqlite` expand a leading `~` to the home directory and `${VAR}` from the daemon environment. That is path expansion, and it is the one place `${...}` means an environment variable rather than a declared credential. An unset variable inside a path is an error rather than a silently mangled path.
 
 Resolution rules:
 
@@ -66,14 +67,16 @@ Measured on this machine: the token sat **34 hours past its expiry**. Every refr
 
 ### Which presets declare it
 
-| Preset    | `expiresAtPath`                  | On                                                    |
-| --------- | -------------------------------- | ----------------------------------------------------- |
-| `claude`  | `claudeAiOauth.expiresAt`        | Both `.credentials.json` sources                      |
-| `kimi`    | `expires_at`                     | All three `kimi-code.json` sources                    |
-| `minimax` | `expires_at`, `oauth.expires_at` | `~/.mmx/credentials.json`, `~/.mmx/config.json` oauth |
-| `codex`   | None, deliberately               | —                                                     |
+| Preset    | `expiresAtPath`                                           | On                                                        |
+| --------- | --------------------------------------------------------- | --------------------------------------------------------- |
+| `claude`  | `claudeAiOauth.expiresAt`, `anthropic.expires`, `expires` | `.credentials.json`, OpenCode `auth.json`, OMP `agent.db` |
+| `codex`   | `openai.expires`, `expires`                               | OpenCode `auth.json`, OMP `agent.db`                      |
+| `kimi`    | `expires_at`                                              | All three `kimi-code.json` sources                        |
+| `minimax` | `expires_at`, `oauth.expires_at`                          | `~/.mmx/credentials.json`, `~/.mmx/config.json` oauth     |
+| `cursor`  | `expires`                                                 | OMP `agent.db` OAuth                                      |
+| `grok`    | `expires`                                                 | OMP `agent.db` OAuth                                      |
 
-`codex` is the interesting absence. `~/.codex/auth.json` carries `last_refresh`, which records when the token was last refreshed rather than when it dies, so no path in that file can honestly answer the question. A guessed expiry would skip a credential that works, so all three `codex` sources stay two-field. The `~/.mmx/config.json` `api_key` source declares none for the same class of reason: a plain API key has no expiry to read. The `github-copilot` probe reads its own credential file and is in the same position: `hosts.json` records the OAuth token and the login it belongs to, and nothing about when it dies.
+`codex`'s local CLI file `~/.codex/auth.json` carries `last_refresh` rather than an expiry timestamp, so direct CLI sources declare no expiry. OpenCode and OMP codex credentials declare `expiresAtPath` because those harnesses store token expiration timestamps. The `~/.mmx/config.json` `api_key` source declares none for the same class of reason: a plain API key has no expiry to read.
 
 ### What you see
 
