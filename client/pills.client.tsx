@@ -1,5 +1,4 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PaseoAgentListOptions, PaseoAgentListResult } from "@getpaseo/client";
 import type { SessionOutboundMessage } from "@getpaseo/protocol/messages";
 import {
   type PluginButtonContentProps,
@@ -979,6 +978,9 @@ interface AgentRemoval {
   agentId: string;
 }
 type AgentUpdate = AgentUpsert | AgentRemoval;
+type PaseoAgents = ReturnType<typeof usePaseo>["agents"];
+type PaseoAgentListOptions = NonNullable<Parameters<PaseoAgents["list"]>[0]>;
+type PaseoAgentListResult = Awaited<ReturnType<PaseoAgents["list"]>>;
 type AgentDirectory = PaseoAgentListResult;
 type AgentObservation = {
   subscribe(observer: {

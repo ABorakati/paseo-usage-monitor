@@ -1,12 +1,13 @@
 import type React from "react";
 import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import type { PluginRpcContract } from "@getpaseo/plugin";
-import type {
-  PaseoAgent,
-  PaseoAgentUpdate,
-  PaseoAgentListOptions,
-  PaseoAgentListResult,
-} from "@getpaseo/client";
+type PaseoAgents = PluginClientContext["paseo"]["agents"];
+type PaseoAgentListOptions = NonNullable<Parameters<PaseoAgents["list"]>[0]>;
+type PaseoAgentListResult = Awaited<ReturnType<PaseoAgents["list"]>>;
+type PaseoAgent = PaseoAgentListResult["entries"][number]["agent"];
+type PaseoAgentUpdate = Parameters<PaseoAgents["subscribe"]>[0] extends (update: infer U) => void
+  ? U
+  : never;
 import type { SessionOutboundMessage } from "@getpaseo/protocol/messages";
 import type { ZodType, input as ZodInput, output as ZodOutput } from "zod";
 
