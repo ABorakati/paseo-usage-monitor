@@ -35,3 +35,50 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+
+  # Installs the plugin into a real, isolated Paseo daemon the way `paseo plugin add`
+  # does for users. Catches failures that only the daemon's plugin build sees, such
+  # as importing a specifier the plugin runtime rejects (see #8).
+  plugin-install:
+    runs-on: ubuntu-latest
+    env:
+      PASEO_CLI_VERSION: 0.9.2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install -g "@getpaseo/cli@${PASEO_CLI_VERSION}"
+
+      - name: Start an isolated daemon with plugins enabled
+        run: |
+          home="$RUNNER_TEMP/paseo-home"
+          echo "PASEO_HOME_DIR=$home" >> "$GITHUB_ENV"
+          paseo daemon config set daemon.listen 127.0.0.1:6799 --home "$home"
+          paseo daemon config set pluginsEnabled true --home "$home"
+          paseo daemon start --home "$home" --timeout 180
+
+      - name: Install the plugin
+        run: paseo plugin add "$GITHUB_WORKSPACE" --home "$PASEO_HOME_DIR" --json
+
+      - name: Wait for the plugin to be running
+        run: |
+          for _ in $(seq 1 60); do
+            status=$(paseo plugin ls usage-monitor --home "$PASEO_HOME_DIR" --json | jq -r '.[0].status')
+            echo "status: $status"
+            case "$status" in
+              running) exit 0 ;;
+              failed) break ;;
+            esac
+            sleep 5
+          done
+          paseo plugin ls usage-monitor --home "$PASEO_HOME_DIR" --json
+          exit 1
+
+      - name: Plugin and daemon logs
+        if: always()
+        run: |
+          paseo plugin logs usage-monitor --home "$PASEO_HOME_DIR" || true
+          tail -n 100 "$PASEO_HOME_DIR/daemon.log" || true
