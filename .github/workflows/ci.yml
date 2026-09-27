@@ -29,7 +29,8 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm ci
+      # Same command Paseo runs on plugin install (paseo-plugin.json "build").
+      - run: npm ci --include=dev
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
