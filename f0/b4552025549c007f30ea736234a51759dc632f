@@ -1,0 +1,16 @@
+.gitattributes
+  h_0ae9538d78aa59 1-4
+.gitignore
+  h_0ae9538d78aa59 1-7,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f0b4552025549c007f30ea736234a51759dc632f",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
