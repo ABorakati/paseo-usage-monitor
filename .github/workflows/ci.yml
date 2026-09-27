@@ -52,6 +52,10 @@ jobs:
 
       - run: npm install -g "@getpaseo/cli@${PASEO_CLI_VERSION}"
 
+      # A directory install builds from the checkout as-is, so run the plugin's own
+      # build command (paseo-plugin.json "build") first, as a git/npm install would.
+      - run: npm ci --include=dev
+
       - name: Start an isolated daemon with plugins enabled
         run: |
           home="$RUNNER_TEMP/paseo-home"
