@@ -41,10 +41,16 @@ It plots **Work** (input + output tokens) by default, with Cached, Total and Cos
 Plugin code is trusted and unsandboxed. The server half runs in a subprocess with full access to the daemon machine — its files, processes, credentials, and network. Read a plugin before you install it.
 
 ```bash
+# From npm (pinned to a released version)
+paseo plugin add npm:paseo-usage-monitor
+
+# From GitHub (tracks main)
 paseo plugin add ABorakati/paseo-usage-monitor
 ```
 
-That clones the repository, compiles it on the daemon, and reaches **running** in `paseo plugin ls` with no package manager and no install scripts. Git installs track `main`; `paseo plugin status` shows when the upstream repository has moved and `paseo plugin update usage-monitor` pulls it.
+Either reaches **running** in `paseo plugin ls` with no build step and no install scripts: the daemon compiles the plugin itself, and everything it imports is provided by Paseo. Git installs track `main`; `paseo plugin status` shows when the upstream repository has moved and `paseo plugin update usage-monitor` pulls it. Use `npm:paseo-usage-monitor@<version>` to pin a release.
+
+Report bugs and questions on [GitHub issues](https://github.com/ABorakati/paseo-usage-monitor/issues).
 
 ### Find it
 

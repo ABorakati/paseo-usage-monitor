@@ -2,12 +2,12 @@ import type { PluginCleanup, PluginTheme } from "@getpaseo/plugin";
 import {
   type PluginClientContext,
   type PluginTimelineItemProps,
+  type PluginTimelineTransformerContribution,
   useAgent,
   usePaseo,
   useRpc,
 } from "@getpaseo/plugin/client";
 import { Icon, Modal, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
-import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Linking, Pressable, Text, type TextStyle, View, type ViewStyle } from "react-native";
@@ -38,6 +38,13 @@ import {
   type LimitAlertTimelineData,
 } from "../shared/limit-alerts.shared";
 import { formatWhenHint, useTickingClock } from "./limits.client";
+
+/**
+ * The host's timeline item union, read off the SDK's transformer contract rather
+ * than imported from `@getpaseo/protocol`. The plugin compiler resolves only host
+ * modules without a local install, so this keeps the plugin free of any build step.
+ */
+type AgentTimelineItem = Parameters<PluginTimelineTransformerContribution["transform"]>[0]["item"];
 
 /**
  * A usage-limit refusal drawn as a callout in place of the raw turn error. The

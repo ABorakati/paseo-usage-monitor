@@ -1,5 +1,4 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { SessionOutboundMessage } from "@getpaseo/protocol/messages";
 import {
   type PluginButtonContentProps,
   type PluginButtonIconProps,
@@ -982,10 +981,15 @@ type PaseoAgents = ReturnType<typeof usePaseo>["agents"];
 type PaseoAgentListOptions = NonNullable<Parameters<PaseoAgents["list"]>[0]>;
 type PaseoAgentListResult = Awaited<ReturnType<PaseoAgents["list"]>>;
 type AgentDirectory = PaseoAgentListResult;
+/**
+ * The host hands back an untyped subscription, so this names only what the loop
+ * reads. Typing it from `@getpaseo/protocol` would need that package installed
+ * locally, which a plugin with no build step does not have.
+ */
 type AgentObservation = {
   subscribe(observer: {
     snapshot(directory: AgentDirectory): void;
-    update(message: SessionOutboundMessage): void;
+    update(message: { type: string; payload?: unknown }): void;
   }): () => void;
   release(): Promise<void>;
 };
@@ -1189,7 +1193,7 @@ export function contributeComposerPills(client: PluginClientContext): () => void
             sync();
           },
           update(message) {
-            if (message.type === "agent_update") onAgentUpdate(message.payload);
+            if (message.type === "agent_update") onAgentUpdate(message.payload as AgentUpdate);
           },
         });
         return undefined;

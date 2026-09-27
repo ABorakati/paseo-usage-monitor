@@ -37,8 +37,9 @@ jobs:
       - run: npm test
 
   # Installs the plugin into a real, isolated Paseo daemon the way `paseo plugin add`
-  # does for users. Catches failures that only the daemon's plugin build sees, such
-  # as importing a specifier the plugin runtime rejects (see #8).
+  # does for users, from both a bare checkout (git install) and the packed npm
+  # tarball (npm install). Catches failures only the daemon's plugin compiler sees,
+  # such as a specifier the runtime rejects (#8) or a file missing from `files`.
   plugin-install:
     runs-on: ubuntu-latest
     env:
@@ -52,9 +53,18 @@ jobs:
 
       - run: npm install -g "@getpaseo/cli@${PASEO_CLI_VERSION}"
 
-      # A directory install builds from the checkout as-is, so run the plugin's own
-      # build command (paseo-plugin.json "build") first, as a git/npm install would.
-      - run: npm ci --include=dev
+      # Mirror Paseo's npm source install: `npm install --omit=dev` of the published
+      # artifact into a wrapper directory. Nothing is installed into the checkout,
+      # which therefore stands in for a git install.
+      - name: Pack and install the npm artifact
+        run: |
+          wrapper="$RUNNER_TEMP/npm-install"
+          mkdir -p "$wrapper"
+          npm pack --pack-destination "$RUNNER_TEMP"
+          cd "$wrapper"
+          npm init -y >/dev/null
+          npm install --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund "$RUNNER_TEMP"/*.tgz
+          echo "NPM_PLUGIN_DIR=$wrapper/node_modules/paseo-usage-monitor" >> "$GITHUB_ENV"
 
       - name: Start an isolated daemon with plugins enabled
         run: |
@@ -64,25 +74,35 @@ jobs:
           paseo daemon config set pluginsEnabled true --home "$home"
           paseo daemon start --home "$home" --timeout 180
 
-      - name: Install the plugin
-        run: paseo plugin add "$GITHUB_WORKSPACE" --home "$PASEO_HOME_DIR" --json
-
-      - name: Wait for the plugin to be running
+      - name: Install from the checkout and from the npm artifact
         run: |
-          for _ in $(seq 1 60); do
-            status=$(paseo plugin ls usage-monitor --home "$PASEO_HOME_DIR" --json | jq -r '.[0].status')
-            echo "status: $status"
-            case "$status" in
-              running) exit 0 ;;
-              failed) break ;;
-            esac
-            sleep 5
+          paseo plugin add "$GITHUB_WORKSPACE" --id usage-monitor-git --home "$PASEO_HOME_DIR" --json
+          paseo plugin add "$NPM_PLUGIN_DIR" --id usage-monitor-npm --home "$PASEO_HOME_DIR" --json
+
+      - name: Wait for both plugins to be running
+        run: |
+          for id in usage-monitor-git usage-monitor-npm; do
+            ok=false
+            for _ in $(seq 1 60); do
+              status=$(paseo plugin ls "$id" --home "$PASEO_HOME_DIR" --json | jq -r '.[0].status')
+              echo "$id: $status"
+              case "$status" in
+                running) ok=true; break ;;
+                failed) break ;;
+              esac
+              sleep 5
+            done
+            if [ "$ok" != true ]; then
+              paseo plugin ls "$id" --home "$PASEO_HOME_DIR" --json
+              exit 1
+            fi
           done
-          paseo plugin ls usage-monitor --home "$PASEO_HOME_DIR" --json
-          exit 1
 
       - name: Plugin and daemon logs
         if: always()
         run: |
-          paseo plugin logs usage-monitor --home "$PASEO_HOME_DIR" || true
+          for id in usage-monitor-git usage-monitor-npm; do
+            echo "== $id"
+            paseo plugin logs "$id" --home "$PASEO_HOME_DIR" || true
+          done
           tail -n 100 "$PASEO_HOME_DIR/daemon.log" || true
