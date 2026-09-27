@@ -1,0 +1,14 @@
+.github/workflows/ci.yml
+  h_0ae9538d78aa59 38-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b351ba0919de129dbae000374b944b27cccc3a1a",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
