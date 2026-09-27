@@ -1,0 +1,22 @@
+client/pills.client.tsx
+  h_0ae9538d78aa59 981-983
+paseo-plugin.json
+  h_0ae9538d78aa59 6
+server/limit-alerts.server.ts
+  h_0ae9538d78aa59 8
+server/limit-alerts.test.ts
+  h_0ae9538d78aa59 9
+test-stubs/plugin-client.ts
+  h_0ae9538d78aa59 4-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f09e6bc6d680440a46df0c7b38c1be4d21bdbb34",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}

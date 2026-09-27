@@ -1,0 +1,18 @@
+docs/HISTORY.md
+  h_0ae9538d78aa59 11-16,46,52
+server/history.server.ts
+  h_0ae9538d78aa59 74-75,104-106,189-190,201,284-289,327-332,366-368,469-495,730-737,745-758,761,772,779,801,804,810,815-820,822,825,827,1018-1026
+server/history.test.ts
+  h_0ae9538d78aa59 22,312-314,895-1079
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2538feab1ab00474684ac167dd1be5e6a642386f",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
