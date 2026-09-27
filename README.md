@@ -41,8 +41,6 @@ It plots **Work** (input + output tokens) by default, with Cached, Total and Cos
 Plugin code is trusted and unsandboxed. The server half runs in a subprocess with full access to the daemon machine — its files, processes, credentials, and network. Read a plugin before you install it.
 
 ```bash
-# From npm (pinned to a released version)
-paseo plugin add npm:paseo-usage-monitor
 
 # From GitHub (tracks main)
 paseo plugin add ABorakati/paseo-usage-monitor
