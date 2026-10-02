@@ -112,6 +112,9 @@ export function createMockClientContext(
     addSettingsScreen: () => () => {},
     addSurface: () => () => {},
     addSidebarItem: () => () => {},
+    addSidebarHeaderItem: () => () => {},
+    addSidebarFooterItem: () => () => {},
+    addScreen: () => () => {},
     addWorkspacePanel: () => () => {},
     addCommandCenterItem: () => () => {},
     addSlashCommand: () => () => {},
@@ -123,6 +126,7 @@ export function createMockClientContext(
     openPanel: () => {},
     openSurface: () => {},
     openSettings: () => {},
+    openScreen: () => {},
 
     rpc: async <InputSchema extends ZodType = ZodType, OutputSchema extends ZodType = ZodType>(
       _contract: PluginRpcContract<InputSchema, OutputSchema>,

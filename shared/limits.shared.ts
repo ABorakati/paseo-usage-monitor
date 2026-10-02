@@ -422,6 +422,12 @@ export const UsageDisplaySchema = z.object({
    * provider can live on the rail alone once it is turned off here.
    */
   dashboard: z.boolean().optional(),
+  /**
+   * Whether Paseo's own usage tracker (sidebar, composer, Usage screen) lists
+   * this provider. Absent follows `nativeUsageDefault`: on, unless one of
+   * Paseo's built-in usage sources already meters the same vendor quota.
+   */
+  native: z.boolean().optional(),
   /** The provider's slot on the composer rail. */
   pill: UsagePillDisplaySchema.optional(),
 });
