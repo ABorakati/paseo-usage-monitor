@@ -1,0 +1,22 @@
+package-lock.json
+  h_0ae9538d78aa59 2,8,12-14,967-969,972-973,978-980,987-988,1000-1002,1010-1012
+package.json
+  h_0ae9538d78aa59 45-47
+shared/limits.shared.ts
+  h_0ae9538d78aa59 425-430
+shared/native-usage.shared.ts
+  h_0ae9538d78aa59 1-36
+test-stubs/plugin-client.ts
+  h_0ae9538d78aa59 115-117,129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "06dffcb340378791736f3da4b74312a349bad135",
+  "prompts": {},
+  "humans": {
+    "h_0ae9538d78aa59": {
+      "author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
