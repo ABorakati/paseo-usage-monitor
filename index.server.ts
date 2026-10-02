@@ -1,4 +1,5 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
+import { registerNativeUsageSources } from "./server/native-usage.server";
 import {
   cancelLimitAlertResume as cancelLimitAlertResumeHandler,
   closeLimitAlerts,
@@ -78,6 +79,9 @@ export default function contribute(server: PluginServerContext) {
     handOffLimitAlertHandler(input, context.paseo),
   );
 
+  if (typeof server.registerUsageSource === "function") {
+    registerNativeUsageSources(server);
+  }
   const removeTurnListener = server.on("agent.turn_ended", async (event, context) => {
     if (event.outcome.kind === "canceled") {
       return;

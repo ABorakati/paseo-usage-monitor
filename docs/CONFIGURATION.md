@@ -91,15 +91,16 @@ An entry naming a preset that does not exist becomes an error row reading `Unkno
 
 `display` controls how a provider renders on its card and whether it appears on the rail above the composer. Unlike `source`, `readings`, and `limits`, which replace presets wholesale, `display` merges field by field against a preset, and `display.pill` merges field by field the same way.
 
-| Field       | Type                    | Required | Default  | Notes                                                                                           |
-| ----------- | ----------------------- | -------- | -------- | ----------------------------------------------------------------------------------------------- |
-| `order`     | integer                 | no       | —        | Ascending position on the dashboard; providers without an order sort after ordered ones, by id. |
-| `style`     | `"bar" \| "ring"`       | no       | `"bar"`  | Card meter shape: horizontal bar or dial gauge.                                                 |
-| `value`     | `"used" \| "remaining"` | no       | `"used"` | Whether the meter counts consumption or headroom.                                               |
-| `collapsed` | boolean                 | no       | `false`  | Collapsed cards render only their header and worst reading.                                     |
-| `icon`      | icon object             | no       | —        | Overrides the provider mark.                                                                    |
-| `dashboard` | boolean                 | no       | `true`   | Whether the provider keeps a card on the dashboard. Absent reads as visible (`true`).           |
-| `pill`      | pill display object     | no       | —        | Shows this provider on the composer rail. Omitted when disabled with all other fields default.  |
+| Field       | Type                    | Required | Default  | Notes                                                                                                                            |
+| ----------- | ----------------------- | -------- | -------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `order`     | integer                 | no       | —        | Ascending position on the dashboard; providers without an order sort after ordered ones, by id.                                  |
+| `style`     | `"bar" \| "ring"`       | no       | `"bar"`  | Card meter shape: horizontal bar or dial gauge.                                                                                  |
+| `value`     | `"used" \| "remaining"` | no       | `"used"` | Whether the meter counts consumption or headroom.                                                                                |
+| `collapsed` | boolean                 | no       | `false`  | Collapsed cards render only their header and worst reading.                                                                      |
+| `icon`      | icon object             | no       | —        | Overrides the provider mark.                                                                                                     |
+| `dashboard` | boolean                 | no       | `true`   | Whether the provider keeps a card on the dashboard. Absent reads as visible (`true`).                                            |
+| `native`    | boolean                 | no       | preset   | Whether Paseo lists this provider in its usage tracker. Absent follows the preset default; built-in-covered presets default off. |
+| `pill`      | pill display object     | no       | —        | Shows this provider on the composer rail. Omitted when disabled with all other fields default.                                   |
 
 ### `display.pill`
 

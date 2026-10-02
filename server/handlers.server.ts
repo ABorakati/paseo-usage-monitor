@@ -51,6 +51,7 @@ interface ServiceCache {
   /** The config text the live service was built from, or null when the file was absent. */
   configText: string | null;
   service: UsageService;
+  entries: UsageProviderEntry[];
   /** The file sources that service reads, resolved for the watcher. */
   liveTargets: LiveFileTarget[];
 }
@@ -108,8 +109,17 @@ function resolveService(): UsageService {
       now: () => new Date(),
     },
   });
-  cache = { configText, service, liveTargets: liveFileTargets(entries) };
+  cache = { configText, service, entries, liveTargets: liveFileTargets(entries) };
   return service;
+}
+
+export function readNativeUsageEntries(): readonly UsageProviderEntry[] {
+  resolveService();
+  return cache?.entries ?? [];
+}
+
+export function readNativeUsageProvider(id: string) {
+  return resolveService().readProvider(id);
 }
 
 export function readLimits(input: { refresh: boolean }): Promise<UsageSnapshot> {

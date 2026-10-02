@@ -1,26 +1,29 @@
 import { describe, expect, test, vi } from "vitest";
-import contributeServer from "../index.server";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
+import { USAGE_PRESETS } from "../shared/presets.shared";
+import contributeServer from "../index.server";
+
+function mockServer(usageSource?: (source: { id: string }) => void) {
+  const handledNames: string[] = [];
+  const eventHandlers: string[] = [];
+  const server = {
+    handle: vi.fn((contract) => handledNames.push(contract.name)),
+    on: vi.fn((event) => {
+      eventHandlers.push(event);
+      return () => {};
+    }),
+    before: vi.fn(() => () => {}),
+    registerSettings: vi.fn(),
+    registerProvider: vi.fn(),
+    ...(usageSource === undefined ? {} : { registerUsageSource: vi.fn(usageSource) }),
+  } as unknown as PluginServerContext;
+  return { server, handledNames, eventHandlers };
+}
 
 describe("index.server v0.8 entry point", () => {
-  test("registers all RPC contracts and lifecycle hooks", () => {
-    const handledNames: string[] = [];
-    const eventHandlers: string[] = [];
-
-    const mockServer = {
-      handle: vi.fn((contract) => {
-        handledNames.push(contract.name);
-      }),
-      on: vi.fn((event) => {
-        eventHandlers.push(event);
-        return () => {};
-      }),
-      before: vi.fn(() => () => {}),
-      registerSettings: vi.fn(),
-      registerProvider: vi.fn(),
-    } as unknown as PluginServerContext;
-
-    const cleanup = contributeServer(mockServer);
+  test("loads on hosts without native usage support", () => {
+    const { server, handledNames, eventHandlers } = mockServer();
+    const cleanup = contributeServer(server);
     expect(typeof cleanup).toBe("function");
     expect(handledNames).toEqual([
       "usage.limits.read",
@@ -42,10 +45,19 @@ describe("index.server v0.8 entry point", () => {
       "usage.limit-alerts.resume.cancel",
       "usage.limit-alerts.handoff",
     ]);
-
-    // v0.8 Lifecycle hook
     expect(eventHandlers).toEqual(["agent.turn_ended"]);
+    cleanup();
+  });
 
+  test("registers one source for the general providers and every preset", () => {
+    const sourceIds: string[] = [];
+    const { server } = mockServer((source) => sourceIds.push(source.id));
+    const cleanup = contributeServer(server);
+    expect(sourceIds).toEqual([
+      "usage-monitor",
+      ...Object.keys(USAGE_PRESETS).map((presetId) => `usage-monitor.${presetId}`),
+    ]);
+    expect(sourceIds.every((id) => /^[a-z][a-z0-9._-]*$/.test(id))).toBe(true);
     cleanup();
   });
 });

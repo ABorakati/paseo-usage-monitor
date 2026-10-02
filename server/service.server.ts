@@ -45,6 +45,7 @@ export interface UsageServiceInput {
 
 export interface UsageService {
   read(options: { refresh: boolean }): Promise<UsageSnapshot>;
+  readProvider(id: string): Promise<UsageProviderSnapshot | null>;
   /**
    * Drops cached readings for the named providers. A watched file source calls
    * this when its writer lands a new document, so the next read re-projects it
@@ -418,16 +419,20 @@ export function createUsageService(input: UsageServiceInput): UsageService {
         error: `The stored credential was rejected (HTTP ${status}), and no earlier reading is stored yet. ${remedy.text}`,
         fetchedAt: now.toISOString(),
         authRefreshCommand: remedy.command,
+        authStatus: Number(status),
       };
     }
     const reading = formatReadingTime(stored.fetchedAt, now);
-    return storedSnapshot(
-      id,
-      provider,
-      stored,
-      `The stored credential was rejected (HTTP ${status}). ${remedy.text} Showing the reading from ${reading}.`,
-      remedy.command,
-    );
+    return {
+      ...storedSnapshot(
+        id,
+        provider,
+        stored,
+        `The stored credential was rejected (HTTP ${status}). ${remedy.text} Showing the reading from ${reading}.`,
+        remedy.command,
+      ),
+      authStatus: Number(status),
+    };
   }
 
   async function loadProvider(id: string, provider: UsageProvider): Promise<UsageProviderSnapshot> {
@@ -553,6 +558,11 @@ export function createUsageService(input: UsageServiceInput): UsageService {
         entries.map((entry) => entrySnapshot(entry, options.refresh)),
       );
       return { configPath, providers };
+    },
+
+    async readProvider(id) {
+      const entry = entries.find((candidate) => candidate.id === id);
+      return entry === undefined ? null : entrySnapshot(entry, false);
     },
 
     invalidate(providerIds) {

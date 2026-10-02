@@ -559,6 +559,7 @@ export const UsageReadingSchema = z.discriminatedUnion("kind", [
 export const UsageProviderStatusSchema = z.enum(["ok", "error", "disabled"]);
 
 export const UsageProviderSnapshotSchema = z.object({
+  authStatus: z.number().int().nullable().optional(),
   providerId: z.string(),
   label: z.string(),
   description: z.string().nullable(),

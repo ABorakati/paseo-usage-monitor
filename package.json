@@ -27,6 +27,7 @@
     "server/",
     "client/",
     "shared/",
+    "icons/",
     "!**/*.test.ts",
     "statusline-hook.mjs",
     "usage-limits.example.json",

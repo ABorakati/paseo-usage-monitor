@@ -34,6 +34,14 @@ It plots **Work** (input + output tokens) by default, with Cached, Total and Cos
 
 **Usage providers** — add, edit, test and remove providers from inside the app instead of hand-writing JSON. It writes the same config file, and a key you type goes into a separate owner-only secrets file rather than into the config. The same surface installs the Claude Code status line hook, which turns the `claude-statusline` preset into a turn-by-turn feed. See [Editing providers from the app](#editing-providers-from-the-app).
 
+## Paseo usage tracker
+
+On Paseo 0.11 and newer, Usage Monitor can list each provider in Paseo's sidebar and composer usage tracker. The plugin still runs on Paseo 0.8 and newer; older Paseo versions ignore this option.
+
+Presets already covered by a built-in Paseo source default to hidden to avoid duplicate entries: Claude, Claude Statusline, Codex, GitHub Copilot, Cursor, Grok, Kimi, MiniMax, MiniMax China, OpenCode Go, and Z.ai. Other presets and custom providers default to shown.
+
+In **Usage providers**, use **Show in Paseo usage** to show or hide a provider. The editor keeps the default when you leave the switch unchanged, so future preset default changes apply automatically. See [Presets](docs/PRESETS.md#paseo-usage-tracker).
+
 ## Install
 
 > **Requires Paseo v0.8.0 or newer.**

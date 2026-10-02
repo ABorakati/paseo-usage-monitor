@@ -270,6 +270,33 @@ describe("usage service", () => {
     });
   });
 
+  test("reads one provider through the existing refresh cache", async () => {
+    const source = createFakeSource({
+      http: async () => ({ used: 3 }),
+    });
+    const service = createService({
+      source,
+      env: { TOKEN: "token-value" },
+      overrides: {
+        provider: {
+          label: "Provider",
+          credentials: { TOKEN: [{ kind: "env", variable: "TOKEN" }] },
+          source: { kind: "http", url: "https://example.test/usage" },
+          readings: [
+            { kind: "quota", id: "count", label: "Count", unit: "requests", usedPath: "used" },
+          ],
+        },
+      },
+    });
+
+    const provider = await service.readProvider("provider");
+    expect(provider?.readings).toEqual([
+      expect.objectContaining({ kind: "quota", id: "count", used: 3 }),
+    ]);
+    await expect(service.readProvider("missing")).resolves.toBeNull();
+    expect(source.requests).toHaveLength(1);
+  });
+
   test("reads a balance from numeric strings and reports the percentage still available", async () => {
     const source = createFakeSource({
       http: async () => ({
@@ -1161,6 +1188,7 @@ describe("usage service credential rejection", () => {
       readings: [{ used: 13 }],
       notice: `The stored credential was rejected (HTTP 401). ${FILE_REMEDY} Showing the reading from ${clockLabel(FIXED_NOW)}.`,
       authRefreshCommand: null,
+      authStatus: 401,
     });
   });
 

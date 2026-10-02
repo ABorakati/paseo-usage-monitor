@@ -57,6 +57,7 @@ import {
 } from "./editor-request.client";
 import { getUsagePreset } from "../shared/presets.shared";
 import { getDefaultPillMatchRules, isDashboardVisible } from "../shared/pills.shared";
+import { nativeUsageDefault, publishesNativeUsage } from "../shared/native-usage.shared";
 import {
   LIMIT_ALERT_SETTINGS_QUERY_KEY,
   readLimitAlertSettings,
@@ -195,6 +196,7 @@ interface EditorState {
   iconMonogramColor: string;
   iconImageUri: string;
   dashboardVisible: boolean;
+  nativeVisible: boolean;
   displayOrder: string;
   displayStyle: "bar" | "ring";
   displayValue: "used" | "remaining";
@@ -234,6 +236,7 @@ type EditorAction =
   | { type: "icon-monogram-color"; value: string }
   | { type: "icon-image-uri"; value: string }
   | { type: "dashboard-visible"; value: boolean }
+  | { type: "native-visible"; value: boolean }
   | { type: "display-order"; value: string }
   | { type: "display-style"; value: "bar" | "ring" }
   | { type: "display-value"; value: "used" | "remaining" }
@@ -520,6 +523,7 @@ const CLOSED_EDITOR: EditorState = {
   iconMonogramColor: "",
   iconImageUri: "",
   dashboardVisible: true,
+  nativeVisible: true,
   displayOrder: "",
   displayStyle: "bar",
   displayValue: "used",
@@ -637,6 +641,7 @@ function customEditorWithEntry(
     iconMonogramColor: icon?.kind === "monogram" ? (icon.color ?? "") : "",
     iconImageUri: icon?.kind === "image" ? icon.uri : "",
     dashboardVisible: isDashboardVisible(entry.display),
+    nativeVisible: publishesNativeUsage(null, entry.display ?? {}),
     displayOrder: entry.display?.order !== undefined ? String(entry.display.order) : "",
     displayStyle: entry.display?.style ?? "bar",
     displayValue: entry.display?.value ?? "used",
@@ -689,6 +694,7 @@ function presetEditor(
     iconMonogramColor: icon?.kind === "monogram" ? (icon.color ?? "") : "",
     iconImageUri: icon?.kind === "image" ? icon.uri : "",
     dashboardVisible: isDashboardVisible(entry?.display),
+    nativeVisible: publishesNativeUsage(presetId, entry?.display ?? {}),
     displayOrder: entry?.display?.order !== undefined ? String(entry?.display.order) : "",
     displayStyle: entry?.display?.style ?? "bar",
     displayValue: entry?.display?.value ?? "used",
@@ -766,6 +772,7 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
   if (action.type === "icon-monogram-color") return { ...state, iconMonogramColor: action.value };
   if (action.type === "icon-image-uri") return { ...state, iconImageUri: action.value };
   if (action.type === "dashboard-visible") return { ...state, dashboardVisible: action.value };
+  if (action.type === "native-visible") return { ...state, nativeVisible: action.value };
   if (action.type === "display-order") return { ...state, displayOrder: action.value };
   if (action.type === "display-style") return { ...state, displayStyle: action.value };
   if (action.type === "display-value") return { ...state, displayValue: action.value };
@@ -1042,6 +1049,13 @@ function buildProviderWrite(editor: EditorState): UsageProviderWrite {
     delete display.dashboard;
   } else {
     display.dashboard = false;
+  }
+
+  // Keep the preset default implicit so providers follow future default changes.
+  if (editor.nativeVisible === nativeUsageDefault(editor.presetId)) {
+    delete display.native;
+  } else {
+    display.native = editor.nativeVisible;
   }
 
   let displayOrder: number | undefined;
@@ -1896,6 +1910,9 @@ function ProviderEditor({
   const dashboardThumbColor = editor.dashboardVisible
     ? theme.colors.accentForeground
     : theme.colors.foregroundMuted;
+  const nativeThumbColor = editor.nativeVisible
+    ? theme.colors.accentForeground
+    : theme.colors.foregroundMuted;
   const pillThumbColor = editor.pillEnabled
     ? theme.colors.accentForeground
     : theme.colors.foregroundMuted;
@@ -1904,6 +1921,10 @@ function ProviderEditor({
 
   const toggleDashboardVisible = useCallback(
     (value: boolean) => dispatch({ type: "dashboard-visible", value }),
+    [dispatch],
+  );
+  const toggleNativeVisible = useCallback(
+    (value: boolean) => dispatch({ type: "native-visible", value }),
     [dispatch],
   );
   const changeDisplayOrder = useCallback(
@@ -2139,6 +2160,23 @@ function ProviderEditor({
                   trackColor={switchTrackColor}
                   thumbColor={dashboardThumbColor}
                   accessibilityLabel="Show on dashboard"
+                />
+              </View>
+              <View style={styles.switchRow}>
+                <View style={styles.grow}>
+                  <Text style={styles.label}>Show in Paseo usage</Text>
+                  <Text style={styles.muted}>
+                    {nativeUsageDefault(editor.presetId)
+                      ? "List this provider in Paseo's sidebar and composer usage tracker (Paseo 0.11+)."
+                      : "Off by default: Paseo's built-in source already lists this vendor, so turning it on adds a second card (Paseo 0.11+)."}
+                  </Text>
+                </View>
+                <Switch
+                  value={editor.nativeVisible}
+                  onValueChange={toggleNativeVisible}
+                  trackColor={switchTrackColor}
+                  thumbColor={nativeThumbColor}
+                  accessibilityLabel="Show in Paseo usage"
                 />
               </View>
               <Text style={styles.label}>Meter</Text>

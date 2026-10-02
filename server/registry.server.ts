@@ -14,6 +14,7 @@ import { getUsagePreset } from "../shared/presets.shared";
  */
 export interface UsageProviderEntry {
   id: string;
+  preset: string | null;
   provider: UsageProvider | null;
   error: string | null;
 }
@@ -69,11 +70,17 @@ function resolveEntry(id: string, override: UsageProviderOverride): UsageProvide
   if (override.preset !== undefined) {
     const preset = getUsagePreset(override.preset);
     if (!preset) {
-      return { id, provider: null, error: `Unknown preset "${override.preset}"` };
+      return {
+        id,
+        preset: override.preset,
+        provider: null,
+        error: `Unknown preset "${override.preset}"`,
+      };
     }
     const provider = applyOverride(preset, override);
     return {
       id,
+      preset: override.preset,
       provider: { ...provider, readings: applyLimits(provider.readings, provider.limits) },
       error: null,
     };
@@ -87,11 +94,12 @@ function resolveEntry(id: string, override: UsageProviderOverride): UsageProvide
         return path.length === 0 ? issue.message : `${path}: ${issue.message}`;
       })
       .join("; ");
-    return { id, provider: null, error: detail };
+    return { id, preset: null, provider: null, error: detail };
   }
   const provider = parsed.data;
   return {
     id,
+    preset: null,
     provider: { ...provider, readings: applyLimits(provider.readings, provider.limits) },
     error: null,
   };

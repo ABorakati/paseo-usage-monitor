@@ -53,6 +53,24 @@ If your provider is not in the table below, read [What is not supported, and why
 
 `zai` is an alias of `zai-coding-plan`: the same route, readings and credential chain under a shorter id, labelled `Z.ai`. Both ids resolve, so a config written against either keeps working.
 
+## Paseo usage tracker
+
+Paseo 0.11 and newer can list plugin providers in its sidebar and composer usage tracker. Presets with a built-in Paseo source default to hidden here, to avoid duplicate entries. You can show any of them in the Usage providers editor with **Show in Paseo usage**.
+
+These presets default to hidden because Paseo already tracks the same vendor:
+
+- `claude` and `claude-statusline`
+- `codex`
+- `github-copilot`
+- `cursor`
+- `grok`
+- `kimi`
+- `minimax` and `minimax-cn`
+- `opencode-go`
+- `zai` and `zai-coding-plan`
+
+Other presets and custom providers default to shown. The editor stores only a choice that differs from the preset default, so an untouched provider follows future default changes.
+
 Every endpoint above was verified against the vendor's own documentation or a recorded working implementation, with the exceptions called out below. The balance endpoints marked corroborated were additionally cross-checked against a working implementation that has to keep them running in production — one-api / new-api for the older balance routes, CodexBar for the coding-plan and subscription routes — which is a useful second opinion.
 
 Corroborated: `deepseek`, `moonshot`, `moonshot-cn`, `siliconflow`, `siliconflow-cn`, `stepfun`, `novita`, `deepinfra`, `openrouter-credits`, `zai-coding-plan`, `zhipuai-coding-plan`, `minimax-cn`, `opencode-go`, `chutes`, `zenmux`.
