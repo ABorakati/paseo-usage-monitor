@@ -1,0 +1,19 @@
+server/service.test.ts
+  s_03f56fadbf70e7::t_38bcad07712517 273-299,1191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8b5b25e2fcf7ec7beb7dc44289065ba26b514f57",
+  "prompts": {},
+  "sessions": {
+    "s_03f56fadbf70e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3cdfadb-b22f-4e55-bc0c-5ad7913214e2",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "ABorakati <ABorakati@users.noreply.github.com>"
+    }
+  }
+}
