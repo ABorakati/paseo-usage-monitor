@@ -14,6 +14,7 @@ import {
   type LimitAlertStatus,
 } from "../shared/limit-alerts.shared";
 import {
+  detectAssistantUsageLimit,
   detectUsageLimit,
   limitKindFor,
   resetUrlFor,
@@ -185,15 +186,19 @@ function detectionFor(event: LimitAlertTurnEvent, now: Date): LimitDetection | n
   }
   const last = lastSignalItem(event.timeline);
   if (last === null) return null;
-  return detectUsageLimit(last, now);
+  return last.type === "assistant_message"
+    ? detectAssistantUsageLimit(last.text, now)
+    : detectUsageLimit(last.text, now);
 }
 
-function lastSignalItem(timeline: LimitAlertTurnEvent["timeline"]): string | null {
+function lastSignalItem(
+  timeline: LimitAlertTurnEvent["timeline"],
+): { type: "assistant_message" | "error"; text: string } | null {
   for (let index = timeline.length - 1; index >= 0; index -= 1) {
     const item: TimelineItem | undefined = timeline[index];
     if (item === undefined) continue;
-    if (item.type === "assistant_message") return item.text;
-    if (item.type === "error") return item.message;
+    if (item.type === "assistant_message") return { type: item.type, text: item.text };
+    if (item.type === "error") return { type: item.type, text: item.message };
   }
   return null;
 }

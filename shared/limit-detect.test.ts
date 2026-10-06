@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  detectAssistantUsageLimit,
   detectUsageLimit,
   limitKindFor,
   limitKindFromText,
@@ -13,6 +14,18 @@ import {
 import { listUsagePresetIds } from "./presets.shared";
 
 const NOW = new Date("2026-09-10T11:00:00.000Z");
+
+/** Agent prose that names numbers and limits as ordinary work, seen in real turns. */
+const AGENT_PROSE = [
+  "- S9: 402 URLs compared before and after (status + sha256), 0 mismatches.",
+  "Tests: 402 passed, 0 failed.",
+  "| Put-debit spread | 09.01.2026 | 28.07.2026 | 7 | 43 % | +429 |",
+  "seam                     EG-08 TTLock 429, EG-09 IDV",
+  "Added retry with backoff when the API returns 429.",
+  "The middleware now applies a rate limit of 100 req/min per user.",
+  "Fixed the handler so it returns 402 Payment Required for unpaid plans.",
+  "Show the user's available credits in the billing page.",
+];
 
 /** A Google/Antigravity harness refusal, captured from a real turn. */
 const GOOGLE_QUOTA_REFUSAL =
@@ -122,6 +135,43 @@ describe("detectUsageLimit", () => {
     expect(detectUsageLimit("The context window limit was exceeded.", NOW)).toBeNull();
     expect(detectUsageLimit("Maximum output tokens must be at most 8192.", NOW)).toBeNull();
     expect(detectUsageLimit("The prompt is too long for this model.", NOW)).toBeNull();
+  });
+});
+
+describe("bare numbers", () => {
+  test("a 402 or 429 with no status label is not a refusal", () => {
+    for (const text of AGENT_PROSE.slice(0, 4)) {
+      expect(detectUsageLimit(text, NOW), text).toBeNull();
+      expect(limitKindFromText(text), text).toBeNull();
+    }
+  });
+
+  test("a labelled status code still is", () => {
+    for (const text of ["HTTP 429", "status_code: 402", "API error (429): slow down", "code=402"]) {
+      expect(detectUsageLimit(text, NOW), text).not.toBeNull();
+    }
+  });
+});
+
+describe("detectAssistantUsageLimit", () => {
+  test("matches the notices Claude Code writes as an assistant message", () => {
+    for (const wording of CLAUDE_WORDINGS) {
+      expect(detectAssistantUsageLimit(wording, NOW), wording).not.toBeNull();
+    }
+    expect(detectAssistantUsageLimit(CLAUDE_WORDINGS[0] ?? "", NOW)?.resetsAt).toBe(
+      "2026-09-10T14:00:00.000Z",
+    );
+  });
+
+  test("leaves the agent's own prose alone", () => {
+    for (const text of AGENT_PROSE) {
+      expect(detectAssistantUsageLimit(text, NOW), text).toBeNull();
+    }
+  });
+
+  test("leaves a long report alone even when it quotes a refusal", () => {
+    const report = `Summary of the run.\n${"- step done\n".repeat(40)}The worker said: You've hit your limit.`;
+    expect(detectAssistantUsageLimit(report, NOW)).toBeNull();
   });
 });
 

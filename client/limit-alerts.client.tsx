@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Linking, Pressable, Text, type TextStyle, View, type ViewStyle } from "react-native";
 import {
+  detectAssistantUsageLimit,
   detectUsageLimit,
   limitKindFor,
   limitKindFromText,
@@ -129,7 +130,10 @@ export function limitAlertTimelineData(
   const text =
     item.type === "error" ? item.message : item.type === "assistant_message" ? item.text : null;
   if (text === null) return null;
-  const detection = detectUsageLimit(text, now);
+  const detection =
+    item.type === "assistant_message"
+      ? detectAssistantUsageLimit(text, now)
+      : detectUsageLimit(text, now);
   if (detection === null) return null;
   return {
     agentProvider: LIMIT_ALERT_UNKNOWN_PROVIDER,

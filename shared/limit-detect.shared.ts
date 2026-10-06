@@ -30,13 +30,18 @@ export interface LimitDetection {
   message: string;
 }
 
+const STATUS_429 = /\b(?:http|status(?:[ _]code)?|error|code)\W{0,3}429\b/i;
+const STATUS_402 = /\b(?:http|status(?:[ _]code)?|error|code)\W{0,3}402\b/i;
+
 const LIMIT_PATTERNS: readonly RegExp[] = [
   /hit your (?:usage )?limit/i,
   /usage limit (?:reached|exceeded|hit)/i,
   /usage_limit_reached/i,
   /rate[ _-]?limit(?:ed|_error| exceeded| reached)?/i,
   /too many requests/i,
-  /\b429\b/,
+  // A bare 429 or 402 is any number in prose ("402 URLs compared"); only a
+  // status code with its label is a refusal.
+  STATUS_429,
   /resource_exhausted/i,
   /quota (?:exceeded|exhausted|reached|limit)/i,
   /insufficient[ _](?:quota|balance|credits|funds)/i,
@@ -49,11 +54,10 @@ const LIMIT_PATTERNS: readonly RegExp[] = [
   /exceeded (?:your )?(?:account )?balance/i,
   /余额不足/,
   /payment required/i,
-  /\b402\b/,
+  STATUS_402,
   /billing hard limit/i,
   /exceeded your current quota/i,
   /used all available credits/i,
-  /available credits/i,
   /monthly spending limit/i,
   // MiniMax answers with `base_resp.status_code: 1008`; the bare code is not
   // enough, because 1008 covers other refusals on that API too.
@@ -65,8 +69,10 @@ const LIMIT_PATTERNS: readonly RegExp[] = [
  * classified from the wording alone: a window refusal names the window, not the
  * reason, so the vendor behind it has to be looked up.
  */
-const BALANCE_WORDINGS =
-  /insufficient[ _](?:balance|credits|funds)|balance is (?:too )?(?:low|insufficient)|exceeded (?:your )?(?:account )?balance|余额不足|payment required|\b402\b|billing hard limit|used all available credits|available credits|monthly spending limit|out of credits|exceeded your current quota/i;
+const BALANCE_WORDINGS = new RegExp(
+  String.raw`insufficient[ _](?:balance|credits|funds)|balance is (?:too )?(?:low|insufficient)|exceeded (?:your )?(?:account )?balance|余额不足|payment required|${STATUS_402.source}|billing hard limit|used all available credits|monthly spending limit|out of credits|exceeded your current quota`,
+  "i",
+);
 
 /** Phrases that mention limits without being one: context windows, token caps. */
 const FALSE_POSITIVE_PATTERNS: readonly RegExp[] = [
@@ -202,7 +208,7 @@ export function detectUsageLimit(text: string, now: Date = new Date()): LimitDet
   if (!text) return null;
   if (FALSE_POSITIVE_PATTERNS.some((pattern) => pattern.test(text))) {
     const strong =
-      /hit your (?:usage )?limit|usage_limit_reached|resource_exhausted|insufficient_quota|insufficient[ _](?:balance|credits|funds)|balance is insufficient|exceeded (?:your )?(?:account )?balance|payment required|\b402\b|billing hard limit|exceeded your current quota|available credits|余额不足/i;
+      /hit your (?:usage )?limit|usage_limit_reached|resource_exhausted|insufficient_quota|insufficient[ _](?:balance|credits|funds)|balance is insufficient|exceeded (?:your )?(?:account )?balance|payment required|billing hard limit|exceeded your current quota|used all available credits|余额不足/i;
     if (!strong.test(text)) return null;
   }
   for (const pattern of LIMIT_PATTERNS) {
@@ -214,6 +220,41 @@ export function detectUsageLimit(text: string, now: Date = new Date()): LimitDet
     };
   }
   return null;
+}
+
+/**
+ * The fixed sentences Claude Code writes as an assistant message when it
+ * refuses a turn. An assistant message is otherwise the agent's own prose,
+ * which talks about rate limits, HTTP 429 and "402 URLs" as ordinary work.
+ */
+const ASSISTANT_REFUSAL_PATTERNS: readonly RegExp[] = [
+  /hit your (?:usage )?limit/i,
+  /usage limit (?:reached|exceeded|hit)/i,
+];
+
+/** Claude Code prefixes the API errors it writes as assistant messages. */
+const ASSISTANT_API_ERROR = /^API Error\b/i;
+
+/** A refusal is one short notice; an agent's report is longer than this. */
+const ASSISTANT_REFUSAL_MAX_LENGTH = 400;
+
+/**
+ * Null unless the assistant message is itself a refusal: a short notice in
+ * Claude Code's fixed wording, or an "API Error" line that names a limit.
+ * Error items and failed turns go through `detectUsageLimit` instead.
+ */
+export function detectAssistantUsageLimit(
+  text: string,
+  now: Date = new Date(),
+): LimitDetection | null {
+  const notice = text.trim();
+  if (notice === "" || notice.length > ASSISTANT_REFUSAL_MAX_LENGTH) return null;
+  if (ASSISTANT_API_ERROR.test(notice)) return detectUsageLimit(notice, now);
+  const match = ASSISTANT_REFUSAL_PATTERNS.map((pattern) => pattern.exec(notice)).find(
+    (found) => found !== null,
+  );
+  if (!match) return null;
+  return { resetsAt: parseResetInstant(notice, now), message: excerpt(notice, match.index) };
 }
 
 /**
