@@ -28,6 +28,15 @@ const CLAUDE_WORDINGS = [
   "API Error: 429 rate_limit_error",
 ];
 
+/** Claude Code's notices that name the window, as current builds print them. */
+const CLAUDE_NAMED_WINDOW_WORDINGS = [
+  "You've hit your session limit · resets 7am (Europe/Minsk)",
+  "You've hit your weekly limit · resets Sep 14, 5am (Europe/Minsk)",
+  "You've hit your Opus limit · resets Sep 14, 5am (Europe/Minsk)",
+  "You've hit your Sonnet limit · resets Sep 14, 5am (Europe/Minsk)",
+  "You've hit your Fable limit · resets Sep 14, 5am (Europe/Minsk)",
+];
+
 const CODEX_WORDINGS = [
   "You've hit your usage limit. Try again at 4:30pm (UTC)",
   "usage_limit_reached",
@@ -92,6 +101,7 @@ describe("detectUsageLimit", () => {
   test("matches every wording the vendors print", () => {
     for (const wording of [
       ...CLAUDE_WORDINGS,
+      ...CLAUDE_NAMED_WINDOW_WORDINGS,
       ...CODEX_WORDINGS,
       ...OTHER_VENDOR_WORDINGS,
       ...API_VENDOR_WORDINGS,
@@ -104,7 +114,12 @@ describe("detectUsageLimit", () => {
     for (const wording of API_VENDOR_WORDINGS) {
       expect(limitKindFromText(wording), wording).toBe("balance");
     }
-    for (const wording of [...CLAUDE_WORDINGS, ...CODEX_WORDINGS, GOOGLE_QUOTA_REFUSAL]) {
+    for (const wording of [
+      ...CLAUDE_WORDINGS,
+      ...CLAUDE_NAMED_WINDOW_WORDINGS,
+      ...CODEX_WORDINGS,
+      GOOGLE_QUOTA_REFUSAL,
+    ]) {
       expect(limitKindFromText(wording), wording).toBeNull();
     }
   });
@@ -118,10 +133,36 @@ describe("detectUsageLimit", () => {
     );
   });
 
+  test("reads the reset out of the notices that name the window", () => {
+    expect(detectUsageLimit(CLAUDE_NAMED_WINDOW_WORDINGS[0] ?? "", NOW)?.resetsAt).toBe(
+      "2026-09-11T04:00:00.000Z",
+    );
+    expect(detectUsageLimit(CLAUDE_NAMED_WINDOW_WORDINGS[1] ?? "", NOW)?.resetsAt).toBe(
+      "2026-09-14T02:00:00.000Z",
+    );
+  });
+
+  test("leaves Claude Code's spend refusals alone, which have no window to wait for", () => {
+    expect(detectUsageLimit("You've hit your monthly spend limit.", NOW)).toBeNull();
+    expect(detectUsageLimit("You've hit your usage credit limit.", NOW)).toBeNull();
+  });
+
   test("ignores token and context-window caps that are not quota refusals", () => {
     expect(detectUsageLimit("The context window limit was exceeded.", NOW)).toBeNull();
     expect(detectUsageLimit("Maximum output tokens must be at most 8192.", NOW)).toBeNull();
     expect(detectUsageLimit("The prompt is too long for this model.", NOW)).toBeNull();
+    expect(detectUsageLimit("You've hit your context limit.", NOW)).toBeNull();
+    expect(detectUsageLimit("You've hit your token limit.", NOW)).toBeNull();
+  });
+
+  test("still matches a window notice that follows talk of the context window", () => {
+    const reply = [
+      "The context window was nearly full, so I compacted it.",
+      "You've hit your session limit · resets 7am (Europe/Minsk)",
+    ].join("\n");
+    expect(detectUsageLimit(reply, NOW)?.message).toBe(
+      "You've hit your session limit · resets 7am (Europe/Minsk)",
+    );
   });
 });
 
@@ -143,6 +184,26 @@ describe("parseResetInstant", () => {
     expect(parseResetInstant("Your limit will reset at 3pm (UTC)", NOW)).toBe(
       "2026-09-10T15:00:00.000Z",
     );
+  });
+
+  test("reads a dated reset, with or without the year", () => {
+    expect(parseResetInstant("resets Sep 14, 5am (Europe/Minsk)", NOW)).toBe(
+      "2026-09-14T02:00:00.000Z",
+    );
+    expect(parseResetInstant("resets Jan 3, 2027, 5:30pm (UTC)", NOW)).toBe(
+      "2027-01-03T17:30:00.000Z",
+    );
+  });
+
+  test("reads a dated reset at the offset in force on that date", () => {
+    // London is on BST (UTC+1) at NOW and on GMT by Oct 30.
+    expect(parseResetInstant("resets Oct 30, 9am (Europe/London)", NOW)).toBe(
+      "2026-10-30T09:00:00.000Z",
+    );
+  });
+
+  test("ignores a yearless date that has already passed", () => {
+    expect(parseResetInstant("resets Sep 1, 5am (Europe/Minsk)", NOW)).toBeNull();
   });
 
   test("returns null when the text names no reset", () => {
