@@ -1,6 +1,10 @@
 /**
- * Reads live Antigravity quota — the two shared pools (Gemini models, and the
- * third-party Claude/GPT pool) with their rolling 5-hour and weekly windows.
+ * Reads live Antigravity quota through `agy /usage` first, so the CLI owns
+ * authentication on both desktop and headless installations. The CLI path
+ * does not read credential files or require an OS keyring.
+ *
+ * If the CLI is unavailable or returns unusable quota, the legacy probe below
+ * reads the shared Gemini and third-party pools directly.
  *
  * Antigravity publishes no usage API, so this goes through the same private
  * endpoint the product itself uses:
@@ -47,7 +51,7 @@ import {
 import { createConnection, type Socket } from "node:net";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
+import { promisify, stripVTControlCharacters } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
@@ -57,6 +61,7 @@ export interface AntigravityQuotaBucket {
   group: string | null;
   usedPercent: number | null;
   resetsAt: string | null;
+  durationMs?: number;
 }
 
 export interface AntigravityQuota {
@@ -1214,7 +1219,26 @@ export function mapQuotaSummary(
     }
   }
 
-  const buckets = KNOWN_BUCKETS.map(({ id, label, group, durationMs }) => {
+  // Keep the original four slots for configurations that address buckets by
+  // index, then append every new vendor bucket without an allowlist.
+  const definitions: { id: string; label: string; group: string | null; durationMs?: number }[] = [
+    ...KNOWN_BUCKETS,
+  ];
+  for (const [id, { bucket, group }] of byId) {
+    if (definitions.some((known) => known.id === id)) continue;
+    const window = bucket.window;
+    definitions.push({
+      id,
+      label: firstString(bucket, ["displayName"]) ?? id,
+      group,
+      ...(window === "5h"
+        ? { durationMs: FIVE_HOURS_MS }
+        : window === "weekly" || window === "7d"
+          ? { durationMs: SEVEN_DAYS_MS }
+          : {}),
+    });
+  }
+  const buckets = definitions.map(({ id, label, group, durationMs }) => {
     const found = byId.get(id);
     const remaining = found === undefined ? null : found.bucket.remainingFraction;
     const resetTime = found === undefined ? null : found.bucket.resetTime;
@@ -1350,7 +1374,7 @@ async function fetchTierLabel(accessToken: string, signal: AbortSignal): Promise
   }
 }
 
-export async function probeAntigravityQuota(): Promise<AntigravityQuota> {
+async function probeKeyringQuota(): Promise<AntigravityQuota> {
   const deadline = startDeadline(PROBE_BUDGET_MS);
   const accessToken = await acquireAccessToken(deadline);
   const { document, source } = await runPhase(
@@ -1363,6 +1387,114 @@ export async function probeAntigravityQuota(): Promise<AntigravityQuota> {
     fetchTierLabel(accessToken, signal),
   ).catch(() => null);
   return mapQuotaSummary(document, source, new Date().toISOString(), tier);
+}
+
+/** Parse only JSON plus terminal controls; arbitrary log text is not quota. */
+export function parseAgyUsage(stdout: string, fetchedAt: string): AntigravityQuota {
+  let document: unknown;
+  try {
+    document = JSON.parse(
+      stripVTControlCharacters(
+        // Node's stripper does not cover private CSI device-attribute replies
+        // such as ESC[>1;10;0c. Consume the complete ECMA-48 CSI grammar first.
+        // oxlint-disable-next-line no-control-regex -- terminal CSI bytes are intentional.
+        stdout.replace(/(?:\x1b\[|\u009b)[0-?]*[ -/]*[@-~]/g, ""),
+      ).trim(),
+    );
+  } catch {
+    // Never echo stdout or JSON.parse's error: either may contain private data.
+    throw new AntigravityProbeError("agy /usage returned invalid JSON");
+  }
+  const root = asRecord(document);
+  const command = asRecord(root?.command);
+  const data = asRecord(command?.data);
+  if (!Array.isArray(data?.groups)) {
+    throw new AntigravityProbeError("agy /usage returned no quota groups");
+  }
+  const groups = data.groups.map((rawGroup) => {
+    const group = asRecord(rawGroup);
+    return {
+      displayName:
+        group === null ? null : firstString(group, ["display_name", "displayName", "name"]),
+      buckets: (Array.isArray(group?.buckets) ? group.buckets : []).map((rawBucket) => {
+        const bucket = asRecord(rawBucket);
+        return {
+          bucketId: bucket === null ? null : firstString(bucket, ["bucket_id", "bucketId", "id"]),
+          displayName:
+            bucket === null ? null : firstString(bucket, ["display_name", "displayName", "name"]),
+          window: bucket?.window,
+          remainingFraction: bucket?.remaining_fraction ?? bucket?.remainingFraction,
+          resetTime: bucket?.reset_time ?? bucket?.resetTime,
+        };
+      }),
+    };
+  });
+  const quota = mapQuotaSummary({ groups }, "agy /usage", fetchedAt);
+  if (!quota.buckets.some((bucket) => bucket.usedPercent !== null)) {
+    throw new AntigravityProbeError("agy /usage returned no usable quota buckets");
+  }
+  return quota;
+}
+
+export interface AntigravityQuotaAdapters {
+  runCli(signal: AbortSignal): Promise<string>;
+  probeKeyring(): Promise<AntigravityQuota>;
+  now(): Date;
+}
+
+async function runAgyUsage(signal: AbortSignal): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(
+      await locateAgyBinary(),
+      ["--print", "/usage", "--output-format", "json"],
+      {
+        signal,
+        timeout: PROBE_BUDGET_MS,
+        killSignal: "SIGKILL",
+        maxBuffer: 1024 * 1024,
+        shell: false,
+        windowsHide: true,
+      },
+    );
+    return stdout;
+  } catch {
+    // execFile errors include stdout/stderr; never expose them to the card.
+    throw new AntigravityProbeError(
+      "agy /usage failed or timed out; check that agy is installed and signed in",
+    );
+  }
+}
+
+export function createNodeAntigravityQuotaAdapters(): AntigravityQuotaAdapters {
+  return {
+    runCli: runAgyUsage,
+    probeKeyring: probeKeyringQuota,
+    now: () => new Date(),
+  };
+}
+
+/** Let the CLI own credential storage and refresh, including on headless Linux. */
+export async function probeAntigravityQuota(
+  adapters: AntigravityQuotaAdapters = createNodeAntigravityQuotaAdapters(),
+): Promise<AntigravityQuota> {
+  let cliFailure: string;
+  try {
+    // Also bound injected runners so a stalled CLI always reaches the fallback.
+    return await runPhase(
+      startDeadline(PROBE_BUDGET_MS),
+      "reading agy /usage",
+      PROBE_BUDGET_MS,
+      async (signal) => parseAgyUsage(await adapters.runCli(signal), adapters.now().toISOString()),
+    );
+  } catch (error) {
+    cliFailure = error instanceof AntigravityProbeError ? error.message : "agy /usage failed";
+  }
+  try {
+    return await adapters.probeKeyring();
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "keyring probe failed";
+    throw new AntigravityProbeError(`${cliFailure}; keyring fallback: ${reason}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

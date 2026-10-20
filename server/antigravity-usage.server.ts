@@ -289,8 +289,8 @@ export function createNodeAntigravityUsageAdapters(): AntigravityUsageAdapters {
 }
 
 /**
- * The quota probe still decides whether this provider is healthy: a keyring
- * with no Antigravity credential is a real failure and has to read as one. The
+ * The quota probe still decides whether this provider is healthy: neither
+ * quota source answering is a real failure and has to read as one. The
  * local rows ride along with it rather than replacing it.
  */
 export async function probeAntigravityUsage(): Promise<AntigravityUsage> {

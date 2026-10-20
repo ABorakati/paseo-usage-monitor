@@ -1695,7 +1695,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     label: "Antigravity",
     icon: { kind: "monogram", text: "AG", color: "#84CC16" },
     description:
-      "Unverified: Google publishes no Antigravity quota API, so the percentages read the user's own stored credential and an undocumented endpoint, and may break without notice. That route answers for the consumer plan only, so the rows under it count what each Antigravity client on this machine actually spent, from its own logs.",
+      "Unverified: Google publishes no Antigravity quota API, so the percentages come from agy /usage with a stored-credential/internal-endpoint fallback, and may break without notice. That route answers for the consumer plan only, so the rows under it count what each Antigravity client on this machine actually spent, from its own logs.",
     unverified: true,
     source: { kind: "probe", probe: "antigravity" },
     readings: [

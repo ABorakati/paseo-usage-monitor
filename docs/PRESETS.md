@@ -31,7 +31,7 @@ If your provider is not in the table below, read [What is not supported, and why
 | `opencode-go`                   | Subscription | Rolling 5-hour, weekly and monthly usage                      | `GET https://opencode.ai/zen/go/v1/usage`                                        | `apiKey`           | `OPENCODE_API_KEY`                                                                                                          |
 | `chutes`                        | Subscription | Rolling requests and monthly credits                          | `GET https://api.chutes.ai/users/me/subscription_usage`                          | `apiKey`           | `CHUTES_API_KEY`                                                                                                            |
 | `zenmux`                        | Subscription | Rolling 5-hour and 7-day flow quotas                          | `GET https://zenmux.ai/api/v1/management/subscription/detail`                    | `apiKey`           | `ZENMUX_MANAGEMENT_API_KEY`                                                                                                 |
-| `antigravity`                   | Subscription | Per-family session and weekly quotas                          | Probe (`probe: "antigravity"`)                                                   | —                  | The user's own OAuth entry in the OS keyring                                                                                |
+| `antigravity`                   | Subscription | Per-family session and weekly quotas                          | Probe (`probe: "antigravity"`)                                                   | —                  | Authenticated `agy` CLI; OS keyring fallback                                                                                |
 | `deepseek`                      | Balance      | Prepaid balance and granted credit                            | `GET https://api.deepseek.com/user/balance`                                      | `apiKey`           | `DEEPSEEK_API_KEY`                                                                                                          |
 | `moonshot`                      | Balance      | Platform balance, USD                                         | `GET https://api.moonshot.ai/v1/users/me/balance`                                | `apiKey`           | `MOONSHOT_API_KEY`                                                                                                          |
 | `moonshot-cn`                   | Balance      | Platform balance, domestic host                               | `GET https://api.moonshot.cn/v1/users/me/balance`                                | `apiKey`           | `MOONSHOT_API_KEY`                                                                                                          |
@@ -155,7 +155,7 @@ This one works. Live output on this machine:
 | `3p-5h`         | Session | Claude and GPT models | 0%     | —                    |
 | `3p-weekly`     | Weekly  | Claude and GPT models | 0%     | —                    |
 
-Two shared pools, each with a rolling 5-hour and a weekly window. That is exactly the model-family-plus-two-windows shape the `group` field and the `each` projection were designed for. All four buckets are always emitted, with null readings when the response omits one, so a missing bucket never shifts the others.
+Two shared pools, each with a rolling 5-hour and a weekly window. That is exactly the model-family-plus-two-windows shape the `group` field and the `each` projection were designed for. The four original buckets retain their slots, with null readings when omitted. Additional buckets, including Gemini 4 Argon and future pools, are appended automatically using their vendor IDs and display names.
 
 ### The quota bars are one ledger, not all of your usage
 
@@ -204,7 +204,11 @@ Only stores touched inside the window are opened, and each is walked newest-firs
 
 ### How it works
 
-You should know this before enabling it, so you can judge it yourself. Google publishes no Antigravity quota API. The probe:
+Google publishes no Antigravity quota API. The probe first runs `agy --print /usage --output-format json` without a shell, parsing `command.data.groups[].buckets[]`. The CLI owns authentication and token refresh, so file-backed authentication on headless Linux works without a persistent/default Secret Service collection. The plugin does not open the CLI token file. The `agy` executable is discovered at the same locations as the legacy probe; set `ANTIGRAVITY_AGY_PATH` in the Paseo daemon environment if needed.
+
+Terminal control sequences (including `ESC[>1;10;0c`) are removed before parsing. `remaining_fraction` becomes used percent and `reset_time` becomes the reset timestamp. Unknown windows retain their reset time without an invented duration. Raw command output is never included in errors. The CLI attempt is capped at nine seconds with a 1 MiB output limit; missing executables, unsuccessful exits, timeouts, malformed JSON and unusable quota all fall back to the existing probe, which retains its own nine-second budget.
+
+The fallback:
 
 1. Reads your own Antigravity OAuth credential from the OS keyring — a Secret Service item over D-Bus on Linux, the equivalent Keychain generic password on macOS (service `gemini`, account `antigravity`). It never writes to that item.
 2. Obtains Antigravity's OAuth client id and secret by scanning the installed `agy` binary, rather than hardcoding them, so the plugin ships no vendor secret and follows whatever your install has.
@@ -215,7 +219,7 @@ The method was derived from ClaudeBar's probe. ClaudeBar's _primary_ path is dif
 
 ### The risks
 
-This impersonates the Antigravity client rather than using a published API. Concretely: it may violate Google's terms of service, it can break without notice, and it touches both your OS keyring and a vendor binary on disk. Those are real costs, not theoretical ones.
+This impersonates the Antigravity client rather than using a published API. Concretely: it may violate Google's terms of service, it can break without notice, and its fallback touches both your OS keyring and a vendor binary on disk. Those are real costs, not theoretical ones.
 
 So it is opt-in, it stays flagged `unverified`, and the flag is shown on the card. **If you are not comfortable with the above, do not enable it** — and if you enabled it and changed your mind, remove it with one click in the [Usage providers](../README.md#editing-providers-from-the-app) surface.
 
