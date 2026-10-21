@@ -258,7 +258,13 @@ function preferredReading(left: UsagePillReading, right: UsagePillReading): Usag
   }
   const leftPercent = readingPercentUsed(left) ?? -1;
   const rightPercent = readingPercentUsed(right) ?? -1;
-  return rightPercent > leftPercent ? right : left;
+  if (leftPercent !== rightPercent) {
+    return rightPercent > leftPercent ? right : left;
+  }
+  if ((left.remaining ?? 0) <= 0 && (right.remaining ?? 0) > 0) {
+    return right;
+  }
+  return left;
 }
 
 /**

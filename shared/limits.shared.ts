@@ -247,6 +247,14 @@ export const UsageEachMappingSchema = z.object({
       equals: z.union([z.string(), z.number(), z.boolean()]),
     })
     .optional(),
+  /**
+   * Picks the single element with the highest numeric value at `maxByPath`.
+   * DeepSeek's `balance_infos` returns both a USD and a CNY ledger in
+   * non-deterministic order with `"0.00"` in the unused currency, so
+   * indexing `[0]` lands on the empty ledger whenever the server orders it
+   * first.
+   */
+  maxByPath: z.string().min(1).optional(),
 });
 
 /**

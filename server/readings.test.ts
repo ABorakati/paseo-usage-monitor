@@ -805,6 +805,38 @@ describe("projectReadings each where", () => {
 
     expect(project([activeOnly], document)).toMatchObject([{ percent: 10 }]);
   });
+
+  test("maxByPath picks the single element with the highest numeric value and keeps mapping identity", () => {
+    const balanceMapping: UsageBalanceMapping = {
+      kind: "balance",
+      id: "balance",
+      label: "Balance",
+      unit: "usd",
+      each: { path: "balance_infos", maxByPath: "total_balance" },
+      remainingPath: "total_balance",
+      currencyPath: "currency",
+    };
+    const document = {
+      balance_infos: [
+        { currency: "USD", total_balance: "0.00" },
+        { currency: "CNY", total_balance: "8.49" },
+      ],
+    };
+
+    expect(project([balanceMapping], document)).toEqual([
+      {
+        kind: "balance",
+        id: "balance",
+        label: "Balance",
+        group: null,
+        unit: "usd",
+        remaining: 8.49,
+        total: null,
+        percentRemaining: null,
+        currency: "CNY",
+      },
+    ]);
+  });
 });
 
 describe("projectReadings rate via schedule", () => {

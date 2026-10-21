@@ -643,22 +643,28 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
       method: "GET",
       headers: { Authorization: "Bearer ${apiKey}" },
     },
+    // DeepSeek returns both a USD and a CNY entry in `balance_infos` in
+    // non-deterministic order, with `"0.00"` in the unused currency, so both
+    // readings pick the ledger with the largest `total_balance` rather than
+    // trusting index 0.
     readings: [
       {
         kind: "balance",
         id: "balance",
         label: "Balance",
         unit: "usd",
-        remainingPath: "balance_infos[0].total_balance",
-        currencyPath: "balance_infos[0].currency",
+        each: { path: "balance_infos", maxByPath: "total_balance" },
+        remainingPath: "total_balance",
+        currencyPath: "currency",
       },
       {
         kind: "balance",
         id: "granted",
         label: "Granted",
         unit: "usd",
-        remainingPath: "balance_infos[0].granted_balance",
-        currencyPath: "balance_infos[0].currency",
+        each: { path: "balance_infos", maxByPath: "total_balance" },
+        remainingPath: "granted_balance",
+        currencyPath: "currency",
       },
     ],
   }),

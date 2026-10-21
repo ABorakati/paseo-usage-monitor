@@ -941,6 +941,50 @@ describe("verified presets resolve their recorded responses", () => {
     expect(readingById("deepseek", "granted")).toMatchObject({ remaining: 10, currency: "USD" });
   });
 
+  test("deepseek selects the funded currency when an empty USD ledger precedes CNY", () => {
+    const readings = project("deepseek", {
+      is_available: true,
+      balance_infos: [
+        {
+          currency: "USD",
+          total_balance: "0.00",
+          granted_balance: "0.00",
+          topped_up_balance: "0.00",
+        },
+        {
+          currency: "CNY",
+          total_balance: "8.49",
+          granted_balance: "0.00",
+          topped_up_balance: "8.49",
+        },
+      ],
+    });
+    expect(readings).toEqual([
+      {
+        kind: "balance",
+        id: "balance",
+        label: "Balance",
+        group: null,
+        unit: "usd",
+        remaining: 8.49,
+        total: null,
+        percentRemaining: null,
+        currency: "CNY",
+      },
+      {
+        kind: "balance",
+        id: "granted",
+        label: "Granted",
+        group: null,
+        unit: "usd",
+        remaining: 0,
+        total: null,
+        percentRemaining: null,
+        currency: "CNY",
+      },
+    ]);
+  });
+
   test("openrouter derives percent remaining for a key with a credit limit", () => {
     expect(readingById("openrouter", "credits")).toMatchObject({
       kind: "balance",
