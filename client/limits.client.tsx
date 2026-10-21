@@ -54,7 +54,7 @@ import { UsageSettingsBody } from "./settings.client";
 const USAGE_CONFIG_QUERY_KEY = ["usage-config"];
 export const EM_DASH = "—";
 const DAY_MS = 86_400_000;
-const MIN_CARD_WIDTH = 300;
+const MIN_CARD_WIDTH = 260;
 /**
  * Reordering and resizing are pointer gestures by design — the user asked for
  * drag and drop rather than a row of buttons. These actions keep both reachable
@@ -1370,8 +1370,9 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
         backgroundColor: theme.colors.surface1,
       },
       refreshBusy: { opacity: 0.5 },
-      body: { padding, gap },
+      body: { width: "100%", padding, gap },
       cardGrid: {
+        width: "100%",
         flexDirection: "row",
         flexWrap: "wrap",
         alignItems: "flex-start",
@@ -1571,7 +1572,9 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
       ? 1
       : Math.max(1, Math.floor((containerWidth + gap) / (MIN_CARD_WIDTH + gap)));
   const cardWidth =
-    containerWidth <= 0 ? "100%" : (containerWidth - gap * (columnCount - 1)) / columnCount;
+    containerWidth <= 0
+      ? "100%"
+      : Math.floor((containerWidth - 1 - gap * (columnCount - 1)) / columnCount);
   const visibleCardSizes = useMemo<ReadonlyMap<string, ProviderCardSize>>(() => {
     if (containerWidth <= 0) return cardSizes;
     const minimumWidth = Math.min(MIN_RESIZED_CARD_WIDTH, containerWidth);
@@ -1659,10 +1662,8 @@ function UsageLimitsBody({ theme, host, layout }: PluginSurfaceProps) {
     [cardWidth, columnCount, data, gap, reorder],
   );
   const measureGrid = useCallback((event: LayoutChangeEvent) => {
-    const nextWidth = event.nativeEvent.layout.width;
-    setContainerWidth((currentWidth) =>
-      Math.abs(currentWidth - nextWidth) < 1 ? currentWidth : nextWidth,
-    );
+    const nextWidth = Math.floor(event.nativeEvent.layout.width);
+    setContainerWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth));
   }, []);
   const showSettings = useCallback(() => setView("settings"), []);
   const showUsage = useCallback(() => setView("usage"), []);
