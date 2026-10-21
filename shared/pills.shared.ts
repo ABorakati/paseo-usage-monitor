@@ -412,6 +412,11 @@ const QUOTA_ROW_SETTINGS: ResolvedPillSettings = {
   readout: "percent",
 };
 
+const QUOTA_REMAINING_ROW_SETTINGS: ResolvedPillSettings = {
+  ...QUOTA_ROW_SETTINGS,
+  value: "remaining",
+};
+
 const BALANCE_ROW_SETTINGS: ResolvedPillSettings = {
   ...QUOTA_ROW_SETTINGS,
   value: "remaining",
@@ -420,9 +425,9 @@ const BALANCE_ROW_SETTINGS: ResolvedPillSettings = {
 
 /**
  * The windows a card lists beneath its headline, one row each, skipping the
- * one the headline already states. A quota reads as consumption because that
- * is what runs out; a balance reads as what is left, because "75% used" of a
- * credit account buries the number that matters.
+ * one the headline already states. A quota follows the configured value
+ * direction (`used` or `remaining`); a balance always reads as what is left,
+ * because "75% used" of a credit account buries the number that matters.
  *
  * A row is named from its reading, not from its window. Claude scopes a second
  * weekly allowance to one model and calls both windows "Weekly", so naming by
@@ -431,19 +436,31 @@ const BALANCE_ROW_SETTINGS: ResolvedPillSettings = {
 export function usageWindowRows(
   readings: readonly UsageReading[],
   skipReadingId: string | null,
+  value: ResolvedPillSettings["value"] = "used",
 ): UsageWindowRow[] {
   const rows: UsageWindowRow[] = [];
   for (const reading of readings) {
     if (reading.id === skipReadingId || !isPillReading(reading)) {
       continue;
     }
-    const settings = reading.kind === "balance" ? BALANCE_ROW_SETTINGS : QUOTA_ROW_SETTINGS;
+    const settings =
+      reading.kind === "balance"
+        ? BALANCE_ROW_SETTINGS
+        : value === "remaining"
+          ? QUOTA_REMAINING_ROW_SETTINGS
+          : QUOTA_ROW_SETTINGS;
     const metrics = pillMetrics(reading, settings);
     if (metrics.readout === null) {
       continue;
     }
     const suffix =
-      reading.kind === "balance" ? " left" : metrics.percentUsed === null ? "" : " used";
+      reading.kind === "balance"
+        ? " left"
+        : metrics.percentUsed === null
+          ? ""
+          : value === "remaining"
+            ? " left"
+            : " used";
     rows.push({
       id: reading.id,
       name: reading.label.trim() === "" ? (metrics.windowLabel ?? reading.id) : reading.label,

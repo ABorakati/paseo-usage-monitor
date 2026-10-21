@@ -764,6 +764,21 @@ describe("usageWindowRows", () => {
     expect(row?.window).toMatchObject({ label: "Session" });
   });
 
+  test("inverts quota rows to left when configured for remaining", () => {
+    const [row] = usageWindowRows(
+      [quota({ id: "weekly", label: "Weekly", percent: 39 })],
+      null,
+      "remaining",
+    );
+
+    expect(row).toMatchObject({
+      name: "Weekly",
+      readout: "61% left",
+      percentUsed: 39,
+      percentFilled: 61,
+    });
+  });
+
   test("a balance states what is left, not what is spent", () => {
     const rows = usageWindowRows([balance()], null);
 
