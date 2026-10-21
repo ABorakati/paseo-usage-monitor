@@ -363,9 +363,9 @@ The first line means the override is not in use here. The second means whatever 
 
 ### `kind: "probe"`
 
-| Field   | Type            | Required | Notes                              |
-| ------- | --------------- | -------- | ---------------------------------- |
-| `probe` | `"antigravity"` | yes      | Names a mechanism shipped as code. |
+| Field   | Type                                             | Required | Notes                              |
+| ------- | ------------------------------------------------ | -------- | ---------------------------------- |
+| `probe` | `"antigravity"`, `"github-copilot"` or `"codex"` | yes      | Names a mechanism shipped as code. |
 
 ```json
 { "kind": "probe", "probe": "antigravity" }
@@ -375,7 +375,7 @@ The escape hatch for a vendor whose numbers no url can express. Where `http` and
 
 The set of probes is closed: only the values in the table above are accepted, so a probe cannot be pointed at anything new from config.
 
-**Naming a probe is how a provider opts into a mechanism its vendor never documented, so every probe-backed preset stays flagged `unverified`** — not because it does not work, but because nothing about it is promised. See [Antigravity](PRESETS.md#antigravity).
+**Naming a probe is how a provider opts into a mechanism its vendor never documented, so a probe-backed preset stays flagged `unverified` unless every response it composes was recorded** — not because it does not work, but because nothing about it is promised. `codex` is the exception: its usage route and the monthly spend-control route it consults for workspace credits are both recorded, so it stays verified. See [Antigravity](PRESETS.md#antigravity) and the [`codex` caveats](PRESETS.md#per-preset-caveats).
 
 ### Timeouts and limits
 

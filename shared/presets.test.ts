@@ -157,7 +157,12 @@ describe("usage presets", () => {
         continue;
       }
       if (source.kind === "probe") {
-        expect([id, provider.unverified]).toEqual([id, true]);
+        // A probe names a mechanism rather than a host, so there is no url to
+        // inspect. It is verified exactly when a recorded fixture exercises
+        // the document it produces, which the fixture tests enforce in both
+        // directions: `antigravity` and `github-copilot` have none, `codex`
+        // composes two recorded routes and does.
+        expect([id, provider.unverified]).toEqual([id, !Object.hasOwn(RESPONSE_FIXTURES, id)]);
         continue;
       }
       if (source.kind === "file") {
@@ -283,6 +288,12 @@ describe("usage presets", () => {
       "credits",
       "banked-resets",
     ]);
+  });
+
+  test("codex reads credits through its own probe and declares both credentials", () => {
+    const codex = getUsagePreset("codex");
+    expect(codex?.source).toEqual({ kind: "probe", probe: "codex" });
+    expect(Object.keys(codex?.credentials ?? {}).sort()).toEqual(["accountId", "token"]);
   });
 
   test("codex reads reset_at, never the misspelled resets_at", () => {
@@ -517,7 +528,11 @@ const RESPONSE_FIXTURES: Record<string, unknown> = {
         },
       },
     ],
-    credits: { has_credits: false, unlimited: false, balance: "0" },
+    // A workspace account, as captured live: the usage route says credits
+    // exist but withholds the amount, and the probe adds the month's cap from
+    // the per-user spend-control route under `codex_credits`.
+    credits: { has_credits: true, unlimited: false, balance: null },
+    codex_credits: { remaining: null, used: 204.36297607421875, total: 8000 },
     rate_limit_reset_credits: { available_count: 2 },
   },
   cursor: {
@@ -881,7 +896,7 @@ describe("verified presets resolve their recorded responses", () => {
     });
   });
 
-  test("codex turns epoch-second reset_at into ISO and reads a string balance", () => {
+  test("codex turns epoch-second reset_at into ISO", () => {
     expect(readingById("codex", "session")).toMatchObject({
       percent: 42.5,
       window: { label: "Session", resetsAt: "2026-08-28T21:43:21.000Z" },
@@ -896,12 +911,27 @@ describe("verified presets resolve their recorded responses", () => {
       percent: 3,
       window: { label: "Window", resetsAt: "2026-09-04T16:43:50.000Z", durationMs: null },
     });
-    expect(readingById("codex", "credits")).toMatchObject({ kind: "balance", remaining: 0 });
     expect(readingById("codex", "banked-resets")).toMatchObject({
       kind: "balance",
       remaining: 2,
       unit: "credits",
     });
+  });
+
+  /**
+   * The reported defect: a workspace account's credits were blank because the
+   * usage route sends `balance: null`. The probe adds the monthly cap, and the
+   * balance projection has to turn used + total into what is actually left.
+   */
+  test("codex derives remaining credits from a workspace's monthly cap", () => {
+    const credits = readingById("codex", "credits");
+    if (credits.kind !== "balance") throw new Error("credits is not a balance reading");
+    expect(credits.unit).toBe("credits");
+    // `used` is not part of a balance reading, so the remaining amount proves
+    // both paths resolved: 8000 - 204.36297607421875.
+    expect(credits.total).toBe(8000);
+    expect(credits.remaining).toBeCloseTo(7795.637, 3);
+    expect(credits.percentRemaining).toBeCloseTo(97.4, 3);
   });
 
   test("codex renders an unused code-review bucket as empty, not as zero", () => {
