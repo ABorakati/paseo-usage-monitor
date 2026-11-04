@@ -274,6 +274,14 @@ export function createModelRateResolver(
 
     // Step 3: Standard vendor-prefixed candidates
     const baseName = afterSlash !== null && afterSlash.length > 0 ? afterSlash : raw;
+    // Muse logs omit LiteLLM's meta/ prefix. Require the full model ID so a
+    // missing Contributor rate cannot fall back to the Standard tier's price.
+    if (baseName.startsWith("muse-")) {
+      return hasModalityOrCapabilitySuffix(baseName)
+        ? null
+        : (rates.get(`meta/${baseName}`) ?? null);
+    }
+
     for (const prefix of VENDOR_PREFIXES) {
       const vendorCandidate = `${prefix}${baseName}`;
       if (!hasModalityOrCapabilitySuffix(vendorCandidate)) {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  detectAssistantUsageLimit,
   detectUsageLimit,
   limitKindFor,
   limitKindFromText,
@@ -14,6 +15,18 @@ import { listUsagePresetIds } from "./presets.shared";
 
 const NOW = new Date("2026-09-10T11:00:00.000Z");
 
+/** Agent prose that names numbers and limits as ordinary work, seen in real turns. */
+const AGENT_PROSE = [
+  "- S9: 402 URLs compared before and after (status + sha256), 0 mismatches.",
+  "Tests: 402 passed, 0 failed.",
+  "| Put-debit spread | 09.01.2026 | 28.07.2026 | 7 | 43 % | +429 |",
+  "seam                     EG-08 TTLock 429, EG-09 IDV",
+  "Added retry with backoff when the API returns 429.",
+  "The middleware now applies a rate limit of 100 req/min per user.",
+  "Fixed the handler so it returns 402 Payment Required for unpaid plans.",
+  "Show the user's available credits in the billing page.",
+];
+
 /** A Google/Antigravity harness refusal, captured from a real turn. */
 const GOOGLE_QUOTA_REFUSAL =
   'Cloud Code Assist API error (429): {"error":{"code":429,"message":"Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 6h53m44s.","status":"RESOURCE_EXHAUSTED","details":[{"metadata":{"quotaResetTimeStamp":"2026-09-10T18:19:59Z"}}]}}';
@@ -26,6 +39,15 @@ const CLAUDE_WORDINGS = [
   "You've hit your limit · resets 3pm (Europe/London)",
   "Claude usage limit reached. Your limit will reset at 3pm (UTC)",
   "API Error: 429 rate_limit_error",
+];
+
+/** Claude Code's notices that name the window, as current builds print them. */
+const CLAUDE_NAMED_WINDOW_WORDINGS = [
+  "You've hit your session limit · resets 7am (Europe/Minsk)",
+  "You've hit your weekly limit · resets Sep 14, 5am (Europe/Minsk)",
+  "You've hit your Opus limit · resets Sep 14, 5am (Europe/Minsk)",
+  "You've hit your Sonnet limit · resets Sep 14, 5am (Europe/Minsk)",
+  "You've hit your Fable limit · resets Sep 14, 5am (Europe/Minsk)",
 ];
 
 const CODEX_WORDINGS = [
@@ -92,6 +114,7 @@ describe("detectUsageLimit", () => {
   test("matches every wording the vendors print", () => {
     for (const wording of [
       ...CLAUDE_WORDINGS,
+      ...CLAUDE_NAMED_WINDOW_WORDINGS,
       ...CODEX_WORDINGS,
       ...OTHER_VENDOR_WORDINGS,
       ...API_VENDOR_WORDINGS,
@@ -104,7 +127,12 @@ describe("detectUsageLimit", () => {
     for (const wording of API_VENDOR_WORDINGS) {
       expect(limitKindFromText(wording), wording).toBe("balance");
     }
-    for (const wording of [...CLAUDE_WORDINGS, ...CODEX_WORDINGS, GOOGLE_QUOTA_REFUSAL]) {
+    for (const wording of [
+      ...CLAUDE_WORDINGS,
+      ...CLAUDE_NAMED_WINDOW_WORDINGS,
+      ...CODEX_WORDINGS,
+      GOOGLE_QUOTA_REFUSAL,
+    ]) {
       expect(limitKindFromText(wording), wording).toBeNull();
     }
   });
@@ -118,10 +146,83 @@ describe("detectUsageLimit", () => {
     );
   });
 
+  test("reads the reset out of the notices that name the window", () => {
+    expect(detectUsageLimit(CLAUDE_NAMED_WINDOW_WORDINGS[0] ?? "", NOW)?.resetsAt).toBe(
+      "2026-09-11T04:00:00.000Z",
+    );
+    expect(detectUsageLimit(CLAUDE_NAMED_WINDOW_WORDINGS[1] ?? "", NOW)?.resetsAt).toBe(
+      "2026-09-14T02:00:00.000Z",
+    );
+  });
+
+  test("leaves Claude Code's spend refusals alone, which have no window to wait for", () => {
+    expect(detectUsageLimit("You've hit your monthly spend limit.", NOW)).toBeNull();
+    expect(detectUsageLimit("You've hit your usage credit limit.", NOW)).toBeNull();
+  });
+
   test("ignores token and context-window caps that are not quota refusals", () => {
     expect(detectUsageLimit("The context window limit was exceeded.", NOW)).toBeNull();
     expect(detectUsageLimit("Maximum output tokens must be at most 8192.", NOW)).toBeNull();
     expect(detectUsageLimit("The prompt is too long for this model.", NOW)).toBeNull();
+    expect(detectUsageLimit("You've hit your context limit.", NOW)).toBeNull();
+    expect(detectUsageLimit("You've hit your token limit.", NOW)).toBeNull();
+  });
+
+  test("still matches a window notice that follows talk of the context window", () => {
+    const reply = [
+      "The context window was nearly full, so I compacted it.",
+      "You've hit your session limit · resets 7am (Europe/Minsk)",
+    ].join("\n");
+    expect(detectUsageLimit(reply, NOW)?.message).toBe(
+      "You've hit your session limit · resets 7am (Europe/Minsk)",
+    );
+  });
+});
+
+describe("bare numbers", () => {
+  test("a 402 or 429 with no status label is not a refusal", () => {
+    for (const text of AGENT_PROSE.slice(0, 4)) {
+      expect(detectUsageLimit(text, NOW), text).toBeNull();
+      expect(limitKindFromText(text), text).toBeNull();
+    }
+  });
+
+  test("a labelled status code still is", () => {
+    for (const text of ["HTTP 429", "status_code: 402", "API error (429): slow down", "code=402"]) {
+      expect(detectUsageLimit(text, NOW), text).not.toBeNull();
+    }
+  });
+});
+
+describe("detectAssistantUsageLimit", () => {
+  test("matches the notices Claude Code writes as an assistant message", () => {
+    for (const wording of CLAUDE_WORDINGS) {
+      expect(detectAssistantUsageLimit(wording, NOW), wording).not.toBeNull();
+    }
+    expect(detectAssistantUsageLimit(CLAUDE_WORDINGS[0] ?? "", NOW)?.resetsAt).toBe(
+      "2026-09-10T14:00:00.000Z",
+    );
+  });
+
+  test("matches a named-window notice written as an assistant message", () => {
+    for (const wording of [
+      "You've hit your session limit · resets 7am (Europe/Minsk)",
+      "You've hit your weekly limit · resets Oct 20, 5am (Europe/Minsk)",
+      "You've hit your Opus limit",
+    ]) {
+      expect(detectAssistantUsageLimit(wording, NOW), wording).not.toBeNull();
+    }
+  });
+
+  test("leaves the agent's own prose alone", () => {
+    for (const text of AGENT_PROSE) {
+      expect(detectAssistantUsageLimit(text, NOW), text).toBeNull();
+    }
+  });
+
+  test("leaves a long report alone even when it quotes a refusal", () => {
+    const report = `Summary of the run.\n${"- step done\n".repeat(40)}The worker said: You've hit your limit.`;
+    expect(detectAssistantUsageLimit(report, NOW)).toBeNull();
   });
 });
 
@@ -143,6 +244,26 @@ describe("parseResetInstant", () => {
     expect(parseResetInstant("Your limit will reset at 3pm (UTC)", NOW)).toBe(
       "2026-09-10T15:00:00.000Z",
     );
+  });
+
+  test("reads a dated reset, with or without the year", () => {
+    expect(parseResetInstant("resets Sep 14, 5am (Europe/Minsk)", NOW)).toBe(
+      "2026-09-14T02:00:00.000Z",
+    );
+    expect(parseResetInstant("resets Jan 3, 2027, 5:30pm (UTC)", NOW)).toBe(
+      "2027-01-03T17:30:00.000Z",
+    );
+  });
+
+  test("reads a dated reset at the offset in force on that date", () => {
+    // London is on BST (UTC+1) at NOW and on GMT by Oct 30.
+    expect(parseResetInstant("resets Oct 30, 9am (Europe/London)", NOW)).toBe(
+      "2026-10-30T09:00:00.000Z",
+    );
+  });
+
+  test("ignores a yearless date that has already passed", () => {
+    expect(parseResetInstant("resets Sep 1, 5am (Europe/Minsk)", NOW)).toBeNull();
   });
 
   test("returns null when the text names no reset", () => {

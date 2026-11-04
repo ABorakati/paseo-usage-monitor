@@ -44,9 +44,11 @@ import {
   writeUsageProvider,
 } from "./shared/config.shared";
 import { readUsageHistory } from "./shared/history.shared";
+import { historyViewSettings } from "./shared/history-view.shared";
 import { readUsageLimits } from "./shared/limits.shared";
 
 export default function contribute(server: PluginServerContext) {
+  server.registerSettings(historyViewSettings);
   server.handle(readUsageLimits, readLimits);
   server.handle(readUsageHistory, readHistory);
   server.handle(readUsageConfig, readConfig);

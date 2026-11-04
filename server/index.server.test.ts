@@ -6,6 +6,7 @@ describe("index.server v0.8 entry point", () => {
   test("registers all RPC contracts and lifecycle hooks", () => {
     const handledNames: string[] = [];
     const eventHandlers: string[] = [];
+    const registerSettings = vi.fn();
 
     const mockServer = {
       handle: vi.fn((contract) => {
@@ -16,7 +17,7 @@ describe("index.server v0.8 entry point", () => {
         return () => {};
       }),
       before: vi.fn(() => () => {}),
-      registerSettings: vi.fn(),
+      registerSettings,
       registerProvider: vi.fn(),
     } as unknown as PluginServerContext;
 
@@ -45,6 +46,12 @@ describe("index.server v0.8 entry point", () => {
 
     // v0.8 Lifecycle hook
     expect(eventHandlers).toEqual(["agent.turn_ended"]);
+
+    // The history view's persisted preferences document.
+    expect(registerSettings).toHaveBeenCalledTimes(1);
+    expect(registerSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "history-view", scope: "host", version: 1 }),
+    );
 
     cleanup();
   });

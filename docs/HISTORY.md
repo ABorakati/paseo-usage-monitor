@@ -14,10 +14,13 @@ So history is read out of the agent CLIs' own transcript logs, which already con
 | Codex       | `<root>/sessions/**/*.jsonl` and `<root>/archived_sessions/**/*.jsonl` | `CODEX_HOME` (comma-separated), else `~/.codex`                                                                                                                                                               |
 | OMP         | `<root>/agent/sessions/**/*.jsonl`                                     | `PI_CODING_AGENT_DIR` (disables profiles), else `~/${PI_CONFIG_DIR:-.omp}` (honoring `OMP_PROFILE`/`PI_PROFILE` under `profiles/<profile>/agent/sessions`), plus `${XDG_DATA_HOME}/omp/sessions` when present |
 | Pi          | `<root>/**/*.jsonl`                                                    | `PI_CODING_AGENT_SESSION_DIR`, else `<dir>/sessions` from `PI_CODING_AGENT_DIR`, else `~/.pi/agent/sessions`                                                                                                  |
+| Muse Code   | `<data>/muse/sessions/**/session.jsonl`, including native subagents    | `XDG_DATA_HOME`, else `~/.local/share`                                                                                                                                                                        |
 
 A `CLAUDE_CONFIG_DIR` entry that already ends in `projects` is normalised to its parent. For Codex, if neither `sessions` nor `archived_sessions` yields files, the reader falls back to `<root>/**/*.jsonl`.
 
 Reading files the CLIs own means history works retroactively on first launch, and it also means the plugin only ever reads. It writes nothing to either CLI's directory.
+
+Muse Code history reads `model_completed` events from its durable session logs (verified with Muse 1.4.9). `recorded_at` is converted from Unix microseconds to milliseconds. Every completed model call contributes its own model and usage; goal-attribution events and tool outputs are excluded. Cache reads (`cache_read_tokens`, falling back to `cached_tokens`) are a subset of input and are subtracted before reporting uncached input. Reasoning stays inside output. Cache writes are retained separately, without guessing a TTL. Missing model IDs appear as `unknown`; costs remain unavailable unless the rate table knows the model. No Muse login or API request is needed to read these logs.
 
 ## Buckets
 
@@ -44,12 +47,13 @@ Transcripts duplicate records — resumed sessions, forks, copied project direct
 - **Claude Code** dedups on `message.id`, falling back to `requestId` only when `message.id` is absent. On a collision the larger token total wins. On a tie, a normal record beats an `isSidechain: true` one.
 - **Codex** dedups on the tuple of `timestamp`, `model`, and each token count (`input_tokens`, `cached_input_tokens`, `cache_write_input_tokens`, `output_tokens`, `reasoning_output_tokens`, `total_tokens`).
 - **OMP and Pi** dedup on `record.id`, falling back to `line:${timestamp}|${model}|${input}|${output}|${cacheRead}|${cacheWrite}` when absent.
+- **Muse Code** dedups on `payload.source_run_record_id`, falling back to the envelope `id`. This collapses copied completion records while preserving distinct model calls within one run. Records without either identity remain separate.
 
 Both dedup maps are global across the whole scan, not per file, so duplicated and copied files collapse into one contribution.
 
 ## Series, expansion and colour
 
-Each series is one agent CLI and `seriesKey` is its id (`claude-code`, `codex`, `omp-anthropic`, `pi-deepseek`). Every provider row also carries `children`: one row per model that provider ran, so expanding a provider costs no second request. A provider that ran exactly one model still gets a one-element `children` array, so the row opens onto that one model rather than looking inert.
+Each series is one agent CLI and `seriesKey` is its id (`claude-code`, `codex`, `omp-anthropic`, `pi-deepseek`, `muse`). Every provider row also carries `children`: one row per model that provider ran, so expanding a provider costs no second request. A provider that ran exactly one model still gets a one-element `children` array, so the row opens onto that one model rather than looking inert.
 
 Buckets carry values at both levels. A top-level row has `parentKey: null`; a model row has `parentKey` set to its provider's key. A bucket's own totals sum **only** the `parentKey: null` rows, so summing every value double-counts the window. Children cover 100% of their parent on all seven token counters and on cost, in every bucket, so expanding a provider never changes a column's height - it only subdivides it.
 
@@ -106,6 +110,8 @@ The surface always says which, because a number you cannot date is a number you 
 Cache reads, cache writes and output are priced separately, since a cache read costs about a tenth of fresh input. Long-TTL cache writes are priced separately again: Anthropic bills a 1-hour cache write at 1.6x the 5-minute rate, and where a transcript uses 1-hour caching throughout, pricing that category flat understates it by 37.5%. `cacheSavingsUsd` reports what the cache reads saved against paying fresh input rates.
 
 **A null cost is not a zero cost.** A series no rate could price stays visible and reads `unpriced`; any total containing one is `null` rather than a partial sum, and a `+` suffix marks a figure that is a floor. A wrong rate is worse than no rate, so model-id resolution never crosses a modality boundary on an inexact match - a text model will go unpriced rather than borrow an image model's price.
+
+Muse model IDs resolve to the corresponding `meta/` entry in the price table. Standard and Contributor variants use their own rates; if a variant has no rate, it stays `unpriced` instead of borrowing another tier's price.
 
 The original objection to a dollar figure still stands and is why it works this way: a price table _bundled_ into this plugin would drift out of date silently and report confident wrong numbers. Fetching the canonical table, caching it, and showing its age is a different thing.
 

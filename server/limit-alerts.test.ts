@@ -274,6 +274,17 @@ describe("limit alert service", () => {
     });
   });
 
+  test("records nothing when the agent's reply only mentions a status number", async () => {
+    const harness = createHarness();
+
+    const alert = await harness.service.record(
+      completedEvent("- S9: 402 URLs compared before and after (status + sha256), 0 mismatches."),
+      harness.paseo,
+    );
+
+    expect(alert).toBeNull();
+  });
+
   test("records nothing for a failure that is not a usage limit", async () => {
     const harness = createHarness();
 
