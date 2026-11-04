@@ -40,7 +40,7 @@ It plots **Work** (input + output tokens) by default, with Cached, Total and Cos
 
 ## Install
 
-> **Requires Paseo v0.8.0 or newer.**
+> **Requires Paseo v0.15.0 or newer.**
 
 Plugin code is trusted and unsandboxed. The server half runs in a subprocess with full access to the daemon machine — its files, processes, credentials, and network. Read a plugin before you install it.
 

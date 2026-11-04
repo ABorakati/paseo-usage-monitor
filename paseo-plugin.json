@@ -1,6 +1,6 @@
 {
   "id": "usage-monitor",
   "requirements": {
-    "paseo": ">=0.8.0"
+    "paseo": ">=0.15.0"
   }
 }
