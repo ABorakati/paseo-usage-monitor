@@ -26,6 +26,7 @@ import {
   type UsageRatesReport,
   type UsageTokenBreakdown,
 } from "../shared/history.shared";
+import { effectiveHistoryMetric, useHistoryViewPreferences } from "./history-view-prefs.client";
 import { TooltipPressable as Pressable } from "./tooltip.client";
 
 const RANGE_ORDER: readonly UsageHistoryRange[] = ["24h", "7d", "30d"];
@@ -107,13 +108,6 @@ const COLLAPSED_STATE = { expanded: false };
 const PILL_HIT_SLOP = { top: 8, bottom: 8, left: 4, right: 4 };
 const DROPDOWN_TRIGGER_HIT_SLOP = { top: 7, bottom: 7, left: 4, right: 4 };
 const DROPDOWN_OPTION_HIT_SLOP = { top: 6, bottom: 6, left: 4, right: 4 };
-
-/**
- * Which providers are showing their models. Local state, never a query
- * parameter: both levels ride in every snapshot, so a disclosure opens without
- * a request and survives a range or metric change untouched.
- */
-const NOTHING_EXPANDED: ReadonlySet<string> = new Set();
 
 interface HistoryStyles {
   screen: ViewStyle;
@@ -347,12 +341,15 @@ function scanErrorSummary(errors: readonly UsageHistoryScanError[]): string {
   return `Skipped while scanning: ${sources.join(", ")}`;
 }
 
-function UsageHistoryBody({ theme, layout }: PluginSurfaceProps): ReactElement {
-  const [range, setRange] = useState<UsageHistoryRange>("24h");
-  const [metric, setMetric] = useState<UsageChartMetric>("work");
-  const [groupBy, setGroupBy] = useState<UsageHistoryGroupBy>("provider");
+function UsageHistoryBody({ theme, layout, host }: PluginSurfaceProps): ReactElement {
+  const { prefs, saveError, setRange, setMetric, setGroupBy, toggleExpanded } =
+    useHistoryViewPreferences(host.id);
+  const { range, metric, groupBy } = prefs;
+  // Which providers are showing their models. Persisted with the view, never
+  // a query parameter: both levels ride in every snapshot, so a disclosure
+  // opens without a request and survives a range or metric change untouched.
+  const expanded = useMemo(() => new Set(prefs.expandedKeys), [prefs.expandedKeys]);
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(NOTHING_EXPANDED);
   const readHistory = useRpc(readUsageHistory);
   const query = useQuery({
     queryKey: ["usage-limits", "history", range, groupBy],
@@ -362,32 +359,24 @@ function UsageHistoryBody({ theme, layout }: PluginSurfaceProps): ReactElement {
   const styles = useMemo(() => createStyles(theme, layout.compact), [theme, layout.compact]);
 
   const snapshot = query.data;
-  if (metricUnavailable(snapshot, metric)) {
-    setMetric("work");
-  }
+  // The saved choice stays `cost` while rates are missing; only the display
+  // falls back, so the money view returns on its own when rates load.
+  const effectiveMetric =
+    snapshot === undefined ? metric : effectiveHistoryMetric(metric, snapshot.rates.status);
 
-  const toggleSeries = useCallback((seriesKey: string) => {
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(seriesKey)) {
-        next.delete(seriesKey);
-      } else {
-        next.add(seriesKey);
-      }
-      return next;
-    });
-  }, []);
   const toggleGroupMenu = useCallback(() => setGroupMenuOpen((open) => !open), []);
-  const chooseGroupBy = useCallback((option: UsageHistoryGroupBy) => {
-    setGroupBy(option);
-    setGroupMenuOpen(false);
-    // Grouping by model puts the models AT the top level, where nothing nests.
-    if (option === "model") {
-      setExpanded(NOTHING_EXPANDED);
-    }
-  }, []);
+  const chooseGroupBy = useCallback(
+    (option: UsageHistoryGroupBy) => {
+      setGroupBy(option);
+      setGroupMenuOpen(false);
+      // Expansion is kept, not cleared: grouping by model puts the models AT
+      // the top level where nothing nests, and the remembered disclosure is
+      // still there when the view returns to providers.
+    },
+    [setGroupBy],
+  );
 
-  const total = snapshot === undefined ? null : selectedTotal(snapshot, metric);
+  const total = snapshot === undefined ? null : selectedTotal(snapshot, effectiveMetric);
   const hasUsage = snapshot !== undefined && total !== null && total.value > 0;
   const scanErrors = snapshot?.scanErrors ?? [];
   let ratesHint: string | null = null;
@@ -398,7 +387,7 @@ function UsageHistoryBody({ theme, layout }: PluginSurfaceProps): ReactElement {
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Text style={styles.total}>{headline(snapshot, metric, range)}</Text>
+        <Text style={styles.total}>{headline(snapshot, effectiveMetric, range)}</Text>
         {snapshot === undefined ? null : (
           <Text style={styles.window}>{splitLabel(snapshot.totals)}</Text>
         )}
@@ -426,7 +415,7 @@ function UsageHistoryBody({ theme, layout }: PluginSurfaceProps): ReactElement {
               value={option}
               label={METRIC_LABEL[option]}
               accessibilityLabel={unavailable ? COST_DISABLED_LABEL : METRIC_ACTION[option]}
-              selected={option === metric}
+              selected={option === effectiveMetric}
               disabled={unavailable}
               styles={styles}
               onSelect={setMetric}
@@ -469,23 +458,28 @@ function UsageHistoryBody({ theme, layout }: PluginSurfaceProps): ReactElement {
       {query.isPending ? <Text style={styles.muted}>Reading usage logs…</Text> : null}
       {query.error === null ? null : <Text style={styles.error}>{query.error.message}</Text>}
       {snapshot !== undefined && !hasUsage ? (
-        <Text style={styles.muted}>{emptyHint(snapshot, metric)}</Text>
+        <Text style={styles.muted}>{emptyHint(snapshot, effectiveMetric)}</Text>
       ) : null}
       {hasUsage && snapshot !== undefined ? (
         <UsageTrendChart
           buckets={snapshot.buckets}
           series={snapshot.series}
-          metric={metric}
+          metric={effectiveMetric}
           windowMs={Date.parse(snapshot.to) - Date.parse(snapshot.from)}
           theme={theme}
           compact={layout.compact}
           expandedKeys={expanded}
-          onToggleSeries={toggleSeries}
+          onToggleSeries={toggleExpanded}
         />
       ) : null}
       {scanErrors.length > 0 ? (
         <Text style={styles.footer}>{scanErrorSummary(scanErrors)}</Text>
       ) : null}
+      {saveError === null ? null : (
+        <Text style={styles.footer}>
+          This view could not be saved for next time. Your next change retries.
+        </Text>
+      )}
     </ScrollView>
   );
 }

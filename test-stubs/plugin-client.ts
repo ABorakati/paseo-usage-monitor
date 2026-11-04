@@ -55,6 +55,14 @@ export function defineSettings<Definition>(definition: Definition): Definition {
   return definition;
 }
 
+export function settingsRpc(id: string) {
+  return {
+    read: { name: `settings.${id}.read` },
+    write: { name: `settings.${id}.write` },
+    reset: { name: `settings.${id}.reset` },
+  };
+}
+
 export interface MockClientContext extends PluginClientContext {
   registeredPills: RegisteredPill[];
   simulateAgentAdded: (agent: Partial<PaseoAgent> & { id: string; workspaceId: string }) => void;
