@@ -8,7 +8,10 @@
  * (`/hit your limit|rate limit|quota|credits/i`) and the vendors' docs:
  *   - Claude Code: "You've hit your limit · resets 3pm (Europe/London)",
  *     "Claude usage limit reached. Your limit will reset at 3pm (UTC)",
- *     `rate_limit_error`, HTTP 429.
+ *     `rate_limit_error`, HTTP 429. Current builds name the window that ran
+ *     out — "You've hit your session limit · resets 7am (Europe/Minsk)",
+ *     "weekly limit", "Opus limit", "Sonnet limit", "Fable limit" — and a reset
+ *     more than a day away carries a date: "resets Oct 20, 5am (Europe/Minsk)".
  *   - Codex: "You've hit your usage limit. Try again at …",
  *     "usage_limit_reached", "insufficient_quota".
  *   - Gemini / Antigravity: "RESOURCE_EXHAUSTED", "Quota exceeded",
@@ -33,8 +36,16 @@ export interface LimitDetection {
 const STATUS_429 = /\b(?:http|status(?:[ _]code)?|error|code)\W{0,3}429\b/i;
 const STATUS_402 = /\b(?:http|status(?:[ _]code)?|error|code)\W{0,3}402\b/i;
 
+/**
+ * Claude Code's and Codex's own notice. One optional word, not a list of names:
+ * Claude Code adds a window per model. Its multi-word spend refusals ("monthly
+ * spend limit") have no window to wait for, and a context or token cap is not a
+ * quota, so neither matches.
+ */
+const HIT_YOUR_LIMIT = /hit your (?!context |token )(?:\w+ )?limit/i;
+
 const LIMIT_PATTERNS: readonly RegExp[] = [
-  /hit your (?:usage )?limit/i,
+  HIT_YOUR_LIMIT,
   /usage limit (?:reached|exceeded|hit)/i,
   /usage_limit_reached/i,
   /rate[ _-]?limit(?:ed|_error| exceeded| reached)?/i,
@@ -92,6 +103,10 @@ const RELATIVE_PATTERN =
   /(?:resets?|retry|try again|available)\s+(?:in|after)\s+((?:\d+\s*(?:h(?:ours?)?|m(?:in(?:utes?)?)?|s(?:ec(?:onds?)?)?)\s*)+)/i;
 const CLOCK_PATTERN =
   /(?:resets?|reset at|try again at|available at|until)\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s*\(([^)]+)\))?/i;
+/** "resets Oct 20, 5am (Europe/Minsk)", "resets Jan 3, 2027, 5:30pm (UTC)". */
+const DATED_PATTERN =
+  /resets?\s+([a-z]{3})[a-z]*\.?\s+(\d{1,2})(?:,\s*(\d{4}))?,?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)(?:\s*\(([^)]+)\))?/i;
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 const ISO_PATTERN = /(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/;
 
 function parseRelative(text: string, now: Date): string | null {
@@ -170,6 +185,69 @@ function zonedTimeToday(
   }
 }
 
+/**
+ * A dated reset, as Claude Code prints one more than a day away. It omits the
+ * year when the reset falls in the current one, so a yearless date already past
+ * is not a reset this text can promise, and yields null like a past ISO instant.
+ */
+function parseDated(text: string, now: Date): string | null {
+  const match = DATED_PATTERN.exec(text);
+  if (!match) return null;
+  const month = MONTHS.indexOf((match[1] ?? "").toLowerCase());
+  const day = Number(match[2]);
+  let hours = Number(match[4]);
+  const minutes = match[5] ? Number(match[5]) : 0;
+  if (month === -1 || day < 1 || day > 31 || hours < 1 || hours > 12 || minutes > 59) return null;
+  const meridiem = (match[6] ?? "").toLowerCase();
+  if (meridiem === "pm" && hours < 12) hours += 12;
+  if (meridiem === "am" && hours === 12) hours = 0;
+
+  const year = match[3] ? Number(match[3]) : now.getUTCFullYear();
+  const candidate = zonedDate(year, month, day, hours, minutes, match[7]?.trim());
+  return candidate.getTime() > now.getTime() ? candidate.toISOString() : null;
+}
+
+/**
+ * The instant a zone's wall clock shows the given date and time. The offset is
+ * read at the target, not at `now`, because a reset days away can sit across a
+ * daylight-saving change; the second pass settles a target near that change.
+ */
+function zonedDate(
+  year: number,
+  month: number,
+  day: number,
+  hours: number,
+  minutes: number,
+  zone: string | undefined,
+): Date {
+  if (zone) {
+    try {
+      const wall = Date.UTC(year, month, day, hours, minutes);
+      const first = wall - zoneOffsetMs(new Date(wall), zone);
+      return new Date(wall - zoneOffsetMs(new Date(first), zone));
+    } catch {
+      // An unknown zone falls through to the local clock, as in zonedTimeToday.
+    }
+  }
+  return new Date(year, month, day, hours, minutes);
+}
+
+/** How far the zone's wall clock runs ahead of UTC at `instant`. */
+function zoneOffsetMs(instant: Date, zone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(instant);
+  const read = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  const wall = Date.UTC(read("year"), read("month") - 1, read("day"), read("hour"), read("minute"));
+  return wall - Math.floor(instant.getTime() / 60_000) * 60_000;
+}
+
 export function parseResetInstant(text: string, now: Date = new Date()): string | null {
   const iso = ISO_PATTERN.exec(text);
   if (iso) {
@@ -178,7 +256,7 @@ export function parseResetInstant(text: string, now: Date = new Date()): string 
       return parsed.toISOString();
     }
   }
-  return parseRelative(text, now) ?? parseClock(text, now);
+  return parseRelative(text, now) ?? parseDated(text, now) ?? parseClock(text, now);
 }
 
 /**
@@ -208,8 +286,8 @@ export function detectUsageLimit(text: string, now: Date = new Date()): LimitDet
   if (!text) return null;
   if (FALSE_POSITIVE_PATTERNS.some((pattern) => pattern.test(text))) {
     const strong =
-      /hit your (?:usage )?limit|usage_limit_reached|resource_exhausted|insufficient_quota|insufficient[ _](?:balance|credits|funds)|balance is insufficient|exceeded (?:your )?(?:account )?balance|payment required|billing hard limit|exceeded your current quota|used all available credits|余额不足/i;
-    if (!strong.test(text)) return null;
+      /usage_limit_reached|resource_exhausted|insufficient_quota|insufficient[ _](?:balance|credits|funds)|balance is insufficient|exceeded (?:your )?(?:account )?balance|payment required|billing hard limit|exceeded your current quota|used all available credits|余额不足/i;
+    if (!HIT_YOUR_LIMIT.test(text) && !strong.test(text)) return null;
   }
   for (const pattern of LIMIT_PATTERNS) {
     const match = pattern.exec(text);
@@ -228,7 +306,7 @@ export function detectUsageLimit(text: string, now: Date = new Date()): LimitDet
  * which talks about rate limits, HTTP 429 and "402 URLs" as ordinary work.
  */
 const ASSISTANT_REFUSAL_PATTERNS: readonly RegExp[] = [
-  /hit your (?:usage )?limit/i,
+  HIT_YOUR_LIMIT,
   /usage limit (?:reached|exceeded|hit)/i,
 ];
 
