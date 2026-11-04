@@ -1,4 +1,6 @@
-import type { PluginClientContext } from "@getpaseo/plugin/client";
+import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
+import { SidebarRow } from "@getpaseo/plugin/client/ui";
+import { useCallback, type ReactElement } from "react";
 import { UsageHistoryPanel, UsageHistorySurface } from "./client/history.client";
 import { contributeLimitAlerts } from "./client/limit-alerts.client";
 import { UsageLimitsPanel, UsageLimitsSurface } from "./client/limits.client";
@@ -6,9 +8,9 @@ import { contributeComposerPills } from "./client/pills.client";
 import { UsageSettingsSurface } from "./client/settings.client";
 
 export default function contribute(client: PluginClientContext) {
-  client.addSurface("limits", UsageLimitsSurface);
-  client.addSurface("history", UsageHistorySurface);
-  client.addSurface("settings", UsageSettingsSurface);
+  client.addScreen({ id: "limits", title: "Usage Monitor", Component: UsageLimitsSurface });
+  client.addScreen({ id: "history", title: "Usage history", Component: UsageHistorySurface });
+  client.addScreen({ id: "settings", title: "Usage Monitor", Component: UsageSettingsSurface });
 
   client.addSettingsScreen({
     id: "settings",
@@ -17,17 +19,15 @@ export default function contribute(client: PluginClientContext) {
     Component: UsageSettingsSurface,
   });
 
-  client.addSidebarItem({
+  client.addSidebarHeaderItem({
     id: "limits",
     title: "Usage Monitor",
-    icon: "Gauge",
-    surface: "limits",
+    Component: sidebarRow("limits", "Gauge"),
   });
-  client.addSidebarItem({
+  client.addSidebarHeaderItem({
     id: "history",
     title: "Usage history",
-    icon: "ChartColumn",
-    surface: "history",
+    Component: sidebarRow("history", "ChartColumn"),
   });
 
   client.addWorkspacePanel({
@@ -118,5 +118,16 @@ export default function contribute(client: PluginClientContext) {
   return () => {
     removePills();
     removeLimitAlerts();
+  };
+}
+
+/** One sidebar row that opens its screen and shows as active while it is open. */
+function sidebarRow(screenId: string, icon: string) {
+  return function UsageSidebarRow({
+    currentScreen,
+    openScreen,
+  }: PluginSidebarItemProps): ReactElement {
+    const open = useCallback(() => openScreen({ screenId }), [openScreen]);
+    return <SidebarRow icon={icon} active={currentScreen?.screenId === screenId} onPress={open} />;
   };
 }

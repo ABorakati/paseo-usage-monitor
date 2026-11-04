@@ -374,7 +374,7 @@ function PillCard({
    */
   const openProviderSettings = useCallback(() => {
     requestProviderEditor(provider.providerId);
-    clientContext?.openSurface(SETTINGS_SURFACE_ID);
+    clientContext?.openScreen({ screenId: SETTINGS_SURFACE_ID });
     close();
   }, [close, provider.providerId]);
 

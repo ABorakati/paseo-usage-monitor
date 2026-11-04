@@ -4,30 +4,37 @@ import type {
   PluginClientContext,
   PluginSettingsScreenContribution,
   PluginClientSlashCommandContribution,
-  PluginSidebarContribution,
+  PluginScreenContribution,
+  PluginSidebarItemContribution,
   PluginWorkspacePanelContribution,
   PluginCommandCenterItemContribution,
 } from "@getpaseo/plugin/client";
 
-describe("index.client v0.8 entry point", () => {
+// The sidebar rows are called as plain functions here, outside a React render.
+vi.mock("react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react")>()),
+  useCallback: <T>(callback: T) => callback,
+}));
+
+describe("index.client v0.15 entry point", () => {
   test("registers all surfaces, settings screens, panels, commands, and slash command", () => {
-    const surfaces = new Map<string, unknown>();
+    const screens: PluginScreenContribution[] = [];
     const settingsScreens: PluginSettingsScreenContribution[] = [];
-    const sidebarItems: PluginSidebarContribution[] = [];
+    const sidebarItems: PluginSidebarItemContribution[] = [];
     const workspacePanels: PluginWorkspacePanelContribution[] = [];
     const commandCenterItems: PluginCommandCenterItemContribution[] = [];
     const slashCommands: PluginClientSlashCommandContribution[] = [];
 
     const mockClient = {
-      addSurface: vi.fn((id, component) => {
-        surfaces.set(id, component);
+      addScreen: vi.fn((contribution) => {
+        screens.push(contribution);
         return () => {};
       }),
       addSettingsScreen: vi.fn((contribution) => {
         settingsScreens.push(contribution);
         return () => {};
       }),
-      addSidebarItem: vi.fn((contribution) => {
+      addSidebarHeaderItem: vi.fn((contribution) => {
         sidebarItems.push(contribution);
         return () => {};
       }),
@@ -49,7 +56,7 @@ describe("index.client v0.8 entry point", () => {
       addTimelineTransformer: vi.fn(() => () => {}),
       addTimelineRenderer: vi.fn(() => () => {}),
       openPanel: vi.fn(),
-      openSurface: vi.fn(),
+      openScreen: vi.fn(),
       openSettings: vi.fn(),
       rpc: vi.fn(),
       paseo: {
@@ -72,10 +79,9 @@ describe("index.client v0.8 entry point", () => {
     const cleanup = contributeClient(mockClient);
     expect(typeof cleanup).toBe("function");
 
-    // Surfaces
-    expect(surfaces.has("limits")).toBe(true);
-    expect(surfaces.has("history")).toBe(true);
-    expect(surfaces.has("settings")).toBe(true);
+    // Screens
+    expect(screens.map((screen) => screen.id)).toEqual(["limits", "history", "settings"]);
+    expect(screens.every((screen) => typeof screen.Component === "function")).toBe(true);
 
     // v0.8 Settings screen
     expect(settingsScreens.length).toBe(1);
@@ -85,6 +91,18 @@ describe("index.client v0.8 entry point", () => {
 
     // Sidebar items
     expect(sidebarItems.map((i) => i.id)).toEqual(["limits", "history"]);
+    expect(sidebarItems.map((i) => i.title)).toEqual(["Usage Monitor", "Usage history"]);
+
+    // A sidebar row opens its own screen and is active only while it is open.
+    const openScreen = vi.fn();
+    const historyRow = sidebarItems[1]?.Component as unknown as (
+      props: Record<string, unknown>,
+    ) => { props: { active: boolean; onPress(): void } };
+    const row = historyRow({ currentScreen: { screenId: "history", params: {} }, openScreen });
+    expect(row.props.active).toBe(true);
+    row.props.onPress();
+    expect(openScreen).toHaveBeenCalledWith({ screenId: "history" });
+    expect(historyRow({ currentScreen: null, openScreen }).props.active).toBe(false);
 
     // Workspace panels
     expect(workspacePanels.map((p) => p.id)).toEqual(["limits", "history"]);

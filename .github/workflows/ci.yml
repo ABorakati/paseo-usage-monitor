@@ -43,7 +43,7 @@ jobs:
   plugin-install:
     runs-on: ubuntu-latest
     env:
-      PASEO_CLI_VERSION: 0.9.2
+      PASEO_CLI_VERSION: 0.15.0
     steps:
       - uses: actions/checkout@v4
 

@@ -26,6 +26,11 @@ export function Modal(): React.ReactElement | null {
   return null;
 }
 
+/** The host's sidebar row, present so a client module's imports resolve. */
+export function SidebarRow(): React.ReactElement | null {
+  return null;
+}
+
 export function TextInput(): React.ReactElement | null {
   return null;
 }
@@ -117,9 +122,16 @@ export function createMockClientContext(
     // Nothing in these tests draws a header button, so it holds no state.
     addHeaderButton: () => ({ update: () => {}, remove: () => {} }),
 
+    i18n: { locale: "en", t: () => "" } as unknown as PluginClientContext["i18n"],
+    playAudio: async () => {},
     addSettingsScreen: () => () => {},
+    addScreen: () => () => {},
     addSurface: () => () => {},
+    addSidebarHeaderItem: () => () => {},
+    addSidebarFooterItem: () => () => {},
     addSidebarItem: () => () => {},
+    addAgentPanel: () => () => {},
+    addFilePanel: () => () => {},
     addWorkspacePanel: () => () => {},
     addCommandCenterItem: () => () => {},
     addSlashCommand: () => () => {},
@@ -129,6 +141,7 @@ export function createMockClientContext(
     addTimelineRenderer: () => () => {},
 
     openPanel: () => {},
+    openScreen: () => {},
     openSurface: () => {},
     openSettings: () => {},
 
