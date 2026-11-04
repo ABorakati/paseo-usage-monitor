@@ -20,6 +20,7 @@ const CLAUDE_DIR = `${HOME}/.claude/projects/proj`;
 const CODEX_DIR = `${HOME}/.codex/sessions/2026/08/26`;
 const OMP_DIR = `${HOME}/.omp/agent/sessions/-proj`;
 const PI_DIR = `${HOME}/.pi/agent/sessions/-proj`;
+const MUSE_DIR = `${HOME}/.local/share/muse/sessions/2026/08/26/session-1`;
 const SCAN_CACHE_PATH = `${HOME}/.paseo/usage-limits/scan-cache.json`;
 const NOW = "2026-08-26T12:30:00.000Z";
 const OMP_REPORTED_COST = 0.422;
@@ -59,6 +60,222 @@ interface Harness {
 
 const PROVIDER_QUERY = { range: "24h", groupBy: "provider" } as const;
 const MODEL_QUERY = { range: "24h", groupBy: "model" } as const;
+
+/** Synthetic data with the durable envelope emitted by Muse Code 1.4.9. */
+function museLine(overrides: Record<string, unknown> = {}, source = "completion-1"): string {
+  return JSON.stringify({
+    schema_version: 1,
+    id: "envelope-1",
+    stream: { kind: "session", id: "session-1" },
+    sequence: 42,
+    recorded_at: Date.parse("2026-08-26T10:15:00.123Z") * 1000 + 456,
+    record_type: "event",
+    payload_type: "runtime.session",
+    payload: {
+      kind: "run",
+      run_id: "run-1",
+      source_run_record_id: source,
+      event: {
+        kind: "model_completed",
+        model: "muse-spark-1.3-contributor",
+        usage: {
+          input_tokens: 1000,
+          cached_tokens: 800,
+          cache_read_tokens: 800,
+          cache_write_tokens: 0,
+          output_tokens: 100,
+          reasoning_tokens: 60,
+        },
+      },
+    },
+    ...overrides,
+  });
+}
+
+function museEvent(event: Record<string, unknown>, source = "completion-1"): string {
+  return museLine({
+    payload: {
+      kind: "run",
+      run_id: "run-1",
+      source_run_record_id: source,
+      event: { kind: "model_completed", model: "muse-spark-1.3", ...event },
+    },
+  });
+}
+
+describe("Muse Code history", () => {
+  test("splits inclusive input and reasoning, converts microseconds and leaves unknown costs null", async () => {
+    const { adapters } = createHarness({ files: { [`${MUSE_DIR}/session.jsonl`]: museLine() } });
+    const snapshot = await readUsageHistorySnapshot(PROVIDER_QUERY, adapters);
+    expect(snapshot.totals).toEqual(
+      breakdown({
+        uncachedInputTokens: 200,
+        cachedInputTokens: 800,
+        outputTokens: 100,
+        reasoningTokens: 60,
+      }),
+    );
+    expect(snapshot.series).toMatchObject([
+      {
+        key: "muse",
+        label: "Muse Code",
+        tokens: 1100,
+        children: [{ label: "muse-spark-1.3-contributor", tokens: 1100 }],
+      },
+    ]);
+    expect(snapshot.buckets.filter((bucket) => bucket.tokens > 0)).toMatchObject([
+      { start: "2026-08-26T10:00:00.000Z", tokens: 1100 },
+    ]);
+    expect(snapshot.rates.unpricedModels).toContain("muse-spark-1.3-contributor");
+    expect(snapshot.scanErrors).toEqual([]);
+  });
+
+  test("counts separate completions and native subagents once, including copied envelopes", async () => {
+    const copied = JSON.parse(museLine()) as Record<string, unknown>;
+    const child = museEvent({ usage: { input_tokens: 50, output_tokens: 10 } }, "child-call");
+    const second = museEvent({ usage: { input_tokens: 1000, output_tokens: 100 } }, "completion-2");
+    const { adapters } = createHarness({
+      files: {
+        [`${MUSE_DIR}/session.jsonl`]: [museLine(), museLine(), second].join("\n"),
+        [`${MUSE_DIR}/subagent/child/session.jsonl`]: child,
+        [`${MUSE_DIR}/copy/session.jsonl`]: JSON.stringify({ ...copied, id: "copied-envelope" }),
+        [`${MUSE_DIR}/tool-outputs/result.jsonl`]: museLine({ id: "unrelated" }, "tool-output"),
+      },
+    });
+    const snapshot = await readUsageHistorySnapshot(PROVIDER_QUERY, adapters);
+    expect(snapshot.totals.tokens).toBe(2260);
+    expect(snapshot.series[0]?.children).toHaveLength(2);
+    expectCountersSum(snapshot.series[0]?.children ?? [], snapshot.totals);
+  });
+
+  test("falls back to envelope identity without losing distinct unkeyed completions", async () => {
+    const record = JSON.parse(museLine()) as {
+      id?: string;
+      payload: { source_run_record_id?: string };
+    };
+    delete record.payload.source_run_record_id;
+    const keyed = JSON.stringify(record);
+    delete record.id;
+    const unkeyed = JSON.stringify(record);
+    const { adapters } = createHarness({
+      files: {
+        [`${MUSE_DIR}/session.jsonl`]: [keyed, keyed, unkeyed, unkeyed].join("\n"),
+      },
+    });
+    expect((await readUsageHistorySnapshot(PROVIDER_QUERY, adapters)).totals.tokens).toBe(3300);
+  });
+
+  test.each([
+    [{ input_tokens: 100, output_tokens: 20, cached_tokens: 60 }, 40, 60],
+    [{ input_tokens: 100, output_tokens: 20, cached_tokens: 60, cache_read_tokens: 0 }, 100, 0],
+    [{ input_tokens: 100, output_tokens: 20, cache_read_tokens: 30 }, 70, 30],
+    [{ input_tokens: 100, output_tokens: 20, cached_tokens: 200 }, 0, 100],
+    [{ input_tokens: 100, output_tokens: 20 }, 100, 0],
+  ])("handles cache aliases and absent splits: %j", async (usage, fresh, cached) => {
+    const { adapters } = createHarness({
+      files: {
+        [`${MUSE_DIR}/session.jsonl`]: museEvent({ usage }),
+      },
+    });
+    const { totals } = await readUsageHistorySnapshot(PROVIDER_QUERY, adapters);
+    expect(totals).toEqual(
+      breakdown({ uncachedInputTokens: fresh, cachedInputTokens: cached, outputTokens: 20 }),
+    );
+  });
+
+  test("retains cache writes and clamps reasoning to output", async () => {
+    const { adapters } = createHarness({
+      files: {
+        [`${MUSE_DIR}/session.jsonl`]: museEvent({
+          usage: {
+            input_tokens: 100,
+            output_tokens: 20,
+            cache_write_tokens: 30,
+            reasoning_tokens: 40,
+          },
+        }),
+      },
+    });
+    expect((await readUsageHistorySnapshot(PROVIDER_QUERY, adapters)).totals).toEqual(
+      breakdown({
+        uncachedInputTokens: 100,
+        outputTokens: 20,
+        cacheCreationTokens: 30,
+        reasoningTokens: 20,
+      }),
+    );
+  });
+
+  test("uses XDG_DATA_HOME and reuses the file cache when grouping by model", async () => {
+    const path = "/data/muse/sessions/session-1/session.jsonl";
+    const h = createHarness({
+      env: { XDG_DATA_HOME: "/data" },
+      files: {
+        [path]: museLine(),
+        [`${MUSE_DIR}/session.jsonl`]: museLine(),
+      },
+    });
+    await readUsageHistorySnapshot(PROVIDER_QUERY, h.adapters);
+    const snapshot = await readUsageHistorySnapshot(MODEL_QUERY, h.adapters);
+    expect(h.reads).toEqual([path]);
+    expect(snapshot.series).toMatchObject([
+      { label: "muse-spark-1.3-contributor", tokens: 1100, children: [] },
+    ]);
+  });
+
+  test("ignores unrelated events, malformed usage and out-of-window completions", async () => {
+    const valid = JSON.parse(museLine()) as Record<string, unknown>;
+    const { adapters } = createHarness({
+      files: {
+        [`${MUSE_DIR}/session.jsonl`]: [
+          "{truncated",
+          museLine({ record_type: "snapshot" }),
+          museLine({ payload_type: "other" }),
+          museLine({ recorded_at: "2026-08-26" }),
+          museLine({ recorded_at: Date.parse("2026-08-25T10:00:00Z") * 1000 }, "older"),
+          museLine({ recorded_at: Date.parse("2026-08-27T10:00:00Z") * 1000 }, "future"),
+          museEvent({
+            kind: "goal_usage_attribution",
+            usage: { input_tokens: 100, output_tokens: 20 },
+          }),
+          museEvent({ usage: null }),
+          museEvent({ usage: { input_tokens: -1, output_tokens: 20 } }),
+          museEvent({ usage: { input_tokens: "100", output_tokens: 20 } }),
+          JSON.stringify(valid, null, 0),
+        ].join("\n"),
+      },
+    });
+    expect((await readUsageHistorySnapshot(PROVIDER_QUERY, adapters)).totals.tokens).toBe(1100);
+  });
+
+  test("names a missing model unknown instead of guessing or inventing a cost", async () => {
+    const { adapters } = createHarness({
+      files: {
+        [`${MUSE_DIR}/session.jsonl`]: museEvent({
+          model: null,
+          usage: { input_tokens: 10, output_tokens: 5 },
+        }),
+      },
+    });
+    const snapshot = await readUsageHistorySnapshot(MODEL_QUERY, adapters);
+    expect(snapshot.series).toMatchObject([{ label: "unknown", tokens: 15, costUsd: null }]);
+  });
+
+  test("reports unreadable Muse sources while retaining readable sessions", async () => {
+    const unreadable = `${MUSE_DIR}/subagent/locked/session.jsonl`;
+    const { adapters } = createHarness({
+      files: {
+        [`${MUSE_DIR}/session.jsonl`]: museLine(),
+        [unreadable]: { text: null, mtime: NOW },
+      },
+    });
+    const snapshot = await readUsageHistorySnapshot(PROVIDER_QUERY, adapters);
+    expect(snapshot.totals.tokens).toBe(1100);
+    expect(snapshot.scanErrors).toEqual([
+      { source: unreadable, message: "Could not read transcript file" },
+    ]);
+  });
+});
 
 function createHarness(options: HarnessOptions = {}): Harness {
   const norm = (p: string) => p.replace(/\\/g, "/");

@@ -63,6 +63,7 @@ const RANGE_WINDOWS: Record<UsageHistoryRange, RangeWindow> = {
 
 const CLAUDE_PROVIDER_ID = "claude-code";
 const CODEX_PROVIDER_ID = "codex";
+const MUSE_PROVIDER_ID = "muse";
 
 /**
  * Paseo drives agents through omp, so the same vendor reaches the user twice:
@@ -78,6 +79,7 @@ const UNKNOWN_VENDOR = "unknown";
 const PROVIDER_LABELS: Record<string, string> = {
   [CLAUDE_PROVIDER_ID]: "Claude Code",
   [CODEX_PROVIDER_ID]: "Codex",
+  [MUSE_PROVIDER_ID]: "Muse Code",
 };
 
 /** Vendor slugs omp writes today; anything else is title-cased from its slug. */
@@ -176,6 +178,30 @@ const CodexLineSchema = z.object({
   }),
 });
 
+/** Muse's durable session envelope; recorded_at is Unix microseconds. */
+const MuseLineSchema = z.object({
+  id: OptionalText,
+  recorded_at: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  record_type: z.literal("event"),
+  payload_type: z.literal("runtime.session"),
+  payload: z.object({
+    kind: z.literal("run"),
+    source_run_record_id: OptionalText,
+    event: z.object({
+      kind: z.literal("model_completed"),
+      model: OptionalText,
+      usage: z.object({
+        input_tokens: z.number().int().nonnegative(),
+        output_tokens: z.number().int().nonnegative(),
+        cached_tokens: z.number().int().nonnegative().nullish(),
+        cache_read_tokens: z.number().int().nonnegative().nullish(),
+        cache_write_tokens: z.number().int().nonnegative().nullish(),
+        reasoning_tokens: z.number().int().nonnegative().nullish(),
+      }),
+    }),
+  }),
+});
+
 /**
  * omp reports the bare model on each message and the vendor-qualified model on
  * a separate `model_change` line, so a row's provider only exists once the two
@@ -209,6 +235,7 @@ const OmpLineSchema = z.object({
 type ClaudeLine = z.infer<typeof ClaudeLineSchema>;
 type ClaudeUsage = z.infer<typeof ClaudeUsageSchema>;
 type CodexLine = z.infer<typeof CodexLineSchema>;
+type MuseLine = z.infer<typeof MuseLineSchema>;
 type OmpLine = z.infer<typeof OmpLineSchema>;
 
 /**
@@ -284,6 +311,7 @@ export async function readUsageHistorySnapshot(
   const rows = [
     ...scanClaude(context),
     ...scanCodex(context),
+    ...scanMuse(context),
     ...scanOmp(context),
     ...scanPi(context),
   ];
@@ -358,6 +386,17 @@ function scanClaude(context: ScanContext): UsageRow[] {
 
 function scanCodex(context: ScanContext): UsageRow[] {
   return scanFirstWins(codexTranscripts(context), context, collectCodexRows);
+}
+
+function scanMuse(context: ScanContext): UsageRow[] {
+  const { adapters } = context;
+  const dataHome =
+    nonEmpty(adapters.env.XDG_DATA_HOME) ?? join(adapters.homeDir, ".local", "share");
+  // Include native subagents, but never treat tool-output JSONL as usage logs.
+  const paths = listJsonlFiles(join(dataHome, "muse", "sessions"), context).filter(
+    (path) => basename(path) === "session.jsonl",
+  );
+  return scanFirstWins(paths, context, collectMuseRows);
 }
 
 function scanOmp(context: ScanContext): UsageRow[] {
@@ -721,6 +760,43 @@ function codexRow(record: CodexLine, model: string): UsageRow | null {
       outputTokens: usage.output_tokens ?? 0,
       reasoningTokens: usage.reasoning_output_tokens ?? 0,
       /** Rollout logs carry no cost figure at all. */
+      reportedCostUsd: null,
+    }),
+  };
+}
+
+function collectMuseRows(text: string): UsageRow[] {
+  const rows: UsageRow[] = [];
+  for (const line of text.split("\n")) {
+    if (!line.includes('"model_completed"')) continue;
+    const parsed = MuseLineSchema.safeParse(parseJson(line));
+    if (!parsed.success) continue;
+    rows.push(museRow(parsed.data));
+  }
+  return rows;
+}
+
+function museRow(record: MuseLine): UsageRow {
+  const { model, usage } = record.payload.event;
+  // cached_tokens and cache_read_tokens name the same subset of input, not
+  // two additive categories. Prefer the explicit split when it is present.
+  const cached = Math.min(usage.cache_read_tokens ?? usage.cached_tokens ?? 0, usage.input_tokens);
+  const sourceId = nonEmpty(record.payload.source_run_record_id);
+  const recordId = nonEmpty(record.id);
+  return {
+    providerId: MUSE_PROVIDER_ID,
+    model: nonEmpty(model) ?? UNKNOWN_MODEL,
+    timestampMs: Math.floor(record.recorded_at / 1000),
+    dedupKey:
+      sourceId !== null ? `source:${sourceId}` : recordId !== null ? `record:${recordId}` : null,
+    sidechain: false,
+    breakdown: scannedBreakdown({
+      uncachedInputTokens: usage.input_tokens - cached,
+      cachedInputTokens: cached,
+      cacheCreationTokens: usage.cache_write_tokens ?? 0,
+      cacheCreationLongTtlTokens: 0,
+      outputTokens: usage.output_tokens,
+      reasoningTokens: usage.reasoning_tokens ?? 0,
       reportedCostUsd: null,
     }),
   };

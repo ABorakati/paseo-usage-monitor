@@ -446,6 +446,68 @@ describe("Model resolution order (Rule 3)", () => {
     expect(datedCodexSol?.inputPerToken).toBe(0.000004);
   });
 
+  it("prices bare and Paseo-prefixed Muse IDs at their own Meta tier rates", async () => {
+    const { adapters } = createMockPricingAdapters({
+      fetchJsonImpl: async () => ({
+        "meta/muse-spark-1.3": {
+          input_cost_per_token: 0.00000125,
+          output_cost_per_token: 0.00000425,
+          cache_read_input_token_cost: 0.00000015,
+        },
+        "meta/muse-spark-1.3-contributor": {
+          input_cost_per_token: 0.0000001,
+          output_cost_per_token: 0.0000002,
+          cache_read_input_token_cost: 0.000000002,
+        },
+        "meta/muse-wonder-1.0": {
+          input_cost_per_token: 0.000004,
+          output_cost_per_token: 0.00002,
+          cache_read_input_token_cost: 0.0000002,
+        },
+      }),
+    });
+    const table = await loadPricingTable(adapters);
+    const cachedTable = await loadPricingTable(adapters);
+    expect(cachedTable.status).toBe("cached");
+
+    for (const pricing of [table, cachedTable]) {
+      for (const prefix of ["", "muse/", "meta/"]) {
+        const standard = pricing.rateFor(`${prefix}muse-spark-1.3`);
+        const contributor = pricing.rateFor(`${prefix}muse-spark-1.3-contributor`);
+        expect(standard).not.toBeNull();
+        expect(contributor).not.toBeNull();
+        expect(priceBreakdown(SAMPLE_BREAKDOWN, standard).costUsd).toBeCloseTo(2.6);
+        expect(priceBreakdown(SAMPLE_BREAKDOWN, contributor).costUsd).toBeCloseTo(0.174);
+        expect(priceBreakdown(SAMPLE_BREAKDOWN, contributor).cacheSavingsUsd).toBeCloseTo(0.196);
+        expect(pricing.rateFor(`${prefix}muse-wonder-1.0`)?.inputPerToken).toBe(0.000004);
+      }
+    }
+  });
+
+  it("keeps missing Muse variants unpriced instead of borrowing a tier or modality", async () => {
+    const { adapters } = createMockPricingAdapters({
+      fetchJsonImpl: async () => ({
+        "meta/muse-spark-1.3": {
+          input_cost_per_token: 0.00000125,
+          output_cost_per_token: 0.00000425,
+        },
+        "meta/muse-wonder-1.0-image": {
+          input_cost_per_token: 0.00001,
+          output_cost_per_token: 0.00002,
+        },
+      }),
+    });
+    const table = await loadPricingTable(adapters);
+    for (const prefix of ["", "muse/", "meta/"]) {
+      expect(table.rateFor(`${prefix}muse-spark-1.3-contributor`)).toBeNull();
+      expect(table.rateFor(`${prefix}muse-spark-1.30`)).toBeNull();
+      expect(table.rateFor(`${prefix}muse-spark-1.3-image`)).toBeNull();
+      expect(table.rateFor(`${prefix}muse-wonder-1.0`)).toBeNull();
+    }
+    expect(table.rateFor("muse-wonder-1.0-image")).toBeNull();
+    expect(table.rateFor("meta/muse-wonder-1.0-image")).not.toBeNull();
+  });
+
   it("resolves unpriced models to release-channel preview key (Step 5)", async () => {
     const customFetchImpl = async () => ({
       "gemini-3-flash-preview": {

@@ -28,6 +28,8 @@ The Codex dashboard card and composer detail card show **Use banked reset** when
 
 **Usage history** — cumulative token usage over time as a stacked chart, switchable between 24h, 7d, and 30d. By default each series is one agent CLI. A provider row expands in place to show the models it ran, so the model breakdown appears beside everything else rather than replacing the view; several providers can be open at once. Grouping by model instead lifts every model to the top level, which is the only way to compare two models you reach through different tools.
 
+History includes Muse Code's local session logs and native subagents, with separate input, cache and output counters. Existing sessions appear on the first scan without additional configuration; see [Usage history](docs/HISTORY.md).
+
 Series colour is derived from the active theme's accent rather than fixed, so it survives a theme change. Hue separates providers and lightness separates the models inside one provider, which keeps an expanded provider reading as a family instead of as new categories. Every colour is held above the WCAG non-text contrast floor of 3:1 against all three surface colours — see [Colour](docs/HISTORY.md#colour).
 
 It plots **Work** (input + output tokens) by default, with Cached, Total and Cost also selectable. Cache re-reads are 99.5% of the raw token total on real transcripts, so a single "tokens" figure reads as work performed when it mostly is not — see [Which metric, and why work is the default](docs/HISTORY.md#which-metric-and-why-work-is-the-default). Cost prices each turn from the vendor's own reported figure where a log carries one and from a cached public rate table otherwise, and says which — see [Cost](docs/HISTORY.md#cost).

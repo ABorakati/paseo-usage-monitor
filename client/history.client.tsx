@@ -79,7 +79,7 @@ const GROUP_BY_NOUN: Record<UsageHistoryGroupBy, string> = {
 };
 
 const EMPTY_HINT =
-  "History is read back out of the Claude Code, Codex and omp session logs on this host. None of them recorded token usage in this window.";
+  "History is read back out of the Claude Code, Codex, omp, Pi and Muse Code session logs on this host. None of them recorded token usage in this window.";
 
 /**
  * Why the Cost pill is dead, said where a screen reader will reach it: the pill
