@@ -6,7 +6,13 @@ import type { UsageUnit } from "./limits.shared";
  * nothing; and a big count is grouped rather than abbreviated, so 75,039,832
  * stays comparable against 32,652,978 at a glance.
  */
-const CURRENCY_SYMBOLS: Record<string, string> = { USD: "$", EUR: "€", GBP: "£" };
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  CNY: "¥",
+  RMB: "¥",
+};
 
 export function formatUsageAmount(
   amount: number,

@@ -566,6 +566,25 @@ describe("selectPillReading", () => {
     expect(selectPillReading([rate(), credits], null)).toBe(credits);
   });
 
+  test("prefers a funded unmeasured balance over an empty one", () => {
+    const emptyUsd = balance({
+      id: "usd",
+      remaining: 0,
+      total: null,
+      percentRemaining: null,
+      currency: "USD",
+    });
+    const fundedCny = balance({
+      id: "cny",
+      remaining: 8.49,
+      total: null,
+      percentRemaining: null,
+      currency: "CNY",
+    });
+
+    expect(selectPillReading([emptyUsd, fundedCny], null)).toBe(fundedCny);
+  });
+
   test("a schedule-only provider has nothing a pill can draw", () => {
     expect(selectPillReading([rate()], null)).toBeNull();
     expect(selectPillReading([], null)).toBeNull();
@@ -762,6 +781,21 @@ describe("usageWindowRows", () => {
 
     expect(row).toMatchObject({ percentUsed: 39, percentFilled: 39 });
     expect(row?.window).toMatchObject({ label: "Session" });
+  });
+
+  test("inverts quota rows to left when configured for remaining", () => {
+    const [row] = usageWindowRows(
+      [quota({ id: "weekly", label: "Weekly", percent: 39 })],
+      null,
+      "remaining",
+    );
+
+    expect(row).toMatchObject({
+      name: "Weekly",
+      readout: "61% left",
+      percentUsed: 39,
+      percentFilled: 61,
+    });
   });
 
   test("a balance states what is left, not what is spent", () => {

@@ -320,6 +320,15 @@ function findProvider(
   return providers?.find((provider) => provider.providerId === providerId) ?? null;
 }
 
+function directionalPacePercent(
+  window: UsageWindow | null,
+  now: number,
+  valueMode: ResolvedPillSettings["value"],
+): number | null {
+  const pace = quotaPacePercent(window, now);
+  return pace === null || valueMode === "used" ? pace : 100 - pace;
+}
+
 /**
  * The body a pill's popover shows: the tracked reading in full, then one row
  * per other window so a weekly allowance is one glance away from a session
@@ -328,6 +337,7 @@ function findProvider(
  */
 function PillCard({
   provider,
+  settings,
   metrics,
   styles,
   tone,
@@ -336,6 +346,7 @@ function PillCard({
   close,
 }: {
   provider: UsageProviderSnapshot;
+  settings: ResolvedPillSettings | null;
   metrics: PillMetrics | null;
   styles: PillStyles;
   tone: string;
@@ -350,12 +361,14 @@ function PillCard({
     provider.authRefreshCommand ?? "",
     provider.label,
   );
+  const valueMode = settings?.value ?? provider.display.value ?? "used";
   const headline = useMemo(() => {
     if (metrics === null || metrics.readout === null) {
       return null;
     }
-    return metrics.percentUsed === null ? metrics.readout : `${metrics.readout} used`;
-  }, [metrics]);
+    const suffix = valueMode === "remaining" ? "left" : "used";
+    return metrics.percentUsed === null ? metrics.readout : `${metrics.readout} ${suffix}`;
+  }, [metrics, valueMode]);
   const amounts = useMemo(
     () => (metrics === null ? null : trackedAmounts(provider, metrics)),
     [metrics, provider],
@@ -363,8 +376,8 @@ function PillCard({
   const resets = formatWhenHint("Resets", metrics?.resetsAt ?? null, now);
   const updated = formatUpdatedLabel(provider.fetchedAt, now, isShowingStaleReadings(provider));
   const others = useMemo(
-    () => usageWindowRows(provider.readings, trackedReadingId(provider, metrics)),
-    [metrics, provider],
+    () => usageWindowRows(provider.readings, trackedReadingId(provider, metrics), valueMode),
+    [metrics, provider, valueMode],
   );
   const headlineStyle = useMemo(() => [styles.cardHeadline, { color: tone }], [styles, tone]);
   const trackedWindow = useMemo(() => trackedReadingWindow(provider, metrics), [metrics, provider]);
@@ -407,7 +420,7 @@ function PillCard({
           <UsageMeter
             percentUsed={metrics.percentUsed ?? 0}
             percentFilled={metrics.percentFilled}
-            pacePercent={quotaPacePercent(trackedWindow, now)}
+            pacePercent={directionalPacePercent(trackedWindow, now, valueMode)}
             style={CARD_METER_STYLE}
             trackColor={theme.colors.surface0}
             theme={theme}
@@ -468,7 +481,7 @@ function PillCard({
                 <UsageMeter
                   percentUsed={row.percentUsed ?? 0}
                   percentFilled={row.percentFilled}
-                  pacePercent={quotaPacePercent(row.window, now)}
+                  pacePercent={directionalPacePercent(row.window, now, valueMode)}
                   style={CARD_METER_STYLE}
                   trackColor={theme.colors.surface0}
                   theme={theme}
@@ -891,6 +904,7 @@ export function pillContentFor(providerId: string): ComponentType<PluginButtonCo
     return (
       <PillCard
         provider={provider}
+        settings={settings}
         metrics={metrics}
         styles={styles}
         tone={tone}

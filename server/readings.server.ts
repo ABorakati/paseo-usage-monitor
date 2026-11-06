@@ -436,6 +436,21 @@ function matchesWhere(element: unknown, where: NonNullable<UsageEachMapping["whe
   return readAtPath(element, where.path) === where.equals;
 }
 
+function pickMaxElement(elements: readonly unknown[], path: string): readonly unknown[] {
+  if (elements.length <= 1) return elements;
+  let best = elements[0];
+  let bestValue = readNumberAtPath(best, path);
+  for (let index = 1; index < elements.length; index += 1) {
+    const candidate = elements[index];
+    const candidateValue = readNumberAtPath(candidate, path);
+    if (candidateValue !== null && (bestValue === null || candidateValue > bestValue)) {
+      best = candidate;
+      bestValue = candidateValue;
+    }
+  }
+  return [best];
+}
+
 /**
  * One entry per reading a bucket mapping produces, each carrying the document
  * its paths resolve against: the whole response, or one `each` element.
@@ -453,17 +468,18 @@ function bucketInstances(mapping: BucketMapping, document: unknown): BucketInsta
   }
   const value = readAtPath(document, each.path);
   if (!Array.isArray(value)) return [];
-  const { where } = each;
-  const elements: readonly unknown[] = where
+  const { where, maxByPath } = each;
+  const filtered: readonly unknown[] = where
     ? value.filter((element: unknown) => matchesWhere(element, where))
     : value;
+  const elements = maxByPath === undefined ? filtered : pickMaxElement(filtered, maxByPath);
   // A filter that keeps exactly one element, from an array whose elements
   // carry no id or label of their own, is a way of addressing one bucket by
   // its contents rather than its position. Z.ai's `limits` names its windows
   // only by unit. Numbering a lone reading "Session 1" would say there is a
   // second, so it keeps the mapping's own identity.
   if (
-    where !== undefined &&
+    (where !== undefined || maxByPath !== undefined) &&
     elements.length === 1 &&
     each.idPath === undefined &&
     each.labelPath === undefined

@@ -303,7 +303,12 @@ export function createUsageService(input: UsageServiceInput): UsageService {
       );
     }
     const interpolated = interpolateSource(provider.source, (name) => resolver.resolve(name));
-    const document = await fetchSourceDocument(interpolated, adapters.source, adapters.credentials);
+    const document = await fetchSourceDocument(
+      interpolated,
+      adapters.source,
+      adapters.credentials,
+      (name) => resolver.resolve(name),
+    );
     if (provider.source.kind === "http") throwIfVendorRefused(document, provider.source.failure);
     return document;
   }

@@ -1,9 +1,15 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { probeAntigravityUsage } from "./antigravity-usage.server";
+import { probeCodexUsage } from "./codex-probe.server";
 import { type CredentialAdapters, expandPath } from "./credentials.server";
 import { probeGithubCopilotQuota } from "./github-copilot-probe.server";
-import { UsageInterpolationError, UsageRateLimitedError, UsageSourceError } from "./errors.server";
+import {
+  UsageCredentialMissingError,
+  UsageInterpolationError,
+  UsageRateLimitedError,
+  UsageSourceError,
+} from "./errors.server";
 import type { UsageSource } from "../shared/limits.shared";
 
 type UsageProbeName = Extract<UsageSource, { kind: "probe" }>["probe"];
@@ -18,6 +24,19 @@ export interface UsageHttpRequest {
   method: "GET" | "POST";
   headers: Record<string, string>;
   body?: unknown;
+}
+
+/**
+ * What a probe that reads credentials needs beyond its own adapters. The
+ * probe names a credential the provider declared and gets the resolver's
+ * value, so a probe never re-implements a credential chain or reads a file
+ * the config did not name. `fetchJson` is handed over rather than imported so
+ * a probe's requests go through the same seam — and the same tests — as an
+ * `http` source's.
+ */
+export interface UsageProbeContext {
+  resolve(name: string): string;
+  fetchJson(request: UsageHttpRequest): Promise<unknown>;
 }
 
 /**
@@ -38,6 +57,7 @@ export interface UsageSourceAdapters {
    */
   probeAntigravity?: () => Promise<unknown>;
   probeGithubCopilot?: () => Promise<unknown>;
+  probeCodex?: (context: UsageProbeContext) => Promise<unknown>;
 }
 
 function describeRequest(request: UsageHttpRequest): string {
@@ -157,33 +177,53 @@ export function createNodeSourceAdapters(): UsageSourceAdapters {
     runCommand: runCommandWithNode,
     probeAntigravity: probeAntigravityUsage,
     probeGithubCopilot: () => probeGithubCopilotQuota(),
+    probeCodex: (context) => probeCodexUsage(context),
   };
 }
 
 const PROBE_LABELS: Record<UsageProbeName, string> = {
   antigravity: "Antigravity",
   "github-copilot": "GitHub Copilot",
+  codex: "Codex",
 };
 
 function probeAdapter(
   probe: UsageProbeName,
   adapters: UsageSourceAdapters,
+  context: UsageProbeContext | undefined,
 ): (() => Promise<unknown>) | undefined {
   if (probe === "antigravity") return adapters.probeAntigravity;
-  return adapters.probeGithubCopilot;
+  if (probe === "github-copilot") return adapters.probeGithubCopilot;
+  const run = adapters.probeCodex;
+  return run === undefined || context === undefined ? undefined : () => run(context);
 }
 
-async function runProbe(probe: UsageProbeName, adapters: UsageSourceAdapters): Promise<unknown> {
+async function runProbe(
+  probe: UsageProbeName,
+  adapters: UsageSourceAdapters,
+  context: UsageProbeContext | undefined,
+): Promise<unknown> {
   const label = PROBE_LABELS[probe];
-  const run = probeAdapter(probe, adapters);
+  const run = probeAdapter(probe, adapters, context);
   if (!run) {
     throw new UsageSourceError(`${label} probe failed: no probe is available to this caller`);
   }
   try {
     return await run();
   } catch (error) {
+    // A credential that did not resolve already names its chain, and the
+    // service turns it into the remedy sentence. Wrapping it would erase the
+    // class that carries that meaning.
+    if (error instanceof UsageCredentialMissingError) throw error;
     const reason = error instanceof Error ? error.message : String(error);
-    throw new UsageSourceError(`${label} probe failed: ${reason}`, { cause: error });
+    const message = `${label} probe failed: ${reason}`;
+    if (error instanceof UsageRateLimitedError) {
+      throw new UsageRateLimitedError(message, error.retryAfterMs, { cause: error });
+    }
+    throw new UsageSourceError(message, {
+      cause: error,
+      status: error instanceof UsageSourceError ? (error.status ?? undefined) : undefined,
+    });
   }
 }
 
@@ -225,6 +265,14 @@ export async function fetchSourceDocument(
   source: UsageSource,
   adapters: UsageSourceAdapters,
   machine: CredentialAdapters,
+  /**
+   * Resolves the credentials a probe names. An `http`, `command` or `file`
+   * source never needs it: its template is interpolated before it arrives.
+   * Optional so a caller that configures no credential-reading probe needs no
+   * resolver; a codex probe reaching one without fails as that provider's
+   * error, loudly.
+   */
+  resolve?: (name: string) => string,
 ): Promise<unknown> {
   if (source.kind === "http") {
     return adapters.fetchJson({
@@ -244,5 +292,9 @@ export async function fetchSourceDocument(
     // for both.
     return readFileDocument(source, machine);
   }
-  return runProbe(source.probe, adapters);
+  return runProbe(
+    source.probe,
+    adapters,
+    resolve === undefined ? undefined : { resolve, fetchJson: adapters.fetchJson },
+  );
 }

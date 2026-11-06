@@ -325,7 +325,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     label: "Codex",
     icon: { kind: "monogram", text: "Cx", color: "#10B981" },
     description:
-      "Codex session, weekly, code-review and reserve limits, plus banked resets and any prepaid credit balance",
+      "Codex session, weekly, code-review and reserve limits, plus banked resets and credits (prepaid, or a workspace's monthly allowance)",
     supportsBankedReset: true,
     credentials: {
       // No expiresAtPath: auth.json records `auth_mode`, `last_refresh` and the
@@ -427,15 +427,11 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         },
       ],
     },
-    source: {
-      kind: "http",
-      url: "https://chatgpt.com/backend-api/wham/usage",
-      method: "GET",
-      headers: {
-        Authorization: "Bearer ${token}",
-        Accept: "application/json",
-      },
-    },
+    // The usage route is an ordinary GET, but a workspace or education account
+    // gets `credits.balance: null` there and the amount only on the per-user
+    // spend-control route, which one `http` source cannot also address. The
+    // codex probe reads both and writes a normalised `codex_credits` object.
+    source: { kind: "probe", probe: "codex" },
     readings: [
       {
         kind: "quota",
@@ -493,8 +489,13 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         kind: "balance",
         id: "credits",
         label: "Credits",
-        unit: "usd",
-        remainingPath: "credits.balance",
+        unit: "credits",
+        // The probe normalises both regimes into one object: `remaining` is a
+        // prepaid balance, while `used` and `total` are a workspace's monthly
+        // cap and the balance projection turns them into what is left.
+        remainingPath: "codex_credits.remaining",
+        usedPath: "codex_credits.used",
+        totalPath: "codex_credits.total",
       },
       {
         kind: "balance",
@@ -643,22 +644,28 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
       method: "GET",
       headers: { Authorization: "Bearer ${apiKey}" },
     },
+    // DeepSeek returns both a USD and a CNY entry in `balance_infos` in
+    // non-deterministic order, with `"0.00"` in the unused currency, so both
+    // readings pick the ledger with the largest `total_balance` rather than
+    // trusting index 0.
     readings: [
       {
         kind: "balance",
         id: "balance",
         label: "Balance",
         unit: "usd",
-        remainingPath: "balance_infos[0].total_balance",
-        currencyPath: "balance_infos[0].currency",
+        each: { path: "balance_infos", maxByPath: "total_balance" },
+        remainingPath: "total_balance",
+        currencyPath: "currency",
       },
       {
         kind: "balance",
         id: "granted",
         label: "Granted",
         unit: "usd",
-        remainingPath: "balance_infos[0].granted_balance",
-        currencyPath: "balance_infos[0].currency",
+        each: { path: "balance_infos", maxByPath: "total_balance" },
+        remainingPath: "granted_balance",
+        currencyPath: "currency",
       },
     ],
   }),
@@ -1695,7 +1702,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     label: "Antigravity",
     icon: { kind: "monogram", text: "AG", color: "#84CC16" },
     description:
-      "Unverified: Google publishes no Antigravity quota API, so the percentages read the user's own stored credential and an undocumented endpoint, and may break without notice. That route answers for the consumer plan only, so the rows under it count what each Antigravity client on this machine actually spent, from its own logs.",
+      "Unverified: Google publishes no Antigravity quota API, so the percentages come from agy /usage with a stored-credential/internal-endpoint fallback, and may break without notice. That route answers for the consumer plan only, so the rows under it count what each Antigravity client on this machine actually spent, from its own logs.",
     unverified: true,
     source: { kind: "probe", probe: "antigravity" },
     readings: [

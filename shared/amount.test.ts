@@ -5,6 +5,7 @@ describe("formatUsageAmount", () => {
   test("keeps cents on money, so a small spend does not read as nothing", () => {
     expect(formatUsageAmount(1.489, "usd")).toBe("$1.49");
     expect(formatUsageAmount(0.126, "usd")).toBe("$0.13");
+    expect(formatUsageAmount(8.49, "usd", "CNY")).toBe("¥8.49");
   });
 
   test("names a currency the symbol table does not carry", () => {

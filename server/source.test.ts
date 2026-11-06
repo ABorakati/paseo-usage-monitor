@@ -1,7 +1,11 @@
 import { once } from "node:events";
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, test } from "vitest";
-import { UsageRateLimitedError, UsageSourceError } from "./errors.server";
+import {
+  UsageCredentialMissingError,
+  UsageRateLimitedError,
+  UsageSourceError,
+} from "./errors.server";
 import type { CredentialAdapters } from "./credentials.server";
 import type { UsageSource } from "../shared/limits.shared";
 import {
@@ -416,8 +420,107 @@ describe("probe source", () => {
     expect(seen).toEqual(["http https://example.test/usage", "command tool --json"]);
   });
 
+  test("hands a credential-reading probe its resolver and the http adapter", async () => {
+    const seen: string[] = [];
+    const adapters: UsageSourceAdapters = {
+      async fetchJson(request) {
+        seen.push(`http ${request.url}`);
+        return { document: true };
+      },
+      async runCommand() {
+        throw new Error("unreachable");
+      },
+      async probeCodex(context) {
+        seen.push(`resolve ${context.resolve("token")}`);
+        return context.fetchJson({ url: "https://example.test/codex", method: "GET", headers: {} });
+      },
+    };
+
+    const document = await fetchSourceDocument(
+      { kind: "probe", probe: "codex" },
+      adapters,
+      NO_FILES,
+      () => "resolved-token",
+    );
+
+    expect(document).toEqual({ document: true });
+    expect(seen).toEqual(["resolve resolved-token", "http https://example.test/codex"]);
+  });
+
+  test("refuses a codex probe that arrived without a credential resolver", async () => {
+    const adapters: UsageSourceAdapters = {
+      async fetchJson() {
+        throw new Error("unreachable");
+      },
+      async runCommand() {
+        throw new Error("unreachable");
+      },
+      async probeCodex() {
+        return {};
+      },
+    };
+
+    const failure = await fetchSourceDocument(
+      { kind: "probe", probe: "codex" },
+      adapters,
+      NO_FILES,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(UsageSourceError);
+    expect(String(failure)).toContain("Codex probe failed: no probe is available");
+  });
+
+  // The service turns a missing credential into a sentence naming the chain to
+  // refresh, and it recognises the failure by class, so a probe must not wrap it.
+  test("lets a missing credential keep its class through a probe", async () => {
+    const adapters: UsageSourceAdapters = {
+      async fetchJson() {
+        throw new Error("unreachable");
+      },
+      async runCommand() {
+        throw new Error("unreachable");
+      },
+      async probeCodex(context) {
+        return context.resolve("token");
+      },
+    };
+
+    await expect(
+      fetchSourceDocument({ kind: "probe", probe: "codex" }, adapters, NO_FILES, () => {
+        throw new UsageCredentialMissingError("token", ["a test chain"]);
+      }),
+    ).rejects.toBeInstanceOf(UsageCredentialMissingError);
+  });
+
+  test("preserves a probe's rate limit so the service can back off", async () => {
+    const adapters: UsageSourceAdapters = {
+      async fetchJson() {
+        throw new Error("unreachable");
+      },
+      async runCommand() {
+        throw new Error("unreachable");
+      },
+      async probeCodex() {
+        throw new UsageRateLimitedError("too many requests", 1495_000);
+      },
+    };
+
+    const failure = await fetchSourceDocument(
+      { kind: "probe", probe: "codex" },
+      adapters,
+      NO_FILES,
+      () => "token",
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(UsageRateLimitedError);
+    expect((failure as UsageRateLimitedError).retryAfterMs).toBe(1495_000);
+    expect(String(failure)).toContain("Codex probe failed: too many requests");
+  });
+
   test("wires the real probe into the node adapters", () => {
-    expect(typeof createNodeSourceAdapters().probeAntigravity).toBe("function");
+    const adapters = createNodeSourceAdapters();
+    expect(typeof adapters.probeAntigravity).toBe("function");
+    expect(typeof adapters.probeCodex).toBe("function");
   });
 });
 
