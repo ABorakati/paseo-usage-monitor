@@ -58,15 +58,25 @@ export function readStringAtPath(document: unknown, path: string): string | null
 /**
  * Providers express reset times as ISO strings, epoch seconds, or epoch
  * milliseconds. Normalize the numeric forms to an ISO string and hand an
- * already-textual timestamp back untouched.
+ * already-textual timestamp back untouched. Numeric strings take the epoch
+ * route too: Cursor reports its billing cycle as an epoch-milliseconds
+ * string, and Date.parse leaves that unreadable.
  */
 export function readTimestampAtPath(document: unknown, path: string): string | null {
   const value = readAtPath(document, path);
   if (typeof value === "string") {
+    if (value.trim() !== "") {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) return epochToIso(numeric);
+    }
     return Number.isNaN(Date.parse(value)) ? null : value;
   }
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  const millis = value < EPOCH_SECONDS_CEILING ? value * 1000 : value;
+  return epochToIso(value);
+}
+
+function epochToIso(epoch: number): string | null {
+  const millis = epoch < EPOCH_SECONDS_CEILING ? epoch * 1000 : epoch;
   const parsed = new Date(millis);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }

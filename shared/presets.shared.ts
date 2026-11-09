@@ -508,7 +508,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
   cursor: definePreset({
     label: "Cursor",
     icon: { kind: "monogram", text: "Cu", color: "#8B5CF6" },
-    description: "Cursor plan spend, limit and remaining balance",
+    description: "Cursor plan usage per billing cycle: Auto + Composer and named-model API buckets",
     credentials: {
       token: [
         { kind: "env", variable: "CURSOR_ACCESS_TOKEN" },
@@ -559,13 +559,21 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
     readings: [
       {
         kind: "quota",
-        id: "plan-usage",
-        label: "Plan usage",
-        unit: "usd",
-        scale: 0.01,
-        usedPath: "planUsage.totalSpend",
-        limitPath: "planUsage.limit",
-        remainingPath: "planUsage.remaining",
+        id: "auto-composer",
+        label: "Auto + Composer",
+        unit: "percent",
+        percentPath: "planUsage.autoPercentUsed",
+        window: {
+          label: "Billing cycle",
+          resetsAtPath: "billingCycleEnd",
+        },
+      },
+      {
+        kind: "quota",
+        id: "named-models",
+        label: "API (named models)",
+        unit: "percent",
+        percentPath: "planUsage.apiPercentUsed",
         window: {
           label: "Billing cycle",
           resetsAtPath: "billingCycleEnd",
