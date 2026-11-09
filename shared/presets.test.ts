@@ -523,10 +523,15 @@ const RESPONSE_FIXTURES: Record<string, unknown> = {
   cursor: {
     planUsage: {
       totalSpend: 1500,
+      includedSpend: 2000,
+      bonusSpend: 0,
       limit: 2000,
-      remaining: 500,
+      autoPercentUsed: 25,
+      apiPercentUsed: 40,
+      totalPercentUsed: 27,
     },
-    billingCycleEnd: "2026-09-20T00:00:00Z",
+    billingCycleEnd: "1789862400000",
+    billingCycleStart: "1787184000000",
   },
   grok: {
     config: {
@@ -912,14 +917,18 @@ describe("verified presets resolve their recorded responses", () => {
       window: { label: "Session", resetsAt: null },
     });
   });
-  test("cursor scales spend from cents to dollars and captures billing cycle", () => {
-    expect(readingById("cursor", "plan-usage")).toMatchObject({
+  test("cursor projects Auto and API usage percentages against the billing cycle", () => {
+    expect(readingById("cursor", "auto-composer")).toMatchObject({
       kind: "quota",
-      used: 15,
-      limit: 20,
-      remaining: 5,
-      unit: "usd",
-      window: { label: "Billing cycle", resetsAt: "2026-09-20T00:00:00Z" },
+      percent: 25,
+      unit: "percent",
+      window: { label: "Billing cycle", resetsAt: "2026-09-20T00:00:00.000Z" },
+    });
+    expect(readingById("cursor", "named-models")).toMatchObject({
+      kind: "quota",
+      percent: 40,
+      unit: "percent",
+      window: { label: "Billing cycle", resetsAt: "2026-09-20T00:00:00.000Z" },
     });
   });
 
