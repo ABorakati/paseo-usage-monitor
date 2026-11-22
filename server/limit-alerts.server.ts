@@ -61,7 +61,7 @@ export interface LimitAlertStoreAdapters extends ConfigAdapters {
 
 export interface LimitAlertAdapters extends LimitAlertStoreAdapters {
   /** Fresh-enough quota readings, used when the refusal text names no reset. */
-  readLimits(): Promise<UsageSnapshot>;
+  readLimits(paseo: PaseoApi): Promise<UsageSnapshot>;
 }
 
 export interface LimitAlertService {
@@ -312,11 +312,14 @@ export function createLimitAlertService(adapters: LimitAlertAdapters): LimitAler
     persist();
   }
 
-  async function fallbackResetAt(usageProviderId: string | null): Promise<string | null> {
+  async function fallbackResetAt(
+    usageProviderId: string | null,
+    paseo: PaseoApi,
+  ): Promise<string | null> {
     if (usageProviderId === null) return null;
     let snapshot: UsageSnapshot;
     try {
-      snapshot = await adapters.readLimits();
+      snapshot = await adapters.readLimits(paseo);
     } catch {
       return null;
     }
@@ -378,7 +381,7 @@ export function createLimitAlertService(adapters: LimitAlertAdapters): LimitAler
     const resetsAt =
       limitKind === "balance"
         ? null
-        : (detection.resetsAt ?? (await fallbackResetAt(usageProviderId)));
+        : (detection.resetsAt ?? (await fallbackResetAt(usageProviderId, paseo)));
 
     const alert: LimitAlert = {
       id: adapters.randomId(),

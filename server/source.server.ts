@@ -4,6 +4,7 @@ import { probeAntigravityUsage } from "./antigravity-usage.server";
 import { type CredentialAdapters, expandPath } from "./credentials.server";
 import { probeGithubCopilotQuota } from "./github-copilot-probe.server";
 import { UsageInterpolationError, UsageRateLimitedError, UsageSourceError } from "./errors.server";
+import { probeZCodeUsage, type ZCodeUsageProviders } from "./zcode-probe.server";
 import type { UsageSource } from "../shared/limits.shared";
 
 type UsageProbeName = Extract<UsageSource, { kind: "probe" }>["probe"];
@@ -38,6 +39,7 @@ export interface UsageSourceAdapters {
    */
   probeAntigravity?: () => Promise<unknown>;
   probeGithubCopilot?: () => Promise<unknown>;
+  probeZCode?: () => Promise<unknown>;
 }
 
 function describeRequest(request: UsageHttpRequest): string {
@@ -151,18 +153,22 @@ async function runCommandWithNode(
   return parseJsonDocument(stdout, `Command "${binary}"`);
 }
 
-export function createNodeSourceAdapters(): UsageSourceAdapters {
+export function createNodeSourceAdapters(
+  paseoProviders?: ZCodeUsageProviders,
+): UsageSourceAdapters {
   return {
     fetchJson: fetchJsonWithNode,
     runCommand: runCommandWithNode,
     probeAntigravity: probeAntigravityUsage,
     probeGithubCopilot: () => probeGithubCopilotQuota(),
+    ...(paseoProviders ? { probeZCode: () => probeZCodeUsage(paseoProviders) } : {}),
   };
 }
 
 const PROBE_LABELS: Record<UsageProbeName, string> = {
   antigravity: "Antigravity",
   "github-copilot": "GitHub Copilot",
+  zcode: "ZCode",
 };
 
 function probeAdapter(
@@ -170,6 +176,7 @@ function probeAdapter(
   adapters: UsageSourceAdapters,
 ): (() => Promise<unknown>) | undefined {
   if (probe === "antigravity") return adapters.probeAntigravity;
+  if (probe === "zcode") return adapters.probeZCode;
   return adapters.probeGithubCopilot;
 }
 

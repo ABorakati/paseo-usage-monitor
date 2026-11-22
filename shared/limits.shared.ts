@@ -88,6 +88,7 @@ export const UsageCredentialSourceSchema = z.discriminatedUnion("kind", [
   UsageJsonFileCredentialSchema,
   UsageKeychainCredentialSchema,
   UsageSqliteCredentialSchema,
+  z.object({ kind: z.literal("kimiCodeConfig") }),
 ]);
 
 /**
@@ -158,13 +159,12 @@ export const UsageFileSourceSchema = z.object({
  * come from the user's own stored credential and an undocumented endpoint, so
  * the plugin ships the mechanism as code and the config only names it. GitHub
  * Copilot is the same shape: a documented limit, an undocumented route, and a
- * token the IDE extensions stored. Naming a probe is how a provider opts into
- * a mechanism the vendor never documented, which is why every probe-backed
- * preset stays flagged `unverified`.
+ * token the IDE extensions stored. Those presets stay flagged `unverified`.
+ * ZCode instead reuses the host's own Usage reports through the Paseo SDK.
  */
 export const UsageProbeSourceSchema = z.object({
   kind: z.literal("probe"),
-  probe: z.enum(["antigravity", "github-copilot"]),
+  probe: z.enum(["antigravity", "github-copilot", "zcode"]),
 });
 
 export const UsageSourceSchema = z.discriminatedUnion("kind", [

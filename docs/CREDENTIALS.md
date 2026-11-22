@@ -26,6 +26,8 @@ Both `jsonFile` and `sqlite` expand a leading `~` to the home directory and `${V
 
 Some built-in sources read API keys from OMP's SQLite vault. They check `${PI_CODING_AGENT_DIR}/agent.db`, then `~/${PI_CONFIG_DIR}/agent/agent.db`, then `~/.omp/agent/agent.db`. Unset path variables skip that candidate. Each query selects the newest enabled API-key row by `updated_at`, using the same read-only SQLite adapter as the other database sources. A typed secret in Usage provider settings comes before these discovered keys.
 
+The Kimi preset also reads the Kimi Code CLI's `config.toml` from `$KIMI_CODE_HOME` or `~/.kimi-code`. It uses the selected model's official Kimi Code provider and reads its `api_key` or an explicitly configured `api_key_env`. This source is available for the official Kimi Code quota endpoint in the configured API region. It is tried after the dedicated Kimi environment and OAuth sources, ahead of OpenCode and OMP.
+
 Resolution rules:
 
 - The chain is tried in order and the first source that resolves wins.

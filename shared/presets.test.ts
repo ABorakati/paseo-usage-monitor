@@ -157,7 +157,8 @@ describe("usage presets", () => {
         continue;
       }
       if (source.kind === "probe") {
-        expect([id, provider.unverified]).toEqual([id, true]);
+        // ZCode reads the host's documented SDK rather than a vendor's private API.
+        expect([id, provider.unverified]).toEqual([id, source.probe !== "zcode"]);
         continue;
       }
       if (source.kind === "file") {
@@ -637,6 +638,12 @@ const RESPONSE_FIXTURES: Record<string, unknown> = {
   },
   poe: { current_point_balance: 1500 },
   synthetic: { subscription: { limit: 135, requests: 27, renewsAt: "2026-09-21T14:36:14.288Z" } },
+  zcode: {
+    windows: [
+      { id: "five_hour", label: "5-hour", usedPct: 32, resetsAt: "2026-08-28T21:00:00.000Z" },
+      { id: "tool_calls", label: "Tool calls", usedPct: 17 },
+    ],
+  },
   // CodexBar's public-API test fixture uses these names for the response from
   // `/zen/go/v1/usage`; its browser-session fixture is the separate
   // `rollingUsage.usagePercent/resetInSec` shape.

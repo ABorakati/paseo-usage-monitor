@@ -112,12 +112,15 @@ function resolveService(): UsageService {
   return service;
 }
 
-export function readLimits(input: { refresh: boolean }): Promise<UsageSnapshot> {
+export function readLimits(input: { refresh: boolean }, paseo: PaseoApi): Promise<UsageSnapshot> {
   const service = resolveService();
   // Cheap when the target set is unchanged, and the way a watch attaches once
   // the directory a file source names exists.
   liveFileWatcher.sync(cache?.liveTargets ?? []);
-  return service.read({ refresh: input.refresh });
+  return service.read({
+    refresh: input.refresh,
+    source: createNodeSourceAdapters(paseo.providers),
+  });
 }
 
 export function readHistory(query: UsageHistoryQuery): Promise<UsageHistorySnapshot> {
@@ -141,8 +144,14 @@ export function removeProvider(input: { id: string }): UsageConfigState {
   return state;
 }
 
-export function testProvider(input: { id: string }): Promise<UsageProviderTestResult> {
-  return testUsageProviderEntry(input.id, configStoreAdapters);
+export function testProvider(
+  input: { id: string },
+  paseo: PaseoApi,
+): Promise<UsageProviderTestResult> {
+  return testUsageProviderEntry(input.id, {
+    ...configStoreAdapters,
+    source: createNodeSourceAdapters(paseo.providers),
+  });
 }
 
 export function readCodexBankedReset(input: {
@@ -194,7 +203,7 @@ function limitAlerts(): LimitAlertService {
   if (limitAlertService === null) {
     limitAlertService = createLimitAlertService({
       ...createNodeLimitAlertAdapters(configAdapters),
-      readLimits: () => readLimits({ refresh: false }),
+      readLimits: (paseo) => readLimits({ refresh: false }, paseo),
     });
   }
   return limitAlertService;

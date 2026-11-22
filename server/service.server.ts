@@ -44,7 +44,7 @@ export interface UsageServiceInput {
 }
 
 export interface UsageService {
-  read(options: { refresh: boolean }): Promise<UsageSnapshot>;
+  read(options: { refresh: boolean; source?: UsageSourceAdapters }): Promise<UsageSnapshot>;
   /**
    * Drops cached readings for the named providers. A watched file source calls
    * this when its writer lands a new document, so the next read re-projects it
@@ -165,6 +165,10 @@ function credentialRemedy(
         text: `Run the CLI that owns the Keychain item "${source.service}" so it refreshes the stored token.`,
         command: null,
       };
+    }
+    if (source.kind === "kimiCodeConfig") {
+      if (resolved.length === 0) continue;
+      return { text: "Check the API key configured in Kimi Code's config.toml.", command: null };
     }
     if (source.file.endsWith(SECRETS_FILE_NAME)) {
       return { text: "Replace the stored key from the Usage providers screen.", command: null };
@@ -295,6 +299,7 @@ export function createUsageService(input: UsageServiceInput): UsageService {
     id: string,
     provider: UsageProvider,
     resolver: UsageCredentialResolver,
+    source: UsageSourceAdapters,
   ): Promise<unknown> {
     if (!requiresSourceDocument(provider.readings)) return undefined;
     if (!provider.source) {
@@ -303,7 +308,7 @@ export function createUsageService(input: UsageServiceInput): UsageService {
       );
     }
     const interpolated = interpolateSource(provider.source, (name) => resolver.resolve(name));
-    const document = await fetchSourceDocument(interpolated, adapters.source, adapters.credentials);
+    const document = await fetchSourceDocument(interpolated, source, adapters.credentials);
     if (provider.source.kind === "http") throwIfVendorRefused(document, provider.source.failure);
     return document;
   }
@@ -430,11 +435,19 @@ export function createUsageService(input: UsageServiceInput): UsageService {
     );
   }
 
-  async function loadProvider(id: string, provider: UsageProvider): Promise<UsageProviderSnapshot> {
+  async function loadProvider(
+    id: string,
+    provider: UsageProvider,
+    source: UsageSourceAdapters,
+  ): Promise<UsageProviderSnapshot> {
     const timestamp = adapters.now();
-    const resolver = createCredentialResolver(provider.credentials, adapters.credentials);
+    const resolver = createCredentialResolver(
+      provider.credentials,
+      adapters.credentials,
+      provider.source?.kind === "http" ? provider.source.url : undefined,
+    );
     try {
-      const document = await readDocument(id, provider, resolver);
+      const document = await readDocument(id, provider, resolver, source);
       const snapshot = {
         ...baseSnapshot(id, provider),
         readings: projectReadings({ readings: provider.readings, document, now: timestamp }),
@@ -488,6 +501,7 @@ export function createUsageService(input: UsageServiceInput): UsageService {
     id: string,
     provider: UsageProvider,
     refresh: boolean,
+    source: UsageSourceAdapters,
   ): Promise<UsageProviderSnapshot> {
     const state = backoff.get(id);
     if (state && adapters.now().getTime() < state.retryAtMs) {
@@ -501,7 +515,7 @@ export function createUsageService(input: UsageServiceInput): UsageService {
     const existing = inFlight.get(id);
     if (existing) return existing;
 
-    const request = loadProvider(id, provider)
+    const request = loadProvider(id, provider, source)
       .then((snapshot) => {
         if (snapshot.notice !== null) return snapshot;
         const completedAtMs = adapters.now().getTime();
@@ -523,6 +537,7 @@ export function createUsageService(input: UsageServiceInput): UsageService {
   function entrySnapshot(
     entry: UsageProviderEntry,
     refresh: boolean,
+    source: UsageSourceAdapters,
   ): Promise<UsageProviderSnapshot> {
     if (!entry.provider) {
       return Promise.resolve({
@@ -544,13 +559,13 @@ export function createUsageService(input: UsageServiceInput): UsageService {
     if (!entry.provider.enabled) {
       return Promise.resolve({ ...baseSnapshot(entry.id, entry.provider), status: "disabled" });
     }
-    return cachedProvider(entry.id, entry.provider, refresh);
+    return cachedProvider(entry.id, entry.provider, refresh, source);
   }
 
   return {
-    async read(options) {
+    async read({ refresh, source = adapters.source }) {
       const providers = await Promise.all(
-        entries.map((entry) => entrySnapshot(entry, options.refresh)),
+        entries.map((entry) => entrySnapshot(entry, refresh, source)),
       );
       return { configPath, providers };
     },

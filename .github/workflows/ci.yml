@@ -29,7 +29,8 @@ jobs:
           node-version: 22
           cache: npm
 
-      # Same command Paseo runs on plugin install (paseo-plugin.json "build").
+      # The development tree is for checks. Git plugin sources install only
+      # production dependencies through the manifest preparation command.
       - run: npm ci --include=dev
       - run: npm run format:check
       - run: npm run lint

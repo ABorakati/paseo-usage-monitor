@@ -1794,6 +1794,13 @@ function CredentialField({ name, editor, presetId, dispatch, styles }: Credentia
               </Text>
             );
           }
+          if (source.kind === "kimiCodeConfig") {
+            return (
+              <Text key="kimi-code-config" style={styles.muted}>
+                Also checks the selected Kimi Code API provider in config.toml
+              </Text>
+            );
+          }
           return null;
         })}
       {stored && !replacing ? (
