@@ -192,6 +192,43 @@ const WINDOW_READINGS = [
 const HTTP_SOURCE = { kind: "http", url: "https://example.test/usage" };
 
 describe("usage service", () => {
+  test("reads Kimi Code's configured API key before an old OpenCode key", async () => {
+    const source = createFakeSource({
+      http: async () => ({ usage: { used: 4, limit: 10, remaining: 6 } }),
+    });
+    const service = createService({
+      overrides: { kimi: { preset: "kimi" } },
+      source,
+      files: {
+        [`${HOME_DIR}/.kimi-code/config.toml`]: `
+          default_model = "kimi/alias"
+          [models."kimi/alias"]
+          provider = "my-kimi"
+          [providers.my-kimi]
+          type = "anthropic"
+          base_url = "https://api.kimi.com/coding/"
+          api_key = "test-kimi-config-key"
+        `,
+        [`${HOME_DIR}/.local/share/opencode/auth.json`]: JSON.stringify({
+          "kimi-for-coding": { key: "test-old-opencode-key" },
+        }),
+      },
+    });
+
+    const snapshot = await service.read({ refresh: true });
+    expect(source.requests).toEqual([
+      {
+        url: "https://api.kimi.com/coding/v1/usages",
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: "Bearer test-kimi-config-key",
+        },
+      },
+    ]);
+    expect(providerNamed(snapshot.providers, "kimi").readings).toMatchObject([{ percent: 40 }]);
+  });
+
   test("projects a quota reading with a window and derives the consumed percentage", async () => {
     const source = createFakeSource({
       http: async () => ({ google: { used: 250, limit: 1000, resets: "2026-03-01T17:00:00Z" } }),

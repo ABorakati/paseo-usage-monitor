@@ -1030,6 +1030,7 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
           path: "access_token",
           expiresAtPath: "expires_at",
         },
+        { kind: "kimiCodeConfig" },
         { kind: "env", variable: "MOONSHOT_API_KEY" },
         {
           kind: "jsonFile",
@@ -1763,6 +1764,26 @@ const PRESET_DEFINITIONS: Record<string, UsageProvider> = {
         // no single durationMs to give: a fixed length would be wrong for half
         // of them. These bars show a reset time and no pace marker.
         window: { label: "Window", resetsAtPath: "resetsAt", durationMsPath: "durationMs" },
+      },
+    ],
+  }),
+
+  zcode: definePreset({
+    label: "ZCode",
+    icon: { kind: "monogram", text: "ZC", color: "#2563EB" },
+    description:
+      "Reads the ZCode quota windows already available in Paseo's built-in Usage screen.",
+    source: { kind: "probe", probe: "zcode" },
+    readings: [
+      {
+        kind: "quota",
+        id: "window",
+        label: "Quota",
+        unit: "percent",
+        each: { path: "windows", idPath: "id", labelPath: "label", groupPath: "group" },
+        percentPath: "usedPct",
+        percentRemainingPath: "remainingPct",
+        window: { label: "Window", resetsAtPath: "resetsAt" },
       },
     ],
   }),

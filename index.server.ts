@@ -49,12 +49,12 @@ import { readUsageLimits } from "./shared/limits.shared";
 
 export default function contribute(server: PluginServerContext) {
   server.registerSettings(historyViewSettings);
-  server.handle(readUsageLimits, readLimits);
+  server.handle(readUsageLimits, (input, context) => readLimits(input, context.paseo));
   server.handle(readUsageHistory, readHistory);
   server.handle(readUsageConfig, readConfig);
   server.handle(writeUsageProvider, writeProvider);
   server.handle(removeUsageProvider, removeProvider);
-  server.handle(testUsageProvider, testProvider);
+  server.handle(testUsageProvider, (input, context) => testProvider(input, context.paseo));
   server.handle(readCodexBankedReset, readCodexBankedResetHandler);
   server.handle(consumeCodexBankedReset, consumeCodexBankedResetHandler);
   server.handle(readClaudeStatusLine, readStatusLine);
@@ -85,7 +85,7 @@ export default function contribute(server: PluginServerContext) {
       return;
     }
     try {
-      await readLimits({ refresh: true });
+      await readLimits({ refresh: true }, context.paseo);
     } catch {
       // Ignore background refresh errors; regular poll will retry
     }

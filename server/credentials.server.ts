@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { UsageCredentialMissingError, UsageInterpolationError } from "./errors.server";
 import { interpolate } from "./interpolate.server";
 import { readStringAtPath, readTimestampAtPath } from "./json-path.server";
+import { readKimiCodeConfigKey } from "./kimi-code-config.server";
 import type { UsageCredentials, UsageCredentialSource } from "../shared/limits.shared";
 
 /**
@@ -169,6 +170,8 @@ export function describeCredentialPlace(source: UsageCredentialSource): string {
     }
     case "keychain":
       return `keychain "${source.service}"#${source.path}`;
+    case "kimiCodeConfig":
+      return "Kimi Code config.toml";
   }
 }
 
@@ -289,10 +292,18 @@ function readSqliteCredential(
   return { kind: "resolved", token };
 }
 
-function readSource(source: UsageCredentialSource, adapters: CredentialAdapters): SourceRead {
+function readSource(
+  source: UsageCredentialSource,
+  adapters: CredentialAdapters,
+  destination?: string,
+): SourceRead {
   if (source.kind === "jsonFile") return readJsonFileCredential(source, adapters);
   if (source.kind === "keychain") return readKeychainCredential(source, adapters);
   if (source.kind === "sqlite") return readSqliteCredential(source, adapters);
+  if (source.kind === "kimiCodeConfig") {
+    const token = readKimiCodeConfigKey(destination, adapters);
+    return token === undefined ? UNAVAILABLE : { kind: "resolved", token };
+  }
   const value = adapters.env[source.variable];
   if (value === undefined) return UNAVAILABLE;
   const token = value.trim();
@@ -323,6 +334,7 @@ export interface UsageCredentialResolver {
 export function createCredentialResolver(
   credentials: UsageCredentials,
   adapters: CredentialAdapters,
+  destination?: string,
 ): UsageCredentialResolver {
   const resolved = new Map<string, string>();
   const resolvedFrom = new Map<string, UsageCredentialSource>();
@@ -333,7 +345,7 @@ export function createCredentialResolver(
     if (cached !== undefined) return cached;
     const tried: string[] = [];
     for (const source of credentials[name] ?? []) {
-      const read = readSource(source, adapters);
+      const read = readSource(source, adapters, destination);
       tried.push(describeSource(source, read));
       if (read.kind === "resolved") {
         resolved.set(name, read.token);

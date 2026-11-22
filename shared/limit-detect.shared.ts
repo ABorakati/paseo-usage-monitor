@@ -455,6 +455,17 @@ const VENDOR_SPECS: readonly VendorSpec[] = [
     agentProviders: ["antigravity", "antigravity-acp", "antigravity-official"],
   },
   {
+    id: "zcode",
+    presets: ["zcode"],
+    trackedBy: "zcode",
+    label: "ZCode",
+    kind: "quota",
+    usageUrl: null,
+    topUpUrl: null,
+    modelPrefixes: [],
+    agentProviders: ["zcode"],
+  },
+  {
     id: "github-copilot",
     presets: ["github-copilot"],
     trackedBy: "github-copilot",

@@ -2,5 +2,6 @@
   "id": "usage-monitor",
   "requirements": {
     "paseo": ">=0.15.0"
-  }
+  },
+  "build": [["node", "scripts/prepare-runtime.mjs"]]
 }

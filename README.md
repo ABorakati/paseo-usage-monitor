@@ -50,7 +50,7 @@ Plugin code is trusted and unsandboxed. The server half runs in a subprocess wit
 paseo plugin add ABorakati/paseo-usage-monitor
 ```
 
-Either reaches **running** in `paseo plugin ls` with no build step and no install scripts: the daemon compiles the plugin itself, and everything it imports is provided by Paseo. Git installs track `main`; `paseo plugin status` shows when the upstream repository has moved and `paseo plugin update usage-monitor` pulls it. Use `npm:paseo-usage-monitor@<version>` to pin a release.
+The daemon compiles the plugin and installs its TOML parser when needed. Git installs track `main`. Use `paseo plugin ls` to check its status and `paseo plugin update usage-monitor` to pull changes. Use `npm:paseo-usage-monitor@<version>` to pin a release.
 
 Report bugs and questions on [GitHub issues](https://github.com/ABorakati/paseo-usage-monitor/issues).
 
@@ -78,7 +78,7 @@ npm install && npm run typecheck
 paseo plugin install .
 ```
 
-`npm install` only fetches the type declarations used by `typecheck`; the daemon compiles the plugin itself and needs nothing from `node_modules`. If the plugin does not show as **running** within a few seconds, run `paseo daemon restart` and check again — the daemon occasionally needs one to pick up a newly added plugin entry.
+`npm install` fetches the runtime dependency and tools for development. If the plugin does not show as **running** within a few seconds, run `paseo daemon restart` and check again — the daemon occasionally needs one to pick up a newly added plugin entry.
 
 ### After editing
 
@@ -86,15 +86,15 @@ paseo plugin install .
 
 ## Supported providers
 
-34 presets ship with the plugin, in five kinds. Which kind you get is the vendor's decision, not this plugin's: an ordinary API key that can read its own balance is the exception, and most frontier labs gate usage behind an admin credential or expose it only in per-request headers.
+35 presets ship with the plugin, in five kinds. Which kind you get is the vendor's decision, not this plugin's: an ordinary API key that can read its own balance is the exception, and most frontier labs gate usage behind an admin credential or expose it only in per-request headers.
 
-| Kind             | What it reads                                                                          | Presets                                                                                                                                                                                                                            |
-| ---------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Subscription** | Consumption inside a resetting window, from the CLI's own login or a plan-specific key | `claude`, `claude-statusline`, `codex`, `cursor`, `grok`, `github-copilot`, `kimi`, `minimax`, `minimax-cn`, `zai-coding-plan` (alias `zai`), `zhipuai-coding-plan`, `synthetic`, `opencode-go`, `chutes`, `zenmux`, `antigravity` |
-| **Balance**      | Money or credits left on an ordinary API key                                           | `deepseek`, `moonshot`, `moonshot-cn`, `siliconflow`, `siliconflow-cn`, `stepfun-ai`, `stepfun`, `novita`, `deepinfra`, `venice`, `xai`, `nano-gpt`, `poe`                                                                         |
-| **Aggregator**   | Spend against a cap, per key or per account                                            | `openrouter`, `openrouter-credits`, `vercel`                                                                                                                                                                                       |
-| **Pricing band** | Which rate is in force now, from a schedule and no request                             | `deepseek-rate`                                                                                                                                                                                                                    |
-| **Template**     | A shape to repoint once the vendor ships an endpoint                                   | `opencode-zen`                                                                                                                                                                                                                     |
+| Kind             | What it reads                                                                          | Presets                                                                                                                                                                                                                                     |
+| ---------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Subscription** | Consumption inside a resetting window, from the CLI's own login or a plan-specific key | `claude`, `claude-statusline`, `codex`, `cursor`, `grok`, `github-copilot`, `kimi`, `minimax`, `minimax-cn`, `zai-coding-plan` (alias `zai`), `zhipuai-coding-plan`, `zcode`, `synthetic`, `opencode-go`, `chutes`, `zenmux`, `antigravity` |
+| **Balance**      | Money or credits left on an ordinary API key                                           | `deepseek`, `moonshot`, `moonshot-cn`, `siliconflow`, `siliconflow-cn`, `stepfun-ai`, `stepfun`, `novita`, `deepinfra`, `venice`, `xai`, `nano-gpt`, `poe`                                                                                  |
+| **Aggregator**   | Spend against a cap, per key or per account                                            | `openrouter`, `openrouter-credits`, `vercel`                                                                                                                                                                                                |
+| **Pricing band** | Which rate is in force now, from a schedule and no request                             | `deepseek-rate`                                                                                                                                                                                                                             |
+| **Template**     | A shape to repoint once the vendor ships an endpoint                                   | `opencode-zen`                                                                                                                                                                                                                              |
 
 Every endpoint, credential chain and caveat is in [Presets](docs/PRESETS.md), along with the list of vendors that cannot be read and why. Anything with a JSON endpoint, a CLI that prints JSON, or a file on disk can be added as a hand-written provider without a code change; see [Configuration](docs/CONFIGURATION.md) and [Recipes](docs/RECIPES.md).
 
@@ -241,7 +241,7 @@ To opt out, create the file. Defaults apply only when it is absent, so any file 
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
 | [Configuration](docs/CONFIGURATION.md)     | `usage-limits.json`: the provider map, provider entries, preset merge rules, readings, sources, JSON paths                 |
 | [Credentials](docs/CREDENTIALS.md)         | Credential chains, expiry, and reading Claude quota without a token                                                        |
-| [Presets](docs/PRESETS.md)                 | The 34 presets, per-preset caveats, what is unverified, what is not supported, Antigravity, GitHub Copilot, rate limits    |
+| [Presets](docs/PRESETS.md)                 | The 35 presets, per-preset caveats, what is unverified, what is not supported, Antigravity, GitHub Copilot, rate limits    |
 | [Multiple accounts](docs/MULTI_ACCOUNT.md) | Two logins on one provider: arbitrary ids, the Provider id field, per-id secrets, a two-Codex recipe                       |
 | [Recipes](docs/RECIPES.md)                 | Complete `usage-limits.json` files: env keys, hand-written HTTP, a CLI command, a schedule-only rate, an `each` projection |
 | [Usage history](docs/HISTORY.md)           | Where the token history comes from, buckets, dedup, colour, metrics, cost, scan failures                                   |

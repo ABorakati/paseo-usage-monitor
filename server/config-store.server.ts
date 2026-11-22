@@ -216,6 +216,7 @@ function validateProviderWrite(input: UsageProviderWrite): UsageProviderOverride
 
 function isSameSource(left: UsageCredentialSource, right: UsageCredentialSource): boolean {
   if (left.kind !== right.kind) return false;
+  if (left.kind === "kimiCodeConfig") return true;
   if (left.kind === "env" && right.kind === "env") return left.variable === right.variable;
   if (left.kind === "jsonFile" && right.kind === "jsonFile") {
     return left.file === right.file && left.path === right.path;

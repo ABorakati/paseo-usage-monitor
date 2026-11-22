@@ -28,6 +28,7 @@
     "client/",
     "shared/",
     "!**/*.test.ts",
+    "scripts/prepare-runtime.mjs",
     "statusline-hook.mjs",
     "usage-limits.example.json",
     "tsconfig.json",
@@ -40,6 +41,9 @@
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "smol-toml": "1.9.0"
   },
   "devDependencies": {
     "@getpaseo/client": "0.15.0",
