@@ -88,11 +88,46 @@ const GO_KEYRING_PREFIX = "go-keyring-base64:";
 
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const CLOUD_CODE_BASE_URLS = [
-  "https://cloudcode-pa.googleapis.com",
   "https://daily-cloudcode-pa.googleapis.com",
+  "https://cloudcode-pa.googleapis.com",
 ];
 const QUOTA_SUMMARY_PATH = "/v1internal:retrieveUserQuotaSummary";
+const MODEL_QUOTA_PATH = "/v1internal:retrieveUserQuota";
 const CODE_ASSIST_PATH = "/v1internal:loadCodeAssist";
+
+const ANTIGRAVITY_CLI_VERSION = "1.5.18";
+const GO_OS_BY_PLATFORM: Record<string, string> = {
+  win32: "windows",
+  darwin: "darwin",
+  linux: "linux",
+  freebsd: "freebsd",
+  openbsd: "openbsd",
+  sunos: "solaris",
+  aix: "aix",
+};
+const GO_ARCH_BY_ARCH: Record<string, string> = {
+  x64: "amd64",
+  ia32: "386",
+  arm64: "arm64",
+  arm: "arm",
+  ppc64: "ppc64",
+  s390x: "s390x",
+};
+
+/**
+ * `daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary`
+ * gates the `Gemini Models` group (both 5-hour and weekly buckets) on a modern
+ * `antigravity/cli/...` (or `antigravity/ide/...`) User-Agent string; sending
+ * a bare `"antigravity"` User-Agent causes the server to omit Gemini buckets.
+ */
+export function antigravityCliUserAgent(
+  platform: string = process.platform,
+  arch: string = process.arch,
+): string {
+  const osType = GO_OS_BY_PLATFORM[platform] ?? platform;
+  const goArch = GO_ARCH_BY_ARCH[arch] ?? arch;
+  return `antigravity/cli/${ANTIGRAVITY_CLI_VERSION} (aidev_client; os_type=${osType}; arch=${goArch}; auth_method=consumer)`;
+}
 
 /** Send a token only if it survives the round trip with room to spare. */
 const TOKEN_EXPIRY_MARGIN_MS = 60_000;
@@ -816,22 +851,57 @@ async function readKeychainItem(service: string, account: string): Promise<strin
   }
 }
 
-export async function loadStoredCredential(signal: AbortSignal): Promise<AntigravityCredential> {
-  const raw =
-    process.platform === "darwin"
-      ? await readKeychainItem(KEYRING_SERVICE, KEYRING_ACCOUNT)
-      : process.platform === "win32"
-        ? await readWindowsCredentialItem(`${KEYRING_SERVICE}:${KEYRING_ACCOUNT}`)
-        : await readSecretServiceItem(
-            { service: KEYRING_SERVICE, username: KEYRING_ACCOUNT },
-            signal,
-          );
+/** Where `agy` / Antigravity writes the OAuth token when no OS keyring is available. */
+const TOKEN_FILE_CANDIDATES = [
+  join(".gemini", "antigravity-cli", "antigravity-oauth-token"),
+  join(".gemini", "antigravity", "antigravity-oauth-token"),
+  join(".gemini", "antigravity-acp", "antigravity-oauth-token"),
+] as const;
 
-  if (raw === null) {
-    throw new AntigravityProbeError(
-      "no stored Antigravity credential (keyring item service=gemini, account=antigravity); sign in with Antigravity or `agy` first",
-    );
+export function readStoredTokenFile(homeDir: string = homedir()): string | null {
+  for (const relativePath of TOKEN_FILE_CANDIDATES) {
+    try {
+      const content = readFileSync(join(homeDir, relativePath), "utf8").trim();
+      if (content !== "") return content;
+    } catch {
+      // Absent or unreadable; try the next candidate.
+    }
   }
+  return null;
+}
+
+export async function resolveStoredCredentialRaw(
+  readKeyring: () => Promise<string | null>,
+  readFallbackFile: () => string | null,
+): Promise<string> {
+  let keyringError: unknown = null;
+  try {
+    const fromKeyring = await readKeyring();
+    if (fromKeyring !== null) return fromKeyring;
+  } catch (error) {
+    keyringError = error;
+  }
+
+  const fromFile = readFallbackFile();
+  if (fromFile !== null) return fromFile;
+
+  if (keyringError !== null) throw keyringError;
+  throw new AntigravityProbeError(
+    "no stored Antigravity credential (keyring item service=gemini, account=antigravity, or ~/.gemini/antigravity-cli/antigravity-oauth-token); sign in with Antigravity or `agy` first",
+  );
+}
+
+export async function loadStoredCredential(signal: AbortSignal): Promise<AntigravityCredential> {
+  const raw = await resolveStoredCredentialRaw(
+    () =>
+      process.platform === "darwin"
+        ? readKeychainItem(KEYRING_SERVICE, KEYRING_ACCOUNT)
+        : process.platform === "win32"
+          ? readWindowsCredentialItem(`${KEYRING_SERVICE}:${KEYRING_ACCOUNT}`)
+          : readSecretServiceItem({ service: KEYRING_SERVICE, username: KEYRING_ACCOUNT }, signal),
+    () => (signal.aborted ? null : readStoredTokenFile()),
+  );
+
   const credential = parseStoredCredential(raw);
   if (credential === null) {
     throw new AntigravityProbeError(
@@ -1238,11 +1308,124 @@ export function mapQuotaSummary(
   return { source, fetchedAt, tier, buckets };
 }
 
+interface ModelQuotaSample {
+  remainingFraction: number;
+  resetTime: string | null;
+}
+
+function classifyModelQuotaBucket(modelId: string): "gemini-5h" | "3p-5h" | null {
+  if (modelId.startsWith("gemini-")) return "gemini-5h";
+  if (modelId.startsWith("claude-") || modelId.startsWith("gpt-")) return "3p-5h";
+  return null;
+}
+
+/**
+ * `retrieveUserQuotaSummary` can omit a group or report a 0% session bucket
+ * while `retrieveUserQuota` holds live per-model 5-hour usage. Backfill
+ * missing session buckets and prefer higher consumption when
+ * `retrieveUserQuota` reports active usage, without lowering any bucket that
+ * already reports higher usage.
+ */
+export function backfillMissingSessionBuckets(
+  quota: AntigravityQuota,
+  modelQuotaDocument: unknown,
+): AntigravityQuota {
+  const root = asRecord(modelQuotaDocument);
+  const rawBuckets = Array.isArray(root?.buckets) ? root.buckets : [];
+  if (rawBuckets.length === 0) return quota;
+
+  const lowestByBucket = new Map<"gemini-5h" | "3p-5h", ModelQuotaSample>();
+  for (const raw of rawBuckets) {
+    const entry = asRecord(raw);
+    if (entry === null) continue;
+    const modelId = entry.modelId;
+    const remaining = entry.remainingFraction;
+    if (
+      typeof modelId !== "string" ||
+      typeof remaining !== "number" ||
+      !Number.isFinite(remaining)
+    ) {
+      continue;
+    }
+    const targetId = classifyModelQuotaBucket(modelId);
+    if (targetId === null) continue;
+    const resetTime =
+      typeof entry.resetTime === "string" && !Number.isNaN(Date.parse(entry.resetTime))
+        ? entry.resetTime
+        : null;
+    const existing = lowestByBucket.get(targetId);
+    if (existing === undefined || remaining < existing.remainingFraction) {
+      lowestByBucket.set(targetId, { remainingFraction: remaining, resetTime });
+    } else if (existing.resetTime === null && resetTime !== null) {
+      lowestByBucket.set(targetId, { ...existing, resetTime });
+    }
+  }
+
+  if (lowestByBucket.size === 0) return quota;
+
+  return {
+    ...quota,
+    buckets: quota.buckets.map((bucket) => {
+      if (bucket.id !== "gemini-5h" && bucket.id !== "3p-5h") return bucket;
+      const sample = lowestByBucket.get(bucket.id);
+      if (sample === undefined) return bucket;
+      const sampleUsedPercent = Math.min(100, Math.max(0, (1 - sample.remainingFraction) * 100));
+      if (bucket.usedPercent !== null && sampleUsedPercent <= bucket.usedPercent) return bucket;
+      return {
+        ...bucket,
+        usedPercent: sampleUsedPercent,
+        resetsAt: sample.resetTime ?? bucket.resetsAt,
+      };
+    }),
+  };
+}
+
+async function fetchModelQuota(
+  baseUrl: string,
+  accessToken: string,
+  signal: AbortSignal,
+): Promise<unknown> {
+  try {
+    const response = await fetch(baseUrl + MODEL_QUOTA_PATH, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        authorization: `Bearer ${accessToken}`,
+        "user-agent": antigravityCliUserAgent(),
+      },
+      body: "{}",
+      signal,
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function summaryHasGeminiBuckets(document: unknown): boolean {
+  const root = asRecord(document);
+  const groups = Array.isArray(root?.groups) ? root.groups : [];
+  for (const rawGroup of groups) {
+    const group = asRecord(rawGroup);
+    const buckets = Array.isArray(group?.buckets) ? group.buckets : [];
+    for (const rawBucket of buckets) {
+      const bucket = asRecord(rawBucket);
+      if (bucket?.bucketId === "gemini-5h" || bucket?.bucketId === "gemini-weekly") {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 async function fetchQuotaSummary(
   accessToken: string,
   signal: AbortSignal,
-): Promise<{ document: unknown; source: string }> {
+): Promise<{ document: unknown; source: string; baseUrl: string }> {
   let lastFailure = "no attempt was made";
+  let partialSummary: { document: unknown; source: string; baseUrl: string } | null = null;
   for (const base of CLOUD_CODE_BASE_URLS) {
     const url = base + QUOTA_SUMMARY_PATH;
     let response: Response;
@@ -1253,7 +1436,7 @@ async function fetchQuotaSummary(
           "content-type": "application/json",
           accept: "application/json",
           authorization: `Bearer ${accessToken}`,
-          "user-agent": "antigravity",
+          "user-agent": antigravityCliUserAgent(),
         },
         body: "{}",
         signal,
@@ -1275,8 +1458,16 @@ async function fetchQuotaSummary(
       lastFailure = `${url} returned HTTP ${response.status}`;
       continue;
     }
-    return { document: await response.json(), source: url };
+    const document = await response.json();
+    if (summaryHasGeminiBuckets(document)) {
+      return { document, source: url, baseUrl: base };
+    }
+    if (partialSummary === null) {
+      partialSummary = { document, source: url, baseUrl: base };
+    }
   }
+
+  if (partialSummary !== null) return partialSummary;
   throw new AntigravityProbeError(`could not reach the Antigravity quota endpoint: ${lastFailure}`);
 }
 
@@ -1338,7 +1529,7 @@ async function fetchTierLabel(accessToken: string, signal: AbortSignal): Promise
         "content-type": "application/json",
         accept: "application/json",
         authorization: `Bearer ${accessToken}`,
-        "user-agent": "antigravity",
+        "user-agent": antigravityCliUserAgent(),
       },
       body: JSON.stringify({ metadata: { pluginType: "GEMINI" } }),
       signal,
@@ -1353,7 +1544,7 @@ async function fetchTierLabel(accessToken: string, signal: AbortSignal): Promise
 export async function probeAntigravityQuota(): Promise<AntigravityQuota> {
   const deadline = startDeadline(PROBE_BUDGET_MS);
   const accessToken = await acquireAccessToken(deadline);
-  const { document, source } = await runPhase(
+  const { document, source, baseUrl } = await runPhase(
     deadline,
     "fetching the quota summary",
     PHASE_QUOTA_MS,
@@ -1362,7 +1553,18 @@ export async function probeAntigravityQuota(): Promise<AntigravityQuota> {
   const tier = await runPhase(deadline, "reading the plan tier", PHASE_TIER_MS, (signal) =>
     fetchTierLabel(accessToken, signal),
   ).catch(() => null);
-  return mapQuotaSummary(document, source, new Date().toISOString(), tier);
+  const summary = mapQuotaSummary(document, source, new Date().toISOString(), tier);
+  const needsSessionCheck = summary.buckets.some(
+    (bucket) =>
+      (bucket.id === "gemini-5h" || bucket.id === "3p-5h") &&
+      (bucket.usedPercent === null || bucket.usedPercent === 0),
+  );
+  if (!needsSessionCheck) return summary;
+
+  const modelQuota = await runPhase(deadline, "fetching per-model quota", PHASE_TIER_MS, (signal) =>
+    fetchModelQuota(baseUrl, accessToken, signal),
+  ).catch(() => null);
+  return backfillMissingSessionBuckets(summary, modelQuota);
 }
 
 // ---------------------------------------------------------------------------

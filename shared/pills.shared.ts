@@ -261,12 +261,19 @@ function preferredReading(left: UsagePillReading, right: UsagePillReading): Usag
   return rightPercent > leftPercent ? right : left;
 }
 
+function isGeminiSessionReading(reading: UsagePillReading): boolean {
+  return reading.id === "bucket-gemini-5h" || reading.id === "gemini-5h";
+}
+
 /**
  * Without a pinned id the pill tracks the reading that answers "how close am I
  * to running out". A reading whose vendor publishes no ceiling can state an
  * amount but never a percentage, so it cannot fill a gauge and is only ever a
  * last resort: Antigravity reports request and token counts with no allowance
  * beside them, and picking one of those left the rail with nothing to draw.
+ * For Antigravity, always prefer the Gemini 5-hour session pool first so the
+ * headline stays pinned to Gemini's session window instead of flipping to
+ * weekly or third-party pools when they happen to have higher usage.
  * A provider with no quota at all falls back to its balance, which is what an
  * API-credit account has instead.
  */
@@ -285,11 +292,17 @@ export function selectPillReading(
     }
   }
   const measured = candidates.filter((reading) => readingPercentUsed(reading) !== null);
+  const geminiSession = measured.find(isGeminiSessionReading);
+  if (geminiSession !== undefined) {
+    return geminiSession;
+  }
   const pool = measured.length > 0 ? measured : candidates;
   return pool.reduce(preferredReading);
 }
 
 export interface PillMetrics {
+  /** Exact reading id, used to skip or inspect the tracked reading without label collisions. */
+  readingId: string;
   /** 0-100 consumed. Drives the threshold tone even when the gauge draws headroom. */
   percentUsed: number | null;
   /** 0-100 the gauge draws, already in the configured direction. */
@@ -373,6 +386,38 @@ function readoutText(
   return amountText(reading, settings);
 }
 
+function resolveWindowLabel(reading: UsagePillReading, window: UsageWindow | null): string | null {
+  if (window === null) {
+    return null;
+  }
+  const label = window.label.trim();
+  // Generic "Window" comes from `each` mappings that project multiple pools and
+  // windows together (e.g. Antigravity). Derive the real pool + window name
+  // ("Gemini Models · Session") from group and reading label when available.
+  if (label.toLowerCase() === "window" && reading.group !== null) {
+    const shortGroup = reading.group.split(" · ")[0]?.trim() ?? "";
+    const parts = reading.label
+      .split(" · ")
+      .map((part) => part.trim())
+      .filter((part) => part !== "");
+    const windowPart = parts[parts.length - 1] ?? "";
+    if (shortGroup !== "" && windowPart !== "") {
+      return `${shortGroup} · ${windowPart}`;
+    }
+    if (shortGroup !== "") {
+      return shortGroup;
+    }
+  }
+  return window.label;
+}
+
+const PLAN_POOL_PREFIX = /^plan pool\s*·\s*/i;
+
+export function formatBarReadingLabel(label: string): string {
+  const stripped = label.replace(PLAN_POOL_PREFIX, "").trim();
+  return stripped === "" ? label : stripped;
+}
+
 export function pillMetrics(
   reading: UsagePillReading,
   settings: ResolvedPillSettings,
@@ -384,11 +429,12 @@ export function pillMetrics(
   }
   const window = reading.kind === "quota" ? reading.window : null;
   return {
+    readingId: reading.id,
     percentUsed,
     percentFilled,
     readout: readoutText(reading, settings, percentFilled),
-    readingLabel: reading.label,
-    windowLabel: window?.label ?? null,
+    readingLabel: formatBarReadingLabel(reading.label),
+    windowLabel: resolveWindowLabel(reading, window),
     resetsAt: window?.resetsAt ?? null,
   };
 }
@@ -432,6 +478,12 @@ export function usageWindowRows(
   readings: readonly UsageReading[],
   skipReadingId: string | null,
 ): UsageWindowRow[] {
+  const labelCounts = new Map<string, number>();
+  for (const reading of readings) {
+    if (!isPillReading(reading)) continue;
+    const key = reading.label.trim();
+    if (key !== "") labelCounts.set(key, (labelCounts.get(key) ?? 0) + 1);
+  }
   const rows: UsageWindowRow[] = [];
   for (const reading of readings) {
     if (reading.id === skipReadingId || !isPillReading(reading)) {
@@ -444,9 +496,18 @@ export function usageWindowRows(
     }
     const suffix =
       reading.kind === "balance" ? " left" : metrics.percentUsed === null ? "" : " used";
+    const trimmedLabel = reading.label.trim();
+    const displayLabel = formatBarReadingLabel(reading.label);
+    let name = trimmedLabel === "" ? (metrics.windowLabel ?? reading.id) : displayLabel;
+    if (trimmedLabel !== "" && (labelCounts.get(trimmedLabel) ?? 0) > 1 && reading.group !== null) {
+      const shortGroup = reading.group.split(" · ")[0]?.trim() ?? "";
+      if (shortGroup !== "") {
+        name = `${shortGroup} · ${displayLabel}`;
+      }
+    }
     rows.push({
       id: reading.id,
-      name: reading.label.trim() === "" ? (metrics.windowLabel ?? reading.id) : reading.label,
+      name,
       readout: `${metrics.readout}${suffix}`,
       percentUsed: metrics.percentUsed,
       percentFilled: metrics.percentFilled,

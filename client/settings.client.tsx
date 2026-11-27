@@ -153,6 +153,7 @@ interface ReadingDraft {
   windowLabel: string;
   resetsAtPath: string;
   durationMs: string;
+  durationMsPath: string;
   eachPath: string;
   eachIdPath: string;
   eachLabelPath: string;
@@ -477,6 +478,7 @@ function emptyReading(kind: ReadingDraft["kind"] = "quota"): ReadingDraft {
     windowLabel: "",
     resetsAtPath: "",
     durationMs: "",
+    durationMsPath: "",
     eachPath: "",
     eachIdPath: "",
     eachLabelPath: "",
@@ -567,6 +569,7 @@ function mappingDraft(mapping: UsageReadingMapping): ReadingDraft {
       windowLabel: mapping.window?.label ?? "",
       resetsAtPath: mapping.window?.resetsAtPath ?? "",
       durationMs: mapping.window?.durationMs?.toString() ?? "",
+      durationMsPath: mapping.window?.durationMsPath ?? "",
       eachPath: mapping.each?.path ?? "",
       eachIdPath: mapping.each?.idPath ?? "",
       eachLabelPath: mapping.each?.labelPath ?? "",
@@ -949,7 +952,9 @@ function buildWindow(reading: ReadingDraft): unknown | null {
   const label = reading.windowLabel.trim();
   const resetsAtPath = reading.resetsAtPath.trim();
   const durationText = reading.durationMs.trim();
-  const hasWindow = label !== "" || resetsAtPath !== "" || durationText !== "";
+  const durationMsPath = reading.durationMsPath.trim();
+  const hasWindow =
+    label !== "" || resetsAtPath !== "" || durationText !== "" || durationMsPath !== "";
   if (!hasWindow) return null;
   if (label === "")
     throw new UsageFormError(`Quota reading "${reading.label}" needs a window label`);
@@ -964,6 +969,7 @@ function buildWindow(reading: ReadingDraft): unknown | null {
     label,
     ...optionalValue("resetsAtPath", resetsAtPath),
     ...(durationMs === undefined ? {} : { durationMs }),
+    ...optionalValue("durationMsPath", durationMsPath),
   };
 }
 

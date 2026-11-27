@@ -1,5 +1,11 @@
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
+  antigravityCliUserAgent,
+  AntigravityProbeError,
+  backfillMissingSessionBuckets,
   type DBusMessage,
   decodeDBusBody,
   decodeDBusMessages,
@@ -9,8 +15,10 @@ import {
   isOAuthCacheFresh,
   mapQuotaSummary,
   parseStoredCredential,
+  readStoredTokenFile,
   readTierId,
   readTierLabel,
+  resolveStoredCredentialRaw,
   runPhase,
   startDeadline,
 } from "./antigravity-probe.server";
@@ -240,6 +248,84 @@ describe("parseStoredCredential", () => {
 
   test("rejects a payload that is not JSON", () => {
     expect(parseStoredCredential("not json")).toBeNull();
+  });
+});
+
+describe("readStoredTokenFile", () => {
+  test("reads the file fallback written by `agy` under ~/.gemini/antigravity-cli", () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), "ag-token-file-"));
+    try {
+      const cliDir = join(fakeHome, ".gemini", "antigravity-cli");
+      mkdirSync(cliDir, { recursive: true });
+      writeFileSync(join(cliDir, "antigravity-oauth-token"), `${STORED_CREDENTIAL}\n`, "utf8");
+      expect(readStoredTokenFile(fakeHome)).toBe(STORED_CREDENTIAL);
+    } finally {
+      rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  test("returns null when no token file exists", () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), "ag-token-empty-"));
+    try {
+      expect(readStoredTokenFile(fakeHome)).toBeNull();
+    } finally {
+      rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("resolveStoredCredentialRaw", () => {
+  test("prefers the keyring item when present", async () => {
+    await expect(
+      resolveStoredCredentialRaw(
+        async () => "from-keyring",
+        () => "from-file",
+      ),
+    ).resolves.toBe("from-keyring");
+  });
+
+  test("falls back to the token file when the keyring service is unavailable", async () => {
+    await expect(
+      resolveStoredCredentialRaw(
+        async () => {
+          throw new AntigravityProbeError(
+            "the keyring returned org.freedesktop.DBus.Error.ServiceUnknown for OpenSession",
+          );
+        },
+        () => STORED_CREDENTIAL,
+      ),
+    ).resolves.toBe(STORED_CREDENTIAL);
+  });
+
+  test("falls back to the token file when the keyring has no matching item", async () => {
+    await expect(
+      resolveStoredCredentialRaw(
+        async () => null,
+        () => STORED_CREDENTIAL,
+      ),
+    ).resolves.toBe(STORED_CREDENTIAL);
+  });
+
+  test("rethrows the keyring error when no fallback token file exists", async () => {
+    await expect(
+      resolveStoredCredentialRaw(
+        async () => {
+          throw new AntigravityProbeError(
+            "the keyring returned org.freedesktop.DBus.Error.ServiceUnknown for OpenSession",
+          );
+        },
+        () => null,
+      ),
+    ).rejects.toThrow("org.freedesktop.DBus.Error.ServiceUnknown");
+  });
+
+  test("reports a missing credential when both keyring and fallback file are absent", async () => {
+    await expect(
+      resolveStoredCredentialRaw(
+        async () => null,
+        () => null,
+      ),
+    ).rejects.toThrow("no stored Antigravity credential");
   });
 });
 
@@ -558,6 +644,79 @@ describe("mapQuotaSummary", () => {
     const result = mapQuotaSummary({ error: { code: 401 } }, SOURCE, FETCHED_AT);
     expect(result.buckets.every((bucket) => bucket.usedPercent === null)).toBe(true);
     expect(result.buckets).toHaveLength(4);
+  });
+});
+
+describe("backfillMissingSessionBuckets", () => {
+  test("fills missing gemini-5h and upgrades 0% session buckets when retrieveUserQuota shows active usage", () => {
+    const summaryWithoutGemini = mapQuotaSummary(
+      { groups: [QUOTA_SUMMARY.groups[1]] },
+      SOURCE,
+      FETCHED_AT,
+      "Google AI Pro",
+    );
+    const modelQuota = {
+      buckets: [
+        {
+          modelId: "gemini-3-flash",
+          remainingFraction: 0.75,
+          resetTime: "2026-11-25T04:24:52Z",
+        },
+        {
+          modelId: "gemini-4-hydrogen-sonar",
+          remainingFraction: 0.72,
+          resetTime: "2026-11-25T04:24:52Z",
+        },
+        {
+          modelId: "claude-opus-5-5-high",
+          remainingFraction: 0.5,
+          resetTime: "2026-11-25T07:24:35Z",
+        },
+      ],
+    };
+
+    const filled = backfillMissingSessionBuckets(summaryWithoutGemini, modelQuota);
+    expect(filled.buckets[0]).toMatchObject({
+      id: "gemini-5h",
+      group: "Gemini Models · Google AI Pro",
+      resetsAt: "2026-11-25T04:24:52Z",
+    });
+    expect(filled.buckets[0]?.usedPercent).toBeCloseTo(28, 5);
+    expect(filled.buckets[1]?.usedPercent).toBeNull();
+    // 3p-5h was 0% in the summary while retrieveUserQuota reported 50% used.
+    expect(filled.buckets[2]?.usedPercent).toBeCloseTo(50, 5);
+    expect(filled.buckets[2]?.resetsAt).toBe("2026-11-25T07:24:35Z");
+  });
+
+  test("keeps summary session usage when it is already higher than retrieveUserQuota", () => {
+    const summaryWithHigherUsage = mapQuotaSummary(QUOTA_SUMMARY, SOURCE, FETCHED_AT);
+    const modelQuota = {
+      buckets: [
+        {
+          modelId: "gemini-3-flash",
+          remainingFraction: 1,
+          resetTime: "2026-11-28T00:00:00Z",
+        },
+      ],
+    };
+    const merged = backfillMissingSessionBuckets(summaryWithHigherUsage, modelQuota);
+    expect(merged.buckets[0]?.usedPercent).toBeCloseTo((1 - 0.9077114) * 100, 5);
+    expect(merged.buckets[0]?.resetsAt).toBe("2026-08-28T22:11:13Z");
+  });
+
+  test("returns the summary unchanged when retrieveUserQuota has no usable buckets", () => {
+    const summary = mapQuotaSummary({ groups: [QUOTA_SUMMARY.groups[1]] }, SOURCE, FETCHED_AT);
+    expect(backfillMissingSessionBuckets(summary, null)).toEqual(summary);
+    expect(backfillMissingSessionBuckets(summary, { buckets: [] })).toEqual(summary);
+  });
+});
+
+describe("antigravityCliUserAgent", () => {
+  test("formats Go os_type and arch identifiers expected by daily-cloudcode-pa", () => {
+    expect(antigravityCliUserAgent("linux", "x64")).toMatch(
+      /^antigravity\/cli\/\d+\.\d+\.\d+ \(aidev_client; os_type=linux; arch=amd64; auth_method=consumer\)$/,
+    );
+    expect(antigravityCliUserAgent("win32", "arm64")).toContain("os_type=windows; arch=arm64;");
   });
 });
 
