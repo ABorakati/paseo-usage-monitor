@@ -520,7 +520,7 @@ describe("selectPillReading", () => {
 
   test("without published window durations it shows whichever pool is closest to running out", () => {
     const idle = quota({
-      id: "bucket-gemini-5h",
+      id: "pool-a",
       window: { label: "Window", resetsAt: null, durationMs: null },
       used: null,
       limit: null,
@@ -528,7 +528,7 @@ describe("selectPillReading", () => {
       percent: 0,
     });
     const burning = quota({
-      id: "bucket-gemini-weekly",
+      id: "pool-b",
       window: { label: "Window", resetsAt: null, durationMs: null },
       used: null,
       limit: null,
@@ -537,6 +537,43 @@ describe("selectPillReading", () => {
     });
 
     expect(selectPillReading([idle, burning], null)).toBe(burning);
+  });
+
+  test("always prefers Antigravity's Gemini session pool first even when weekly or 3P usage is higher", () => {
+    const geminiSession = quota({
+      id: "bucket-gemini-5h",
+      label: "Plan pool · Session",
+      group: "Gemini Models · Google AI Pro",
+      window: { label: "Window", resetsAt: null, durationMs: null },
+      used: null,
+      limit: null,
+      remaining: null,
+      percent: 0,
+    });
+    const geminiWeekly = quota({
+      id: "bucket-gemini-weekly",
+      label: "Plan pool · Weekly",
+      group: "Gemini Models · Google AI Pro",
+      window: { label: "Window", resetsAt: null, durationMs: null },
+      used: null,
+      limit: null,
+      remaining: null,
+      percent: 23.7,
+    });
+    const thirdPartySession = quota({
+      id: "bucket-3p-5h",
+      label: "Plan pool · Session",
+      group: "Claude and GPT models · Google AI Pro",
+      window: { label: "Window", resetsAt: null, durationMs: FIVE_HOURS_MS },
+      used: null,
+      limit: null,
+      remaining: null,
+      percent: 12,
+    });
+
+    expect(selectPillReading([geminiWeekly, thirdPartySession, geminiSession], null)).toBe(
+      geminiSession,
+    );
   });
 
   test("a published window still beats a higher percentage with no duration", () => {
@@ -580,6 +617,22 @@ describe("pillMetrics quota", () => {
       readout: "25%",
       windowLabel: "Session",
       resetsAt: "2026-09-07T18:00:00.000Z",
+    });
+  });
+
+  test("derives a descriptive pool and window label when a grouped mapping uses the generic Window label", () => {
+    const reading = quota({
+      id: "bucket-gemini-5h",
+      label: "Plan pool · Session",
+      group: "Gemini Models · Google AI Pro",
+      window: { label: "Window", resetsAt: "2026-11-27T20:33:19.000Z", durationMs: FIVE_HOURS_MS },
+      percent: 42.7,
+    });
+
+    expect(pillMetrics(reading, settings())).toMatchObject({
+      readingId: "bucket-gemini-5h",
+      windowLabel: "Gemini Models · Session",
+      readout: "43%",
     });
   });
 
@@ -772,6 +825,44 @@ describe("usageWindowRows", () => {
 
   test("a schedule has no window to draw and is left out", () => {
     expect(usageWindowRows([rate()], null)).toEqual([]);
+  });
+
+  test("disambiguates duplicate reading labels across groups", () => {
+    const rows = usageWindowRows(
+      [
+        quota({
+          id: "bucket-gemini-5h",
+          label: "Plan pool · Session",
+          group: "Gemini Models · Google AI Pro",
+          percent: 0,
+        }),
+        quota({
+          id: "bucket-gemini-weekly",
+          label: "Plan pool · Weekly",
+          group: "Gemini Models · Google AI Pro",
+          percent: 6,
+        }),
+        quota({
+          id: "bucket-3p-5h",
+          label: "Plan pool · Session",
+          group: "Claude and GPT models · Google AI Pro",
+          percent: 0,
+        }),
+        quota({
+          id: "bucket-3p-weekly",
+          label: "Plan pool · Weekly",
+          group: "Claude and GPT models · Google AI Pro",
+          percent: 0,
+        }),
+      ],
+      "bucket-gemini-5h",
+    );
+
+    expect(rows.map((row) => `${row.name} ${row.readout}`)).toEqual([
+      "Gemini Models · Weekly 6% used",
+      "Claude and GPT models · Session 0% used",
+      "Claude and GPT models · Weekly 0% used",
+    ]);
   });
 
   test("a reading with no number at all is left out rather than shown empty", () => {

@@ -46,7 +46,7 @@ import {
 } from "../shared/limits.shared";
 import { CodexBankedResetAction } from "./codex-reset.client";
 import { UsageMeter, clampPercent } from "./meter.client";
-import { isDashboardVisible } from "../shared/pills.shared";
+import { formatBarReadingLabel, isDashboardVisible } from "../shared/pills.shared";
 import { UsageHistorySurface } from "./history.client";
 import { setTooltipTitle, TooltipPressable as Pressable } from "./tooltip.client";
 import { UsageSettingsBody } from "./settings.client";
@@ -528,7 +528,7 @@ export function QuotaRow({
     <View style={styles.row}>
       <View style={styles.rowHeader}>
         <View style={styles.rowTitle}>
-          <Text style={styles.rowLabel}>{reading.label}</Text>
+          <Text style={styles.rowLabel}>{formatBarReadingLabel(reading.label)}</Text>
           {reading.window === null ? null : (
             <Text style={styles.qualifier}>{reading.window.label}</Text>
           )}
